@@ -28,6 +28,7 @@
 #include "storage_manager.h"
 #include "system_manager.h"
 #include "sync_trigger.h"
+#include "trigger_sequence_service.h"
 #include "trigger_t2_runtime.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_service_timing.h"
@@ -1168,6 +1169,7 @@ static void app_realtime_tdma_phase(void)
     uint64_t timing_start = tdma_service_timing_now();
     sync_io_logic_analyzer_service_core1(8u);
     tdma_service_timing_record(TDMA_TIMING_ANALYZER, timing_start);
+    trigger_sequence_service_service();
     timing_start = tdma_service_timing_now();
     drv_watchdog_mark_progress(1u, 0x0101u);
     diagnostics_record_core1_loop();

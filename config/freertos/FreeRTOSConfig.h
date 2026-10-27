@@ -1,4 +1,4 @@
-#ifndef FREERTOS_CONFIG_H
+﻿#ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
 #define configUSE_PREEMPTION                    1
@@ -10,7 +10,7 @@
 #define configMINIMAL_STACK_SIZE                256
 /* Keep the initialization baseline generous while collecting board watermarks.
  * Heap reduction is gated by measured task/heap high-water evidence. */
-#define configTOTAL_HEAP_SIZE                   (112 * 1024)
+#define configTOTAL_HEAP_SIZE                   (107 * 1024)
 #define configMAX_TASK_NAME_LEN                 16
 #define configUSE_16_BIT_TICKS                  0
 #define configIDLE_SHOULD_YIELD                 1
@@ -65,3 +65,4 @@ void vApplicationAssertHook(const char *file, int line);
 #define configMAX_SYSCALL_INTERRUPT_PRIORITY    16
 
 #endif
+

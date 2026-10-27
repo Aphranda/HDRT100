@@ -15,6 +15,7 @@
 #include "trigger_time_cursor.h"
 #include "trigger_t2_runtime.h"
 #include "trigger_sequence_pilot.h"
+#include "trigger_sequence_service.h"
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "hardware/structs/systick.h"
 #include "hardware/regs/m33.h"
@@ -597,6 +598,7 @@ static void ao_refresh_from_io(void)
 
 bool sync_trigger_init(void)
 {
+    trigger_sequence_service_init();
     memset(&s_ao, 0, sizeof(s_ao));
     trigger_time_cursor_clear();
     lock_init(&s_ao.queue.core, next_striped_spin_lock_num());
@@ -774,6 +776,14 @@ void sync_trigger_get_summary(sync_trigger_summary_t *summary)
     osal_critical_enter();
     *summary = s_ao.vector;
     osal_critical_exit();
+}
+
+bool sync_trigger_sequence_can_start(void)
+{
+    osal_critical_enter();
+    const bool idle = s_ao.vector.state == TRIG_STATE_IDLE;
+    osal_critical_exit();
+    return idle && queue_is_empty(&s_ao.queue);
 }
 
 void sync_trigger_get_status(sync_trigger_status_t *status)

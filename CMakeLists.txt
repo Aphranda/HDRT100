@@ -572,6 +572,8 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/trigger_action_template_store.c
         components/sync_trigger/src/trigger_t2_runtime.c
     components/sync_trigger/src/trigger_sequence_pilot.c
+        components/sync_trigger/src/trigger_sequence_config.c
+        components/sync_trigger/src/trigger_sequence_service.c
         components/sync_trigger/src/trigger_time_cursor.c
         components/sync_trigger/src/trigger_time_projection.c
         components/sync_io/src/sync_io.c

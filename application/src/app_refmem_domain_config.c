@@ -1,12 +1,14 @@
 #include "app_refmem_domain_config.h"
 
 #include <stdint.h>
+#include <string.h>
 
 #include "app.h"
 #include "refmem_command.h"
 #include "refmem_domain_config.h"
 #include "sync_io_sequence.h"
 #include "trigger_action_service.h"
+#include "trigger_sequence_service.h"
 #include "tdma_runtime_owner.h"
 #include "trigger_action_template_store.h"
 #include "trigger_deployment_service.h"
@@ -293,20 +295,52 @@ static bool vdc_start_handler(const uint32_t *params, uint32_t param_words,
     return reject_not_online(reason);
 }
 
+static bool decode_plan_id(const uint32_t *params, char out[33])
+{
+    bool present = false;
+    memset(out, 0, 33u);
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        for (uint32_t j = 0u; j < 4u; ++j) {
+            const uint8_t c = (uint8_t)((params[i] >> (8u * j)) & 0xFFu);
+            if (c != 0u) {
+                present = true;
+                out[i * 4u + j] = (char)c;
+            }
+        }
+    }
+    return present;
+}
+
+static uint32_t trigger_result_reason(trigger_sequence_service_result_t result)
+{
+    switch (result) {
+    case TRIGGER_SEQUENCE_SERVICE_FROZEN:
+    case TRIGGER_SEQUENCE_SERVICE_NOT_READY:
+    case TRIGGER_SEQUENCE_SERVICE_BUSY:
+    case TRIGGER_SEQUENCE_SERVICE_EXHAUSTED:
+        return (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+    default:
+        return (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+    }
+}
+
 static bool trigger_start_handler(const uint32_t *params, uint32_t param_words,
                                   uint32_t *reason)
 {
     if (params == NULL || param_words != 4u) {
         return reject(reason);
     }
-    /* New node-sequence table: START carries the optional 4-word plan_id
-     * (all zero = active plan).  The plan service/active-CRC gate is still
-     * owned by the node-sequence implementation, so fail closed until that
-     * backend is wired; do not fall back to a T2 action row index. */
-    if (reason != NULL) {
-        *reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+    char plan_id[33];
+    const bool present = decode_plan_id(params, plan_id);
+    const trigger_sequence_service_result_t result =
+        trigger_sequence_service_start(present ? plan_id : NULL);
+    if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
+        if (reason != NULL) {
+            *reason = trigger_result_reason(result);
+        }
+        return false;
     }
-    return false;
+    return true;
 }
 
 static bool trigger_stop_handler(const uint32_t *params, uint32_t param_words,
@@ -316,8 +350,14 @@ static bool trigger_stop_handler(const uint32_t *params, uint32_t param_words,
     if (param_words != 0u) {
         return reject(reason);
     }
-    (void)trigger_action_execution_stop();
-    sync_io_sequence_stop();
+    const trigger_sequence_service_result_t result =
+        trigger_sequence_service_stop();
+    if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
+        if (reason != NULL) {
+            *reason = trigger_result_reason(result);
+        }
+        return false;
+    }
     return true;
 }
 
@@ -328,8 +368,13 @@ static bool trigger_pause_handler(const uint32_t *params, uint32_t param_words,
     if (param_words != 0u) {
         return reject(reason);
     }
-    if (!sync_io_sequence_pause(true)) {
-        return reject(reason);
+    const trigger_sequence_service_result_t result =
+        trigger_sequence_service_pause();
+    if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
+        if (reason != NULL) {
+            *reason = trigger_result_reason(result);
+        }
+        return false;
     }
     return true;
 }
@@ -341,8 +386,13 @@ static bool trigger_continue_handler(const uint32_t *params,
     if (param_words != 0u) {
         return reject(reason);
     }
-    if (!sync_io_sequence_pause(false)) {
-        return reject(reason);
+    const trigger_sequence_service_result_t result =
+        trigger_sequence_service_continue();
+    if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
+        if (reason != NULL) {
+            *reason = trigger_result_reason(result);
+        }
+        return false;
     }
     return true;
 }
@@ -354,8 +404,14 @@ static bool trigger_abort_handler(const uint32_t *params, uint32_t param_words,
     if (param_words != 0u) {
         return reject(reason);
     }
-    (void)trigger_action_execution_stop();
-    sync_io_sequence_stop();
+    const trigger_sequence_service_result_t result =
+        trigger_sequence_service_stop();
+    if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
+        if (reason != NULL) {
+            *reason = trigger_result_reason(result);
+        }
+        return false;
+    }
     return true;
 }
 
@@ -388,7 +444,25 @@ static bool trigger_configure_handler(const uint32_t *params,
     if (params == NULL || param_words != 4u) {
         return reject(reason);
     }
-    return reject(reason);
+    if (!trigger_sequence_service_configuration_begin()) {
+        return reject(reason);
+    }
+    const trigger_sequence_params_t config = {
+        .chan_count = params[0],
+        .pol = params[1],
+        .freq_count = params[2],
+        .wave_count = params[3],
+    };
+    const trigger_sequence_result_t result =
+        trigger_sequence_configure(trigger_sequence_service_config(), &config);
+    trigger_sequence_service_configuration_end();
+    if (result != TRIGGER_SEQUENCE_OK) {
+        if (reason != NULL) {
+            *reason = (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+        }
+        return false;
+    }
+    return true;
 }
 
 static bool trigger_angle_sweep_handler(const uint32_t *params,
@@ -437,7 +511,26 @@ static bool trigger_sequence_active_handler(const uint32_t *params,
     if (params == NULL || param_words != 4u) {
         return reject(reason);
     }
-    return reject(reason);
+    char plan_id[33];
+    if (!decode_plan_id(params, plan_id)) {
+        return reject(reason);
+    }
+    if (!trigger_sequence_service_configuration_begin()) {
+        return reject(reason);
+    }
+    const trigger_sequence_result_t result =
+        trigger_sequence_activate(trigger_sequence_service_config(), plan_id);
+    trigger_sequence_service_configuration_end();
+    if (result != TRIGGER_SEQUENCE_OK) {
+        if (reason != NULL) {
+            *reason = (result == TRIGGER_SEQUENCE_PLAN_NOT_FOUND ||
+                       result == TRIGGER_SEQUENCE_NO_ACTIVE_PLAN)
+                          ? (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED
+                          : (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+        }
+        return false;
+    }
+    return true;
 }
 
 bool app_refmem_domain_config_init(void)

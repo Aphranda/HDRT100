@@ -66,6 +66,7 @@ bool sync_trigger_post_event(const sync_trigger_event_t *event);
 bool sync_trigger_post(const trig_event_t *event);
 
 void sync_trigger_service(void);
+bool sync_trigger_sequence_can_start(void);
 
 /* Local phase diagnostics, cycles including interrupt preemption. Segment
  * maxima are independent observations, not additive WCET measurements. */
