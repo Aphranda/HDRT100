@@ -49,6 +49,15 @@ Last updated: 2026-10-27
 > 第一批建议：IF-012 + IF-013（13 条命令，全部 inline），形成 Trigger 运行/配置闭环；随后 IF-014、IF-015；
 > IF-016 最后处理 plan 表；IF-017 的查询不进入 REFMEM。
 
+> **44 条口径（2026-10-27 核对）**：`docs/refmem/event/REFMEM_EVENT_TASK_PROGRESS.md`
+> 的 `EVENT-TASK-20261021-003/004` 已定义 44 条 = 39 条
+> `scpi_port_result_accepted` + 5 条 `TRIGger:STARt/STOP/PAUSe/CONTinue/ABORt`；
+> Event Plane 的 canonical 是 `SYSTem:EVENT:*`，44 条作为别名最终走同一个
+> `event_plane_submit`，**不得产生第二套语义/ACK**。
+> IF-012 的 5 条 Trigger 指令与该 44 条口径重叠：当前 REFMEM handler 直连
+> `sync_io_sequence` 只是临时后端，Event Plane E2 落地时必须收敛为同一 submit，
+> 不能同时保留两条 ACK 路径。
+
 ## 决策输入（IF-002）
 
 | 项 | 选项 | 说明 |

@@ -8,6 +8,19 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-004：44 条口径核对与 Event Plane 重叠
+
+- **发现**：`docs/refmem/event/REFMEM_EVENT_TASK_PROGRESS.md` 的
+  `EVENT-TASK-20261021-003/004` 已定义 44 条 = 39 条 `scpi_port_result_accepted`
+  + 5 条 `TRIGger:STARt/STOP/PAUSe/CONTinue/ABORt`。
+- **Event Plane 决策**：canonical `SYSTem:EVENT:*`；44 条是应用层别名，最终调用同一个
+  `event_plane_submit`，不产生第二套语义/ACK。
+- **对 IF-012 的影响**：当前 REFMEM 5 条 Trigger handler 直连 `sync_io_sequence`，是临时后端；
+  Event Plane E2 落地时必须收敛到同一 submit，不能保留两条 ACK 路径。已在
+  `SCPI_HOST_TODO.md` 增加口径说明。
+- **边界**：Event Plane 代码仍不存在；本轮不实现 `event_plane`，不改变 IF-012 的已经验证行为。
+- **下一步**：在 IF-012 完成 core1 intent/T2 plan 前，先确认 Event Plane E2 的归属；避免重复实现。
+
 ### SCPI-PROGRESS-20261027-003：IF-012 Trigger 运行控制指令封装
 
 - **范围**：不再移植 node-sequence 的 config/service store；只加 REFMEM 指令面，复用现有
