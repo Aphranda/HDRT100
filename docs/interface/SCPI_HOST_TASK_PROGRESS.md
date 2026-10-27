@@ -8,6 +8,20 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-031：广播 ACK 是假 ACK，已修复为 PENDING
+
+- **根因**：`distributed_refmem_mirror_local_control()` 无条件把本地 command slot 的
+  旧状态镜像到 node control 记录；远程 fragment 记录被旧本地槽覆盖，出现
+  `required=15 / ack=1 / state=ACKED` 的假 ACK。
+- **修复**：仅当 `current.command_seq == snapshot.command_seq` 才镜像状态。
+- **硬件**（build `20261027133130`）：
+  - 广播 `41,15,15` → QUEUED `442969`，5 s 后 `state=1 PENDING`、`ack=1`、`required=15`；
+  - 不再假 ACK。
+- **结论**：远程 target 仍未 ACK，但现在状态是真实 PENDING，可继续查 transport；
+  之前“广播成功”的结论作废。
+- **凭证**：P3 `20261027133130`、scope `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、trials=8。
+- **提交**：`666100a1`。
+
 ### SCPI-PROGRESS-20261027-030：广播 ACK，单目标 bit2/bit4 均 PENDING
 
 - **复位/重建 ring 后**：target 窗口均 `1,1`；广播 `41,15,15` 曾 ACKED。
