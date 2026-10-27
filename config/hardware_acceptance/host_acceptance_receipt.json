@@ -17,7 +17,7 @@
     "tests/python/test_split_unit_hooks.py",
     "tests/python/test_owner_hook_link.py"
   ],
-  "duration_s": 44.36,
+  "duration_s": 14.625,
   "returncode": 0,
   "summary": {
     "passed": 75,
@@ -26,15 +26,15 @@
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "75 passed in 39.36s",
+  "summary_line": "75 passed in 13.66s",
   "tail": [
     "........................................................................ [ 96%]",
     "...                                                                      [100%]",
-    "75 passed in 39.36s"
+    "75 passed in 13.66s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
   "fingerprint": "d50d39fcb23c7192fc653c201c02dac7a20279a03c621c22559a0cf6f792ecf9",
   "file_count": 537,
   "working_fingerprint": "d50d39fcb23c7192fc653c201c02dac7a20279a03c621c22559a0cf6f792ecf9",
-  "started_at_utc": "2026-10-27T05:07:52.763952+00:00"
+  "started_at_utc": "2026-10-27T05:30:49.760493+00:00"
 }

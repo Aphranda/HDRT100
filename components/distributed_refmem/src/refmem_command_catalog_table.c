@@ -23,7 +23,7 @@ const refmem_catalog_entry_t refmem_command_catalog[] = {
     {32u, 32u, 2u, 0u, 0u, 0u, 1u, 0u, 0u, 0u, "T2_UNMOUNT", "TRIGger:REServation:T2:UNMOUNT"},
     {33u, 33u, 4u, 0u, 0u, 0u, 1u, 0u, 0u, 0u, "VDC_STOP", "SYSTem:VDC:OUTPut:RUN:STOP"},
     {34u, 34u, 4u, 0u, 0u, 0u, 1u, 0u, 0u, 0u, "VDC_START", "SYSTem:VDC:OUTPut:RUN"},
-    {36u, 36u, 5u, 0u, 4u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_START", "TRIGger:STARt"},
+    {36u, 36u, 5u, 0u, 1u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_START", "TRIGger:STARt"},
     {37u, 37u, 5u, 0u, 0u, 0u, 1u, 31u, 0u, 0u, "TRIGGER_STOP", "TRIGger:STOP"},
     {38u, 38u, 5u, 0u, 0u, 0u, 1u, 31u, 0u, 0u, "TRIGGER_PAUSE", "TRIGger:PAUSe"},
     {39u, 39u, 5u, 0u, 0u, 0u, 1u, 31u, 0u, 0u, "TRIGGER_CONTINUE", "TRIGger:CONTinue"},

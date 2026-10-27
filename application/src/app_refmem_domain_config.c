@@ -6,6 +6,7 @@
 #include "refmem_command.h"
 #include "refmem_domain_config.h"
 #include "sync_io_sequence.h"
+#include "trigger_action_service.h"
 #include "tdma_runtime_owner.h"
 #include "trigger_action_template_store.h"
 #include "trigger_deployment_service.h"
@@ -295,15 +296,27 @@ static bool vdc_start_handler(const uint32_t *params, uint32_t param_words,
 static bool trigger_start_handler(const uint32_t *params, uint32_t param_words,
                                   uint32_t *reason)
 {
-    (void)params;
-    (void)param_words;
-    /* No new static plan table: the plan source is the existing T2/trigger
-     * configuration and is wired in IF-013/IF-016.  Until then fail closed
-     * rather than returning a false ACK. */
-    if (reason != NULL) {
-        *reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+    if (params == NULL || param_words != 1u) {
+        return reject(reason);
     }
-    return false;
+    /* The plan source is the existing T2 action table; no second sequence
+     * store is added.  The row is prepared and armed through the T2 owner. */
+    const uint32_t prepare = trigger_action_execution_prepare(params[0]);
+    if (prepare != 0u) {
+        if (reason != NULL) {
+            *reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+        }
+        return false;
+    }
+    const uint32_t arm = trigger_action_execution_arm();
+    if (arm != 0u) {
+        (void)trigger_action_execution_stop();
+        if (reason != NULL) {
+            *reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+        }
+        return false;
+    }
+    return true;
 }
 
 static bool trigger_stop_handler(const uint32_t *params, uint32_t param_words,
@@ -313,6 +326,7 @@ static bool trigger_stop_handler(const uint32_t *params, uint32_t param_words,
     if (param_words != 0u) {
         return reject(reason);
     }
+    (void)trigger_action_execution_stop();
     sync_io_sequence_stop();
     return true;
 }
@@ -350,6 +364,7 @@ static bool trigger_abort_handler(const uint32_t *params, uint32_t param_words,
     if (param_words != 0u) {
         return reject(reason);
     }
+    (void)trigger_action_execution_stop();
     sync_io_sequence_stop();
     return true;
 }
