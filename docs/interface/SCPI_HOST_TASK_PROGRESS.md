@@ -8,6 +8,22 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-021：热函数对齐修复 TRN-03B，plan 写入落地
+
+- **根因**：plan handler/注册增加 text 后，`tdma_pio_spi_phys_event_service` 等热函数地址偏移，
+  触发 TRN-03B 时序边缘；catalog-only 通过、完整 handler 失败。
+- **修复**：给 `tdma_pio_spi_phys_event_service` 与 `app_realtime_tdma_phase` 加
+  `__attribute__((aligned(32)))`；同 build 的 P3 **PASS**。
+- **硬件**（build `20261027084313`）：
+  - `CONFigure:TRIGger` → ACK；
+  - `CONFigure:SEQuence PLAN_A,3,0,1,2` → ACK；
+  - `SEQUENCE_ACTIVE PLAN_A` → ACK；
+  - `START PLAN_A` → NACK 13（service IO/source 未配置）。
+- **凭证**：P3 `20261027084313`、scope `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、trials=8。
+- **证据**：`out/n7/local_hil/plan_align.txt`。
+- **提交**：`30ff661b`（catalog）、`34adcc09`（handler+对齐）。
+- **下一步**：配置 service IO/source，使 START 正向；plan 当前仅支持 ≤11 states。
+
 ### SCPI-PROGRESS-20261027-020：catalog-only P3 通过，TRN-03B 锁定 handler/注册
 
 - **catalog-only**（type 48 + catalog 行 + 测试，不加 handler/注册）：
