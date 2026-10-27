@@ -8,6 +8,25 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-022：START 正向 ACK（4-lane IO/code 自动生成）
+
+- **实现**：`CONFigure:TRIGger` 成功后自动生成 service IO/code：
+  - `chan_count` 1..4，输出 mask `(1<<chan)-1`；
+  - `set_outputs(mask,0,NONE,100us,0)`；
+  - 每个 state 的 code = `1 << (switch1_ch-1)`；
+  - 配置 gate 先释放，再调用 public setters，避免重入。
+- **硬件**（build `20261027091736`）：
+  - `41,1,1,4,2,5,1` CONFigure:TRIGger → **ACK**；
+  - `48` plan 写入 → ACK；
+  - `47` ACTIVE → ACK；
+  - `36` START PLAN_A → **ACK**；
+  - `37` STOP → ACK。
+- **限制**：service 只支持 4 个 output lane；新表 `chan_count` 最大 8，当前 >4 会 NACK。
+- **凭证**：P3 `20261027091736`、scope `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、trials=8。
+- **证据**：`out/n7/local_hil/start_positive3.txt`。
+- **提交**：`15851b44`。
+- **下一步**：扩展到 8 通道映射；ANGLe；参数区 plan。
+
 ### SCPI-PROGRESS-20261027-021：热函数对齐修复 TRN-03B，plan 写入落地
 
 - **根因**：plan handler/注册增加 text 后，`tdma_pio_spi_phys_event_service` 等热函数地址偏移，
