@@ -462,6 +462,28 @@ static bool trigger_configure_handler(const uint32_t *params,
         }
         return false;
     }
+    if (config.chan_count == 0u || config.chan_count > 4u) {
+        return reject(reason);
+    }
+    const uint32_t mask = (1u << config.chan_count) - 1u;
+    if (trigger_sequence_service_set_outputs(
+            mask, 0u, TRIGGER_SEQUENCE_STATUS_NONE, 100u, 0u) !=
+        TRIGGER_SEQUENCE_SERVICE_OK) {
+        return reject(reason);
+    }
+    trigger_sequence_store_t *store = trigger_sequence_service_config();
+    for (uint32_t i = 0u; i < store->state_count; ++i) {
+        trigger_sequence_state_t state;
+        if (trigger_sequence_map_state(store, i, &state) != TRIGGER_SEQUENCE_OK ||
+            state.switch1_ch == 0u || state.switch1_ch > config.chan_count) {
+            return reject(reason);
+        }
+        const uint32_t code = 1u << (state.switch1_ch - 1u);
+        if (trigger_sequence_service_set_code(i, code) !=
+            TRIGGER_SEQUENCE_SERVICE_OK) {
+            return reject(reason);
+        }
+    }
     return true;
 }
 
