@@ -8,6 +8,16 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-030：广播 ACK，单目标 bit2/bit4 均 PENDING
+
+- **复位/重建 ring 后**：target 窗口均 `1,1`；广播 `41,15,15` 曾 ACKED。
+- **单目标**：`41,4,4`（bit2）5 s 后 PENDING；此前 `41,2,2`（bit1）也 PENDING。
+- **结论**：不是简单 bit 选错；broadcast 路径能完成 ACK，单目标 mask 路径不完成。
+  需要查 `s_tx_required_mask/ack_mask` 与 target ACK 写回，而不是继续换 bit。
+- **证据**：本轮 `CTRL:STATus?`、`CONFig:STATus?`。
+- **下一步**：读取/记录源端 `required/ack` 与目标 ACK 席位；必要时只加诊断计数，
+  不改命令语义。
+
 ### SCPI-PROGRESS-20261027-029：广播 target15 ACK，单目标 target2 仍 PENDING
 
 - **窗口**：COM4/COM3/COM6 的 `REFMEM:CONFig:BEGIN` 均已打开（`STATus?=1,1`）。
