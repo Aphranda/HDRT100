@@ -13,19 +13,21 @@ Last updated: 2026-10-27
 - **范围**：不再移植 node-sequence 的 config/service store；只加 REFMEM 指令面，复用现有
   `sync_io_sequence` owner。新增 command_type 36–40、45；catalog 27 条。
 - **行为**：
-  - `TRIGger:STOP/PAUSe/CONTinue/ABORt` → `sync_io_sequence_stop/pause`；
-  - `CONFigure:SWITch#` → `sync_io_sequence_set_switch`；
+  - `TRIGger:STOP/ABORt` → `sync_io_sequence_stop`（core0 可用）；
+  - `CONFigure:SWITch#` → `sync_io_sequence_set_switch`（core0 可用）；
+  - `TRIGger:PAUSe/CONTinue` → `sync_io_sequence_pause`，但 owner 要求 core1，当前 core0 handler fail-closed；
   - `TRIGger:STARt` → fail-closed `reason=7`，等待 T2 静态 plan 源/IF-013；
   - `TRIGger:MODE` 未加入，避免伪造产品模式。
 - **硬件**（build `20261027045307`）：
-  - `EXECute 37` STOP → ACK；`45,1,3` SWITCH → ACK；
-  - `36,...` START → NACK `reason=7`；`38/39/40` → ACK。
+  - `EXECute 37` STOP → ACK；`45,1,3` SWITCH → ACK；`40` ABORT → ACK；
+  - `36,...` START → NACK `reason=7`；
+  - `38/39` PAUSE/CONTINUE → NACK `reason=13`（core1 owner 拒绝，未假 ACK）。
 - **凭证**：P3 `20261027045307`、scope `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、trials=8；
   host acceptance 75 passed。
 - **RAM**：未新增 sequence store；仅将 `REFTMEM_DOMAIN_CONFIG_MAX_HANDLERS` 16→32
   （21 个注册所需，约 100–200 B），构建无 overflow。
 - **提交**：`f8efb333`。
-- **下一步**：START 接 T2 静态 plan 表；MODE 语义；IF-013 配置封装。
+- **下一步**：START 接 T2 静态 plan 表；PAUSE/CONTINUE 走 core1 intent；MODE 语义；IF-013 配置封装。
 
 ### SCPI-PROGRESS-20261027-002：IF-012 基线移植尝试与 RAM 阻塞
 

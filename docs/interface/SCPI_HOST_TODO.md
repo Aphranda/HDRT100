@@ -36,7 +36,7 @@ Last updated: 2026-10-27
 | ID | 任务 | 状态 | 备注 |
 |---|---|---|---|
 | IF-011 | 选定 node-sequence 基线（merge/cherry-pick）并冻结 24 条 set/action → REFMEM 映射、payload/plan-ID 编码、查询排除、coordinator-only 与 STOP/run 门禁 | IN PROGRESS | 映射已冻结；feature-port 的 config/service 已编译通过，但 RAM 超限（见 IF-020）；前置 IF-001/IF-002/IF-003/IF-004 |
-| IF-012 | TRIGger 运行控制 6 条：`MODE/STARt/STOP/PAUSe/CONTinue/ABORt` + `READ:TRIGger:STATe?` 回读 | IN PROGRESS | 已封装 START/STOP/PAUSE/CONTINUE/ABORT；STOP/PAUSE/CONTINUE/ABORT 接现有 `sync_io_sequence`，START fail-closed；MODE 待定；无新 sequence store |
+| IF-012 | TRIGger 运行控制 6 条：`MODE/STARt/STOP/PAUSe/CONTinue/ABORt` + `READ:TRIGger:STATe?` 回读 | IN PROGRESS | 已封装 START/STOP/PAUSE/CONTINUE/ABORT；STOP/ABORT/SWITCH 走现有 owner 并 ACK；START reason7、PAUSE/CONTINUE reason13 fail-closed；MODE 待定；无新 sequence store |
 | IF-013 | Trigger/角度基础配置 6 条：`CONFigure:TRIGger`、`ANGLe:SWEEp/INPut/SPEEd`、`SWITch#`、`SEQuence:ACTive` | PENDING | double 用 IEEE-754 位模式；`ANGLe:PULSe/BREAKpoint` 明确不封装 |
 | IF-014 | Sequence 运行时 7 条：`REPeat/NEXT/INJect/SOURce/IO/OUTPut/CODE` | PENDING | 枚举/计数；ACK 后读 `READ:SEQuence:STATe?/TIMing?` |
 | IF-015 | Node/link 4 条：`NODE:LOAD/ACTIVATE`、`NODE:ROLE`、`LINK` | PENDING | 复用 `distributed_refmem_stage_sequence_role`/`trigger_sequence_link_*`；不得绕过 sequence active 冻结 |
