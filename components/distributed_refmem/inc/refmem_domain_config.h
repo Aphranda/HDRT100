@@ -13,7 +13,7 @@ extern "C" {
  * layer registers handlers that call the owning TDMA/VDC/T2 API.  This keeps
  * components/distributed_refmem free of a link dependency on the domain
  * components and preserves the single-writer boundary. */
-#define REFMEM_DOMAIN_CONFIG_MAX_HANDLERS 16u
+#define REFMEM_DOMAIN_CONFIG_MAX_HANDLERS 32u
 #define REFMEM_DOMAIN_CONFIG_MAX_PARAMS 16u
 
 typedef bool (*refmem_domain_config_handler_t)(

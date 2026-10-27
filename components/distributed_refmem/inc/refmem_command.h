@@ -59,6 +59,15 @@ typedef enum {
     REFMEM_COMMAND_TYPE_T2_UNMOUNT = 32u,
     REFMEM_COMMAND_TYPE_VDC_STOP = 33u,
     REFMEM_COMMAND_TYPE_VDC_START = 34u,
+    /* IF-012 trigger run control: REFMEM wraps the existing sequence owner.
+     * No new static table is added; START stays reserved until a plan source
+     * is wired. */
+    REFMEM_COMMAND_TYPE_TRIGGER_START = 36u,
+    REFMEM_COMMAND_TYPE_TRIGGER_STOP = 37u,
+    REFMEM_COMMAND_TYPE_TRIGGER_PAUSE = 38u,
+    REFMEM_COMMAND_TYPE_TRIGGER_CONTINUE = 39u,
+    REFMEM_COMMAND_TYPE_TRIGGER_ABORT = 40u,
+    REFMEM_COMMAND_TYPE_TRIGGER_SWITCH = 45u,
 } refmem_command_type_t;
 
 typedef enum {

@@ -6,7 +6,7 @@
 
 int main(void)
 {
-    assert(refmem_command_catalog_count == 21u);
+    assert(refmem_command_catalog_count == 27u);
 
     const refmem_catalog_entry_t *board =
         refmem_command_catalog_find_by_id(REFMEM_CMD_ID_REFMEM_LOAD_BOARD);

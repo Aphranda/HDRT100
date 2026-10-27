@@ -49,6 +49,12 @@ enum {
     REFMEM_CMD_ID_T2_UNMOUNT = 32u,
     REFMEM_CMD_ID_VDC_STOP = 33u,
     REFMEM_CMD_ID_VDC_START = 34u,
+    REFMEM_CMD_ID_TRIGGER_START = 36u,
+    REFMEM_CMD_ID_TRIGGER_STOP = 37u,
+    REFMEM_CMD_ID_TRIGGER_PAUSE = 38u,
+    REFMEM_CMD_ID_TRIGGER_CONTINUE = 39u,
+    REFMEM_CMD_ID_TRIGGER_ABORT = 40u,
+    REFMEM_CMD_ID_TRIGGER_SWITCH = 45u,
 };
 
 extern const refmem_catalog_entry_t refmem_command_catalog[];

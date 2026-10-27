@@ -5,6 +5,7 @@
 #include "app.h"
 #include "refmem_command.h"
 #include "refmem_domain_config.h"
+#include "sync_io_sequence.h"
 #include "tdma_runtime_owner.h"
 #include "trigger_action_template_store.h"
 #include "trigger_deployment_service.h"
@@ -291,6 +292,80 @@ static bool vdc_start_handler(const uint32_t *params, uint32_t param_words,
     return reject_not_online(reason);
 }
 
+static bool trigger_start_handler(const uint32_t *params, uint32_t param_words,
+                                  uint32_t *reason)
+{
+    (void)params;
+    (void)param_words;
+    /* No new static plan table: the plan source is the existing T2/trigger
+     * configuration and is wired in IF-013/IF-016.  Until then fail closed
+     * rather than returning a false ACK. */
+    if (reason != NULL) {
+        *reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+    }
+    return false;
+}
+
+static bool trigger_stop_handler(const uint32_t *params, uint32_t param_words,
+                                 uint32_t *reason)
+{
+    (void)params;
+    if (param_words != 0u) {
+        return reject(reason);
+    }
+    sync_io_sequence_stop();
+    return true;
+}
+
+static bool trigger_pause_handler(const uint32_t *params, uint32_t param_words,
+                                  uint32_t *reason)
+{
+    (void)params;
+    if (param_words != 0u) {
+        return reject(reason);
+    }
+    if (!sync_io_sequence_pause(true)) {
+        return reject(reason);
+    }
+    return true;
+}
+
+static bool trigger_continue_handler(const uint32_t *params,
+                                     uint32_t param_words, uint32_t *reason)
+{
+    (void)params;
+    if (param_words != 0u) {
+        return reject(reason);
+    }
+    if (!sync_io_sequence_pause(false)) {
+        return reject(reason);
+    }
+    return true;
+}
+
+static bool trigger_abort_handler(const uint32_t *params, uint32_t param_words,
+                                  uint32_t *reason)
+{
+    (void)params;
+    if (param_words != 0u) {
+        return reject(reason);
+    }
+    sync_io_sequence_stop();
+    return true;
+}
+
+static bool trigger_switch_handler(const uint32_t *params,
+                                   uint32_t param_words, uint32_t *reason)
+{
+    if (params == NULL || param_words != 2u) {
+        return reject(reason);
+    }
+    if (!sync_io_sequence_set_switch(params[0], params[1])) {
+        return reject(reason);
+    }
+    return true;
+}
+
 bool app_refmem_domain_config_init(void)
 {
     refmem_domain_config_reset();
@@ -319,6 +394,18 @@ bool app_refmem_domain_config_init(void)
                                          vdc_stop_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_VDC_START, 0u,
                                          vdc_start_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_START, 4u,
+                                         trigger_start_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_STOP, 0u,
+                                         trigger_stop_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_PAUSE, 0u,
+                                         trigger_pause_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_CONTINUE, 0u,
+                                         trigger_continue_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_ABORT, 0u,
+                                         trigger_abort_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_SWITCH, 2u,
+                                         trigger_switch_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_CONFIGURE, 13u,
                                          t2_configure_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_MOUNT, 3u,
