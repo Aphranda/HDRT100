@@ -35,16 +35,16 @@ Last updated: 2026-10-27
 
 | ID | 任务 | 状态 | 备注 |
 |---|---|---|---|
-| IF-011 | 选定 node-sequence 基线（merge/cherry-pick）并冻结 24 条 set/action → REFMEM 映射、payload/plan-ID 编码、查询排除、coordinator-only 与 STOP/run 门禁 | IN PROGRESS | 映射已冻结；feature-port 的 config/service 已编译通过，但 RAM 超限（见 IF-020）；前置 IF-001/IF-002/IF-003/IF-004 |
-| IF-012 | TRIGger 运行控制 6 条：`MODE/STARt/STOP/PAUSe/CONTinue/ABORt` + `READ:TRIGger:STATe?` 回读 | IN PROGRESS | START target NO2（`36,2,2,0`）已 ACK；target 参数是位掩码；STOP target NO2 仍 PENDING；本地 STOP/ABORT/SWITCH ACK；PAUSE/CONTINUE reason13；MODE 待定；无新 sequence store |
-| IF-013 | Trigger/角度基础配置 6 条：`CONFigure:TRIGger`、`ANGLe:SWEEp/INPut/SPEEd`、`SWITch#`、`SEQuence:ACTive` | PENDING | double 用 IEEE-754 位模式；`ANGLe:PULSe/BREAKpoint` 明确不封装 |
-| IF-014 | Sequence 运行时 7 条：`REPeat/NEXT/INJect/SOURce/IO/OUTPut/CODE` | PENDING | 枚举/计数；ACK 后读 `READ:SEQuence:STATe?/TIMing?` |
-| IF-015 | Node/link 4 条：`NODE:LOAD/ACTIVATE`、`NODE:ROLE`、`LINK` | PENDING | 复用 `distributed_refmem_stage_sequence_role`/`trigger_sequence_link_*`；不得绕过 sequence active 冻结 |
-| IF-016 | `CONFigure:SEQuence` plan 表 + plan ID 编码；必要时参数区/table package | PENDING | **复用 T2 `trigger_action_table_t`/`trigger_action_execution_*`，不新增 sequence store**；映射 generation/rows；>64 B 走参数区 |
+| IF-011 | 按 2026-09-01 指令表冻结 node-sequence 第一批 13 条 → REFMEM 映射、plan-ID/角度编码、查询排除、coordinator-only 与 STOP/run 门禁 | IN PROGRESS | 新表已变更：`ANGLe:PULSe/BREAkpoint` 纳入，`INPut/SPEEd/REPeat/NEXT/INJect/NODE:ROLE/LINK` 删除；映射见 `SCPI_COMMAND_PLAN.md` §14 |
+| IF-012 | TRIGger 运行控制 6 条：`MODE/STARt/STOP/PAUSe/CONTinue/ABORt` + `READ:TRIGger:STATe?` 回读 | IN PROGRESS | START 必须回到 `[plan_id]` 语义（0/4 words），当前 1-word row-index 壳需回退；target NO2 START ACK，STOP 仍 PENDING；PAUSE/CONTINUE/MODE 未闭环 |
+| IF-013 | Trigger/角度配置 7 条：`CONFigure:TRIGger`、`ANGLe:SWEEP/PULSe/BREAkpoint/BREAkpoint:CLEAr`、`SWITch#`、`SEQuence:ACTive` | PENDING | 新表：SWEEP 3 doubles；PULSe edge/width/timeout；BREAkpoint 可省略角度；`ANGLe:INPut/SPEEd` 已删除 |
+| IF-014 | 旧 Sequence 运行时 7 条：`REPeat/NEXT/INJect/SOURce/IO/OUTPut/CODE` | SUPERSEDED | 2026-09-01 新表已删除这些指令；不再作为本期范围 |
+| IF-015 | 旧 Node/link 4 条：`NODE:LOAD/ACTIVATE`、`NODE:ROLE`、`LINK` | SUPERSEDED | 新表无 `NODE:ROLE/LINK`；`NODE:LOAD/ACTIVATE` 仅在 IF-016/节点表需要时复用 |
+| IF-016 | `CONFigure:SEQuence` plan 表 + plan ID 编码；必要时参数区/table package | PENDING | **复用 T2 `trigger_action_table_t`/`trigger_action_execution_*`，不新增 sequence store**；plan_id + state_id 列表；>64 B 走参数区 |
 | IF-017 | 查询/可观测性：约 30 条 READ 不封装；REFMEM ACK 后回读/聚合证据 | PENDING | 查询保留 SCPI；function 状态与逐目标 ACK |
 | IF-018 | host 单测 + 四板 HIL + 负测（重复、越界、STOP/run 冲突、部分 ACK） | PENDING | 每批独立 P3；scope 覆盖 |
 | IF-019 | 文档/命令树/registry 更新与收口 | PENDING | `SCPI_COMMANDS`/`SCPI_COMMAND_PLAN`/顶层；契约变更走 C11 |
-| IF-020 | 冻结 sequence store 的 RAM 预算与容量（`TRIGGER_SEQUENCE_STATE_MAX`/`PLAN_MAX`），不得静默降容量 | BLOCKED | 全量 256/4 → RAM overflow 4460 B；64/2 → 204 B；48/2 → 28 B；需容量决定或释放 RAM |
+| IF-020 | 旧 sequence store RAM 预算（`TRIGGER_SEQUENCE_STATE_MAX`/`PLAN_MAX`） | SUPERSEDED | 不再新增 sequence store，改用 T2 `trigger_action_table_t`；该阻塞项作废，保留历史证据 |
 
 > 第一批建议：IF-012 + IF-013（13 条命令，全部 inline），形成 Trigger 运行/配置闭环；随后 IF-014、IF-015；
 > IF-016 最后处理 plan 表；IF-017 的查询不进入 REFMEM。

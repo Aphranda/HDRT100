@@ -8,6 +8,24 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-011：按 2026-09-01 node-sequence 指令表重冻结
+
+- **新表来源**：`docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` §3–§4。
+- **第一批 13 条**：Trigger 6（MODE/STARt/STOP/PAUSe/CONTinue/ABORt）+
+  `CONFigure:TRIGger`、`ANGLe:SWEEP/PULSe/BREAkpoint/BREAkpoint:CLEAr`、`SWITch#`、
+  `SEQuence:ACTive`。
+- **变化**：
+  - `TRIGger:STARt [plan_id]` 回归 plan ID（0/4 words），不再用 T2 action row index；
+  - `ANGLe:PULSe/BREAkpoint` 纳入，旧“unsupported”结论作废；
+  - `ANGLe:INPut/SPEEd`、`REPeat/NEXT/INJect/SOURce/IO/OUTPut/CODE/NODE:ROLE/LINK` 从新表删除；
+  - IF-014/IF-015/IF-020 标 SUPERSEDED。
+- **固件**（build `20261027062436`）：
+  - `36,1,1,0,0,0,0` START → NACK `reason=7`（plan backend 未接，fail-closed）；
+  - `37,1,1` STOP → ACK。
+- **证据**：`out/n7/local_hil/trigger_start_planid.txt`；P3 `20261027062436`。
+- **提交**：`897f882f`。
+- **下一步**：IF-013 的 7 条配置命令按新表封装；plan 后端继续复用 T2 静态表，不新增 store。
+
 ### SCPI-PROGRESS-20261027-010：target STOP 持续 PENDING
 
 - **复测**：`EXECute 37,2,2` 连续两次 → `QUEUED`，2 s 后仍 `state=1 PENDING`；

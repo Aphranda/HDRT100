@@ -811,63 +811,64 @@ REFMEM handler 只做参数校验、target/required、ACK/NACK；实际动作由
   5. RefMem sequence roles / node-slot 桥接。
 - 查询类约 30 条保留 SCPI，不进入 REFMEM 命令面。
 
-### 14.2 第一批映射（13 条，全部 inline）
+### 14.2 第一批映射（13 条，按 2026-09-01 指令表）
 
-| SCPI | 建议 command_type | 参数（u32 words） | owner / 门禁 |
+来源：`docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` §3–§4。
+`TRIGger:STARt` 为 `[plan_id]` 语义，不再用 T2 action row index。
+
+| SCPI | command_type | 参数（u32 words） | owner / 门禁 |
 |---|---|---|---|
-| `TRIGger:MODE` | 35 | mode (1) | `trigger_sequence_service_*`；RUN 中拒绝非 0 |
-| `TRIGger:STARt [row]` | 36 | row index (1) | `trigger_action_execution_prepare/arm`；无表/越界 fail-closed |
-| `TRIGger:STOP` | 37 | 0 | `trigger_sequence_service_stop` |
-| `TRIGger:PAUSe` | 38 | 0 | `trigger_sequence_service_pause` |
-| `TRIGger:CONTinue` | 39 | 0 | `trigger_sequence_service_continue` |
+| `TRIGger:MODE` | 35 | mode (1) | 状态策略表；RUN 中只允许安全值 |
+| `TRIGger:STARt [plan_id]` | 36 | plan_id packed (0 或 4) | plan 存在/已 CHECK/active CRC/配置+同步+角度门禁 |
+| `TRIGger:STOP` | 37 | 0 | 任意状态安全停止 |
+| `TRIGger:PAUSe` | 38 | 0 | 下一个安全边界暂停 |
+| `TRIGger:CONTinue` | 39 | 0 | 从暂停角度继续；断点一次性越过 |
 | `TRIGger:ABORt` | 40 | 0 | 复用 stop |
-| `CONFigure:TRIGger` | 41 | chan/pol/freq/wave (4) | `trigger_sequence_configure`；`reject_if_run_forbidden` |
-| `CONFigure:ANGLe:SWEEp` | 42 | start/stop/step/speed IEEE-754 (16) | `angle_apply`；占满 16 words，无版本余量 |
-| `CONFigure:ANGLe:INPut` | 43 | input enum + ppd IEEE-754 (3) | `angle_apply` |
-| `CONFigure:ANGLe:SPEEd` | 44 | speed IEEE-754 (2) | `angle_apply` |
-| `CONFigure:SWITch#` | 45 | number + value (2) | `sync_io_sequence_set_switch` |
-| `CONFigure:SEQuence:ACTive` | 46 | plan_id packed (4) | `trigger_sequence_activate`；`reject_if_run_forbidden` |
+| `CONFigure:TRIGger` | 41 | chan/pol/freq/wave (4) | 自动展开状态表；RUN 中拒绝 |
+| `CONFigure:ANGLe:SWEEP` | 42 | start/stop/step IEEE-754 (6) | 3 个 double |
+| `CONFigure:ANGLe:PULSe` | 43 | edge/width_us/timeout_ms (3) | A0 角度脉冲输入；不再标 unsupported |
+| `CONFigure:ANGLe:BREAkpoint` | 44 | present + angle bits (2) | 运行/暂停中可省略角度用当前游标 |
+| `CONFigure:ANGLe:BREAkpoint:CLEAr` | 45 | 0 | 只清断点/命中，不自动继续 |
+| `CONFigure:SWITch#` | 46 | number + value (2) | `#=1`:1..8；`#=2`:0/1 |
+| `CONFigure:SEQuence:ACTive` | 47 | plan_id packed (4) | RUN 中禁止切换 |
 
 ### 14.3 后续批次
 
-| SCPI | 建议 command_type | 说明 |
+| SCPI | command_type | 说明 |
 |---|---|---|
-| `CONFigure:SEQuence:REPeat` | 47 | count |
-| `TRIGger:SEQuence:NEXT` | 48 | 0 |
-| `TRIGger:SEQuence:INJect` | 49 | source enum + count |
-| `CONFigure:SEQuence:SOURce` | 50 | source enum + edge |
-| `CONFigure:SEQuence:IO` | 51 | mask/output/settle/width |
-| `CONFigure:SEQuence:OUTPut` | 52 | masks/mode/settle/width |
-| `CONFigure:SEQuence:CODE` | 53 | state/value |
-| `CONFigure:SEQuence:NODE:ROLE` | 54 | node/instance/role |
-| `CONFigure:SEQuence:LINK` | 55 | mode/slots/input/output/pulse/timeout/edge |
-| `CONFigure:SEQuence` | 56 | plan_id + state list；唯一可能 >64 B，走参数区/table package |
+| `CONFigure:SEQuence` | 48 | plan_id + state_id 列表；唯一可能 >64 B，走参数区/table package |
 | `CONFigure:SEQuence:NODE:LOAD/ACTIVATE` | 复用 14/17 | 仅加 REFMEM wrapper，不重复命令 |
+
+新表已删除旧分支的 `REPeat/NEXT/INJect/SOURce/IO/OUTPut/CODE/NODE:ROLE/LINK`
+以及 `ANGLe:INPut/SPEEd`；这些不再作为本期 set/action 范围。
 
 ### 14.4 明确不封装
 
-- `CONFigure:ANGLe:PULSe`、`ANGLe:BREAKpoint`、`ANGLe:BREAKpoint:CLEar`：分支已返回 unsupported。
 - 约 30 条 `READ:*` 查询：保留 SCPI，不做 REFMEM 命令。
 - `UART`、`SCPI PERMission/ROLE`、`FAULT:CLEar`、`CAL LOAD/STOP`、`SYNC SAVE/LOAD`：本地/安全/bring-up。
+- 旧分支的 `CONFigure:ANGLe:PULSe/BREAkpoint` unsupported 结论作废；新表已把它们纳入配置面。
 
 ### 14.6 T2 静态表复用（2026-10-27 修正）
 
 - **不新增 `trigger_sequence_store_t`**。node-sequence 的 plan/sequence 表复用 T2 已有的
   `trigger_action_table_t`（`TRIGGER_ACTION_TABLE_CAPACITY=8`）与
   `trigger_action_execution_prepare/arm/stop`。
-- `CONFigure:SEQuence` 的职责改为把外部 sequence 行映射到 T2 action table generation/rows；
+- `CONFigure:SEQuence` 把 plan/state 行映射到 T2 action table generation/rows；
   `SEQuence:ACTive` 选择 T2 installed generation，不建立第二份计划表。
-- `TRIGger:STARt` 的载荷从 4-word plan ID 调整为 T2 action table 的 row index（或 0 = 首行）；
-  `TRIGger:STOP/ABORt` 对应 `trigger_action_execution_stop/release`。
-- `PAUSE/CONTINUE` 在 T2 action execution 没有对应语义，保持 fail-closed，直到确认 owner surface。
-- 这样 RAM 不增加；当前 IF-012 的 4-word START 封装是临时壳，后续按本节改为 row index。
+- `TRIGger:STARt [plan_id]` 仍按新指令表使用 plan ID（0/4 words），**不改成 row index**；
+  T2 action table 只作为 plan 的存储/执行后端。
+- `TRIGger:STOP/ABORt` 对应 `trigger_action_execution_stop/release`；
+  `PAUSE/CONTINUE` 在 T2 action execution 没有对应语义，保持 fail-closed。
+- 这样 RAM 不增加；当前 1-word row-index 封装是旧版临时壳，必须回退到 plan ID。
 
 ### 14.5 编码规则
 
-- `TRIGger:STARt`：T2 action table 的 row index（u32）；不再使用 4-word plan ID。
-- `CONFigure:SEQuence`：如保留 plan ID，走参数区/table mapping，最终落到 T2 action table generation。
+- plan_id：固定 4×u32（每 word 4 个 ASCII 字符，零填充）；`START` 无参数时全 0，表示 active plan。
+- `CONFigure:ANGLe:SWEEP`：3 个 IEEE-754 32-bit（start/stop/step）。
+- `CONFigure:ANGLe:PULSe`：edge enum + pulse_width_us + timeout_ms（3 words）。
+- `CONFigure:ANGLe:BREAkpoint`：present flag + angle IEEE-754（2 words）。
 - double：IEEE-754 32-bit 位模式；target 侧校验有限值与范围。
 - 参数超过 16 words：走参数区 `payload_ref`/`payload_size`/`payload_crc32`，或 table package。
-- ACK 后必须能通过 `READ:TRIGger:STATe?`/`READ:SEQuence:STATe?` 等回读，不能只看 OK。
+- ACK 后必须能通过 `READ:TRIGger:STATe?`/`READ:SEQuence:ACTive?` 等回读，不能只看 OK。
 
 上述条目在冻结为契约前不改变现有行为；冻结需在 `docs/check/DOCS_REGISTRY.md` 登记并走 C11。
