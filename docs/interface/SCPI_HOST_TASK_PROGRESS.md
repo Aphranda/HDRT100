@@ -8,6 +8,17 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-006：T2 action table 无本板行，START 仍 fail-closed
+
+- **实测**：安装 T2 workflow steps 1–10 后，`TRIGger:REServation:ACTion:ROW? 0` 返回 role=2、
+  `TRIGger:REServation:ACTion:EXECute:PREPare 0` → **42 = NOT_LOCAL**；
+  `EXECute:NOW?` → 40 = MODEL。
+- **结论**：当前 T2 action table 没有协调者本板可执行行；`TRIGger:STARt` 的
+  `prepare/arm` 必然 fail-closed（reason 13）。这不是封装错误，而是缺少本板 action row。
+- **影响**：IF-012 的 START 正向仍待 IF-013/IF-016 安装本板表行；STOP/ABORT/SWITCH 仍 ACK。
+- **证据**：`out/n7/local_hil/trigger_t2_start_positive.txt`、`out/n7/trigger_t2_stage.log`。
+- **下一步**：先构造/安装本板 action row，再复测 START；PAUSE/CONTINUE/MODE 仍待 owner surface。
+
 ### SCPI-PROGRESS-20261027-005：IF-012 START 改走 T2 action table
 
 - **决策**：复用 T2 已有 `trigger_action_table_t` / `trigger_action_execution_prepare/arm/stop`，
