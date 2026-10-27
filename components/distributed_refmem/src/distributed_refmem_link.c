@@ -1282,7 +1282,13 @@ void distributed_refmem_mirror_local_control(void)
                                  node->control_seq, node->control_crc32,
                                  &current, NULL)) {
         /* Request/status split: the issuer owns the request fields; the local
-         * owner only refreshes status, so two writers cannot clobber. */
+         * owner only refreshes status, so two writers cannot clobber.  A
+         * remote-fragment record has no local command slot with the same
+         * command_seq; mirroring an older local slot would fabricate ACK/NACK
+         * for the remote command. */
+        if (current.command_seq != snapshot.command_seq) {
+            return;
+        }
         (void)refmem_node_control_update_status(
             &node->command, node->params, &node->control_seq,
             &node->control_crc32, snapshot.state, snapshot.ack_flags,
