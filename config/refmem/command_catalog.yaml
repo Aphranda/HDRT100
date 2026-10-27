@@ -445,7 +445,7 @@ commands:
     command_type: TRIGGER_ANGLE_SWEEP
     owner: TRIGGER
     realtime: false
-    param_words: 6
+    param_words: 3
     param_kind: inline
     params: [start_deg, stop_deg, step_deg]
     allowed_states: [0, 1, 2, 3, 4]
@@ -518,6 +518,20 @@ commands:
     param_words: 16
     param_kind: inline
     params: [plan_id_0, plan_id_1, plan_id_2, plan_id_3, count, state_0, state_1, state_2, state_3, state_4, state_5, state_6, state_7, state_8, state_9, state_10]
+    allowed_states: [0, 1, 2, 3, 4]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0
+
+  - id: 49
+    name: TRIGGER_ANGLE_SPEED
+    scpi: "CONFigure:ANGLe:SPEEd"
+    command_type: TRIGGER_ANGLE_SPEED
+    owner: TRIGGER
+    realtime: false
+    param_words: 1
+    param_kind: inline
+    params: [speed_deg_s]
     allowed_states: [0, 1, 2, 3, 4]
     required_capabilities: 0
     idempotent: false

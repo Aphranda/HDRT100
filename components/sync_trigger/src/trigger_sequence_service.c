@@ -42,6 +42,7 @@ static uint32_t s_written_receipts;
 static bool s_pause_requested;
 static bool s_run_armed;
 static trigger_sequence_gateway_config_t s_gateway;
+static trigger_sequence_angle_t s_angle;
 static bool (*s_gateway_guard)(void);
 static bool (*s_transport_action)(bool (*action)(void), bool *result);
 static uint32_t s_repeat_count = 1u;
@@ -87,6 +88,7 @@ void trigger_sequence_service_init(void)
     s_pause_requested = false;
     s_run_armed = false;
     memset(&s_gateway, 0, sizeof(s_gateway));
+    memset(&s_angle, 0, sizeof(s_angle));
     s_gateway_guard = NULL;
     s_transport_action = NULL;
     s_repeat_count = 1u;
@@ -216,6 +218,112 @@ trigger_sequence_service_result_t trigger_sequence_service_set_code(
     else { s_codes[state_id] = (uint8_t)value; s_code_valid[state_id] = true; }
     trigger_sequence_service_configuration_end();
     return result;
+}
+
+static bool angle_finite(float value)
+{
+    return value == value && value > -1.0e6f && value < 1.0e6f;
+}
+
+trigger_sequence_service_result_t trigger_sequence_service_set_angle_sweep(
+    float start_deg, float stop_deg, float step_deg)
+{
+    if (!angle_finite(start_deg) || !angle_finite(stop_deg) ||
+        !angle_finite(step_deg) || step_deg == 0.0f) {
+        return TRIGGER_SEQUENCE_SERVICE_INVALID;
+    }
+    if (!trigger_sequence_service_configuration_begin()) {
+        return TRIGGER_SEQUENCE_SERVICE_FROZEN;
+    }
+    s_angle.start_deg = start_deg;
+    s_angle.stop_deg = stop_deg;
+    s_angle.step_deg = step_deg;
+    s_angle.sweep_valid = true;
+    s_angle.pulse_hz = s_angle.speed_valid
+        ? s_angle.speed_deg_s / step_deg : 0.0f;
+    trigger_sequence_service_configuration_end();
+    return TRIGGER_SEQUENCE_SERVICE_OK;
+}
+
+trigger_sequence_service_result_t trigger_sequence_service_set_angle_pulse(
+    uint32_t edge, uint32_t width_us, uint32_t timeout_ms)
+{
+    if (edge > 1u || width_us == 0u || timeout_ms == 0u) {
+        return TRIGGER_SEQUENCE_SERVICE_INVALID;
+    }
+    if (!trigger_sequence_service_configuration_begin()) {
+        return TRIGGER_SEQUENCE_SERVICE_FROZEN;
+    }
+    s_angle.pulse_edge = edge;
+    s_angle.pulse_width_us = width_us;
+    s_angle.pulse_timeout_ms = timeout_ms;
+    s_angle.pulse_valid = true;
+    trigger_sequence_service_configuration_end();
+    return TRIGGER_SEQUENCE_SERVICE_OK;
+}
+
+trigger_sequence_service_result_t trigger_sequence_service_set_angle_speed(
+    float speed_deg_s)
+{
+    if (!angle_finite(speed_deg_s) || speed_deg_s <= 0.0f) {
+        return TRIGGER_SEQUENCE_SERVICE_INVALID;
+    }
+    if (!trigger_sequence_service_configuration_begin()) {
+        return TRIGGER_SEQUENCE_SERVICE_FROZEN;
+    }
+    s_angle.speed_deg_s = speed_deg_s;
+    s_angle.speed_valid = true;
+    s_angle.pulse_hz = s_angle.sweep_valid
+        ? speed_deg_s / s_angle.step_deg : 0.0f;
+    trigger_sequence_service_configuration_end();
+    return TRIGGER_SEQUENCE_SERVICE_OK;
+}
+
+trigger_sequence_service_result_t trigger_sequence_service_set_angle_breakpoint(
+    bool present, float angle_deg)
+{
+    if (!angle_finite(angle_deg)) {
+        return TRIGGER_SEQUENCE_SERVICE_INVALID;
+    }
+    if (!trigger_sequence_service_configuration_begin()) {
+        return TRIGGER_SEQUENCE_SERVICE_FROZEN;
+    }
+    if (present && s_angle.sweep_valid) {
+        const float low = s_angle.start_deg < s_angle.stop_deg
+            ? s_angle.start_deg : s_angle.stop_deg;
+        const float high = s_angle.start_deg < s_angle.stop_deg
+            ? s_angle.stop_deg : s_angle.start_deg;
+        if (angle_deg < low || angle_deg > high) {
+            trigger_sequence_service_configuration_end();
+            return TRIGGER_SEQUENCE_SERVICE_INVALID;
+        }
+    }
+    s_angle.breakpoint_deg = angle_deg;
+    s_angle.breakpoint_valid = present;
+    trigger_sequence_service_configuration_end();
+    return TRIGGER_SEQUENCE_SERVICE_OK;
+}
+
+trigger_sequence_service_result_t trigger_sequence_service_clear_angle_breakpoint(void)
+{
+    if (!trigger_sequence_service_configuration_begin()) {
+        return TRIGGER_SEQUENCE_SERVICE_FROZEN;
+    }
+    s_angle.breakpoint_valid = false;
+    s_angle.breakpoint_deg = 0.0f;
+    trigger_sequence_service_configuration_end();
+    return TRIGGER_SEQUENCE_SERVICE_OK;
+}
+
+void trigger_sequence_service_get_angle(trigger_sequence_angle_t *angle)
+{
+    if (angle == NULL) {
+        return;
+    }
+    if (trigger_sequence_service_configuration_begin()) {
+        *angle = s_angle;
+        trigger_sequence_service_configuration_end();
+    }
 }
 
 void trigger_sequence_service_get_io(trigger_sequence_service_io_t *io)

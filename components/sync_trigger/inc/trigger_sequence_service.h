@@ -70,6 +70,22 @@ typedef struct {
 } trigger_sequence_gateway_config_t;
 
 typedef struct {
+    bool sweep_valid;
+    float start_deg;
+    float stop_deg;
+    float step_deg;
+    bool pulse_valid;
+    uint32_t pulse_edge;      /* 0=RISING, 1=FALLING */
+    uint32_t pulse_width_us;
+    uint32_t pulse_timeout_ms;
+    bool speed_valid;
+    float speed_deg_s;
+    bool breakpoint_valid;
+    float breakpoint_deg;
+    float pulse_hz;           /* derived: speed_deg_s / step_deg */
+} trigger_sequence_angle_t;
+
+typedef struct {
     trigger_sequence_service_state_t state;
     trigger_sequence_service_result_t error;
     uint32_t run_id;
@@ -131,6 +147,16 @@ trigger_sequence_service_result_t trigger_sequence_service_set_code(
     uint32_t state_id, uint32_t value);
 void trigger_sequence_service_get_io(trigger_sequence_service_io_t *io);
 bool trigger_sequence_service_get_code(uint32_t state_id, uint32_t *value);
+trigger_sequence_service_result_t trigger_sequence_service_set_angle_sweep(
+    float start_deg, float stop_deg, float step_deg);
+trigger_sequence_service_result_t trigger_sequence_service_set_angle_pulse(
+    uint32_t edge, uint32_t width_us, uint32_t timeout_ms);
+trigger_sequence_service_result_t trigger_sequence_service_set_angle_speed(
+    float speed_deg_s);
+trigger_sequence_service_result_t trigger_sequence_service_set_angle_breakpoint(
+    bool present, float angle_deg);
+trigger_sequence_service_result_t trigger_sequence_service_clear_angle_breakpoint(void);
+void trigger_sequence_service_get_angle(trigger_sequence_angle_t *angle);
 trigger_sequence_service_result_t trigger_sequence_service_start(const char *plan_id);
 trigger_sequence_service_result_t trigger_sequence_service_stop(void);
 trigger_sequence_service_result_t trigger_sequence_service_pause(void);

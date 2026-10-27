@@ -295,6 +295,16 @@ static bool vdc_start_handler(const uint32_t *params, uint32_t param_words,
     return reject_not_online(reason);
 }
 
+static float bits_to_float(uint32_t bits)
+{
+    union {
+        uint32_t u;
+        float f;
+    } value;
+    value.u = bits;
+    return value.f;
+}
+
 static bool decode_plan_id(const uint32_t *params, char out[33])
 {
     bool present = false;
@@ -490,10 +500,15 @@ static bool trigger_configure_handler(const uint32_t *params,
 static bool trigger_angle_sweep_handler(const uint32_t *params,
                                         uint32_t param_words, uint32_t *reason)
 {
-    if (params == NULL || param_words != 6u) {
+    if (params == NULL || param_words != 3u) {
         return reject(reason);
     }
-    return reject(reason);
+    if (trigger_sequence_service_set_angle_sweep(
+            bits_to_float(params[0]), bits_to_float(params[1]),
+            bits_to_float(params[2])) != TRIGGER_SEQUENCE_SERVICE_OK) {
+        return reject(reason);
+    }
+    return true;
 }
 
 static bool trigger_angle_pulse_handler(const uint32_t *params,
@@ -502,7 +517,11 @@ static bool trigger_angle_pulse_handler(const uint32_t *params,
     if (params == NULL || param_words != 3u) {
         return reject(reason);
     }
-    return reject(reason);
+    if (trigger_sequence_service_set_angle_pulse(params[0], params[1], params[2]) !=
+        TRIGGER_SEQUENCE_SERVICE_OK) {
+        return reject(reason);
+    }
+    return true;
 }
 
 static bool trigger_angle_breakpoint_handler(const uint32_t *params,
@@ -512,7 +531,12 @@ static bool trigger_angle_breakpoint_handler(const uint32_t *params,
     if (params == NULL || param_words != 2u) {
         return reject(reason);
     }
-    return reject(reason);
+    if (trigger_sequence_service_set_angle_breakpoint(
+            params[0] != 0u, bits_to_float(params[1])) !=
+        TRIGGER_SEQUENCE_SERVICE_OK) {
+        return reject(reason);
+    }
+    return true;
 }
 
 static bool trigger_angle_breakpoint_clear_handler(const uint32_t *params,
@@ -523,7 +547,24 @@ static bool trigger_angle_breakpoint_clear_handler(const uint32_t *params,
     if (param_words != 0u) {
         return reject(reason);
     }
-    return reject(reason);
+    if (trigger_sequence_service_clear_angle_breakpoint() !=
+        TRIGGER_SEQUENCE_SERVICE_OK) {
+        return reject(reason);
+    }
+    return true;
+}
+
+static bool trigger_angle_speed_handler(const uint32_t *params,
+                                        uint32_t param_words, uint32_t *reason)
+{
+    if (params == NULL || param_words != 1u) {
+        return reject(reason);
+    }
+    if (trigger_sequence_service_set_angle_speed(bits_to_float(params[0])) !=
+        TRIGGER_SEQUENCE_SERVICE_OK) {
+        return reject(reason);
+    }
+    return true;
 }
 
 static bool trigger_sequence_plan_handler(const uint32_t *params,
@@ -630,7 +671,7 @@ bool app_refmem_domain_config_init(void)
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_CONFIGURE, 4u,
                                          trigger_configure_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_ANGLE_SWEEP,
-                                         6u, trigger_angle_sweep_handler) &&
+                                         3u, trigger_angle_sweep_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_ANGLE_PULSE,
                                          3u, trigger_angle_pulse_handler) &&
            refmem_domain_config_register(
@@ -644,6 +685,8 @@ bool app_refmem_domain_config_init(void)
                trigger_sequence_active_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_SEQUENCE_PLAN,
                                          16u, trigger_sequence_plan_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_ANGLE_SPEED,
+                                         1u, trigger_angle_speed_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_CONFIGURE, 13u,
                                          t2_configure_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_MOUNT, 3u,

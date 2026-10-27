@@ -6,7 +6,7 @@
 
 int main(void)
 {
-    assert(refmem_command_catalog_count == 35u);
+    assert(refmem_command_catalog_count == 36u);
 
     const refmem_catalog_entry_t *board =
         refmem_command_catalog_find_by_id(REFMEM_CMD_ID_REFMEM_LOAD_BOARD);
@@ -58,7 +58,7 @@ int main(void)
         {REFMEM_CMD_ID_TRIGGER_CONTINUE, "TRIGGER_CONTINUE", 39u, 5u, 0u},
         {REFMEM_CMD_ID_TRIGGER_ABORT, "TRIGGER_ABORT", 40u, 5u, 0u},
         {REFMEM_CMD_ID_TRIGGER_CONFIGURE, "TRIGGER_CONFIGURE", 41u, 5u, 4u},
-        {REFMEM_CMD_ID_TRIGGER_ANGLE_SWEEP, "TRIGGER_ANGLE_SWEEP", 42u, 5u, 6u},
+        {REFMEM_CMD_ID_TRIGGER_ANGLE_SWEEP, "TRIGGER_ANGLE_SWEEP", 42u, 5u, 3u},
         {REFMEM_CMD_ID_TRIGGER_ANGLE_PULSE, "TRIGGER_ANGLE_PULSE", 43u, 5u, 3u},
         {REFMEM_CMD_ID_TRIGGER_ANGLE_BREAKPOINT, "TRIGGER_ANGLE_BREAKPOINT", 44u, 5u, 2u},
         {REFMEM_CMD_ID_TRIGGER_SWITCH, "TRIGGER_SWITCH", 45u, 5u, 2u},
@@ -66,6 +66,7 @@ int main(void)
          "TRIGGER_ANGLE_BREAKPOINT_CLEAR", 46u, 5u, 0u},
         {REFMEM_CMD_ID_TRIGGER_SEQUENCE_ACTIVE, "TRIGGER_SEQUENCE_ACTIVE", 47u, 5u, 4u},
         {REFMEM_CMD_ID_TRIGGER_SEQUENCE_PLAN, "TRIGGER_SEQUENCE_PLAN", 48u, 5u, 16u},
+        {REFMEM_CMD_ID_TRIGGER_ANGLE_SPEED, "TRIGGER_ANGLE_SPEED", 49u, 5u, 1u},
     };
     for (size_t i = 0u; i < sizeof(n6_rows) / sizeof(n6_rows[0]); ++i) {
         const refmem_catalog_entry_t *entry =
@@ -95,5 +96,6 @@ int main(void)
     printf("refmem_command_catalog: lookup/validate OK\n");
     return 0;
 }
+
 
 

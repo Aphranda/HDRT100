@@ -31,12 +31,13 @@ const refmem_catalog_entry_t refmem_command_catalog[] = {
     {45u, 45u, 5u, 0u, 2u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_SWITCH", "CONFigure:SWITch#"},
     {35u, 35u, 5u, 0u, 1u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_MODE", "TRIGger:MODE"},
     {41u, 41u, 5u, 0u, 4u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_CONFIGURE", "CONFigure:TRIGger"},
-    {42u, 42u, 5u, 0u, 6u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_ANGLE_SWEEP", "CONFigure:ANGLe:SWEEP"},
+    {42u, 42u, 5u, 0u, 3u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_ANGLE_SWEEP", "CONFigure:ANGLe:SWEEP"},
     {43u, 43u, 5u, 0u, 3u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_ANGLE_PULSE", "CONFigure:ANGLe:PULSe"},
     {44u, 44u, 5u, 0u, 2u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_ANGLE_BREAKPOINT", "CONFigure:ANGLe:BREAkpoint"},
     {46u, 46u, 5u, 0u, 0u, 0u, 1u, 31u, 0u, 0u, "TRIGGER_ANGLE_BREAKPOINT_CLEAR", "CONFigure:ANGLe:BREAkpoint:CLEar"},
     {47u, 47u, 5u, 0u, 4u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_SEQUENCE_ACTIVE", "CONFigure:SEQuence:ACTive"},
     {48u, 48u, 5u, 0u, 16u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_SEQUENCE_PLAN", "CONFigure:SEQuence"},
+    {49u, 49u, 5u, 0u, 1u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_ANGLE_SPEED", "CONFigure:ANGLe:SPEEd"},
 };
 
 const uint32_t refmem_command_catalog_count =
