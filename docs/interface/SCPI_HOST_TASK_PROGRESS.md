@@ -8,6 +8,22 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-005：IF-012 START 改走 T2 action table
+
+- **决策**：复用 T2 已有 `trigger_action_table_t` / `trigger_action_execution_prepare/arm/stop`，
+  不新增 sequence store、不新增静态表。
+- **改动**：`TRIGger:STARt` 参数由 4-word plan ID 改为 1-word row index；catalog 同步；
+  handler 调 `prepare(row)` + `arm()`；无表/越界/模型不满足时 `reason=13`。
+- **硬件**（build `20261027051729`）：
+  - `EXECute 37` STOP → ACK；`40` ABORT → ACK；
+  - `EXECute 36,1,1,0` START → NACK `reason=13`（未安装 T2 action table，fail-closed）。
+- **凭证**：P3 `20261027051729`、scope `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、trials=8；
+  host acceptance 75 passed。
+- **RAM**：无新增 sequence store/静态表；handler registry 仍为 32。
+- **提交**：`88b87717`。
+- **下一步**：安装/构造 T2 action table 后做 START 正向；PAUSE/CONTINUE 仍待 owner surface；
+  MODE 语义；IF-013 配置封装。
+
 ### SCPI-PROGRESS-20261027-004：44 条口径核对与 Event Plane 重叠
 
 - **发现**：`docs/refmem/event/REFMEM_EVENT_TASK_PROGRESS.md` 的

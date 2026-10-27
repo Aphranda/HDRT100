@@ -36,11 +36,11 @@ Last updated: 2026-10-27
 | ID | 任务 | 状态 | 备注 |
 |---|---|---|---|
 | IF-011 | 选定 node-sequence 基线（merge/cherry-pick）并冻结 24 条 set/action → REFMEM 映射、payload/plan-ID 编码、查询排除、coordinator-only 与 STOP/run 门禁 | IN PROGRESS | 映射已冻结；feature-port 的 config/service 已编译通过，但 RAM 超限（见 IF-020）；前置 IF-001/IF-002/IF-003/IF-004 |
-| IF-012 | TRIGger 运行控制 6 条：`MODE/STARt/STOP/PAUSe/CONTinue/ABORt` + `READ:TRIGger:STATe?` 回读 | IN PROGRESS | 已封装 START/STOP/PAUSE/CONTINUE/ABORT；STOP/ABORT/SWITCH 走现有 owner 并 ACK；START reason7、PAUSE/CONTINUE reason13 fail-closed；MODE 待定；无新 sequence store |
+| IF-012 | TRIGger 运行控制 6 条：`MODE/STARt/STOP/PAUSe/CONTinue/ABORt` + `READ:TRIGger:STATe?` 回读 | IN PROGRESS | START 已改 T2 action table row index；无表时 reason13 fail-closed；STOP/ABORT/SWITCH ACK；PAUSE/CONTINUE reason13；MODE 待定；无新 sequence store |
 | IF-013 | Trigger/角度基础配置 6 条：`CONFigure:TRIGger`、`ANGLe:SWEEp/INPut/SPEEd`、`SWITch#`、`SEQuence:ACTive` | PENDING | double 用 IEEE-754 位模式；`ANGLe:PULSe/BREAKpoint` 明确不封装 |
 | IF-014 | Sequence 运行时 7 条：`REPeat/NEXT/INJect/SOURce/IO/OUTPut/CODE` | PENDING | 枚举/计数；ACK 后读 `READ:SEQuence:STATe?/TIMing?` |
 | IF-015 | Node/link 4 条：`NODE:LOAD/ACTIVATE`、`NODE:ROLE`、`LINK` | PENDING | 复用 `distributed_refmem_stage_sequence_role`/`trigger_sequence_link_*`；不得绕过 sequence active 冻结 |
-| IF-016 | `CONFigure:SEQuence` plan 表 + plan ID 编码；必要时参数区/table package | PENDING | 唯一可能 >64 B；先冻结 plan ID 与 max count |
+| IF-016 | `CONFigure:SEQuence` plan 表 + plan ID 编码；必要时参数区/table package | PENDING | **复用 T2 `trigger_action_table_t`/`trigger_action_execution_*`，不新增 sequence store**；映射 generation/rows；>64 B 走参数区 |
 | IF-017 | 查询/可观测性：约 30 条 READ 不封装；REFMEM ACK 后回读/聚合证据 | PENDING | 查询保留 SCPI；function 状态与逐目标 ACK |
 | IF-018 | host 单测 + 四板 HIL + 负测（重复、越界、STOP/run 冲突、部分 ACK） | PENDING | 每批独立 P3；scope 覆盖 |
 | IF-019 | 文档/命令树/registry 更新与收口 | PENDING | `SCPI_COMMANDS`/`SCPI_COMMAND_PLAN`/顶层；契约变更走 C11 |

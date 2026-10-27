@@ -816,7 +816,7 @@ REFMEM handler 只做参数校验、target/required、ACK/NACK；实际动作由
 | SCPI | 建议 command_type | 参数（u32 words） | owner / 门禁 |
 |---|---|---|---|
 | `TRIGger:MODE` | 35 | mode (1) | `trigger_sequence_service_*`；RUN 中拒绝非 0 |
-| `TRIGger:STARt [plan]` | 36 | plan_id packed (0–4) | `trigger_sequence_service_start`；无 plan 用 0 |
+| `TRIGger:STARt [row]` | 36 | row index (1) | `trigger_action_execution_prepare/arm`；无表/越界 fail-closed |
 | `TRIGger:STOP` | 37 | 0 | `trigger_sequence_service_stop` |
 | `TRIGger:PAUSe` | 38 | 0 | `trigger_sequence_service_pause` |
 | `TRIGger:CONTinue` | 39 | 0 | `trigger_sequence_service_continue` |
@@ -850,9 +850,22 @@ REFMEM handler 只做参数校验、target/required、ACK/NACK；实际动作由
 - 约 30 条 `READ:*` 查询：保留 SCPI，不做 REFMEM 命令。
 - `UART`、`SCPI PERMission/ROLE`、`FAULT:CLEar`、`CAL LOAD/STOP`、`SYNC SAVE/LOAD`：本地/安全/bring-up。
 
+### 14.6 T2 静态表复用（2026-10-27 修正）
+
+- **不新增 `trigger_sequence_store_t`**。node-sequence 的 plan/sequence 表复用 T2 已有的
+  `trigger_action_table_t`（`TRIGGER_ACTION_TABLE_CAPACITY=8`）与
+  `trigger_action_execution_prepare/arm/stop`。
+- `CONFigure:SEQuence` 的职责改为把外部 sequence 行映射到 T2 action table generation/rows；
+  `SEQuence:ACTive` 选择 T2 installed generation，不建立第二份计划表。
+- `TRIGger:STARt` 的载荷从 4-word plan ID 调整为 T2 action table 的 row index（或 0 = 首行）；
+  `TRIGger:STOP/ABORt` 对应 `trigger_action_execution_stop/release`。
+- `PAUSE/CONTINUE` 在 T2 action execution 没有对应语义，保持 fail-closed，直到确认 owner surface。
+- 这样 RAM 不增加；当前 IF-012 的 4-word START 封装是临时壳，后续按本节改为 row index。
+
 ### 14.5 编码规则
 
-- plan ID：统一转为固定 4×u32（每 word 4 个 ASCII 字符，零填充），禁止依赖本地字符串指针。
+- `TRIGger:STARt`：T2 action table 的 row index（u32）；不再使用 4-word plan ID。
+- `CONFigure:SEQuence`：如保留 plan ID，走参数区/table mapping，最终落到 T2 action table generation。
 - double：IEEE-754 32-bit 位模式；target 侧校验有限值与范围。
 - 参数超过 16 words：走参数区 `payload_ref`/`payload_size`/`payload_crc32`，或 table package。
 - ACK 后必须能通过 `READ:TRIGger:STATe?`/`READ:SEQuence:STATe?` 等回读，不能只看 OK。
