@@ -139,10 +139,14 @@ static bool t2_configure_handler(const uint32_t *params, uint32_t param_words,
     trigger_deployment_snapshot_t deployment;
     trigger_action_template_store_snapshot_t templates;
     trigger_turntable_scan_geometry_t geometry;
-    if (trigger_grid_preview_snapshot(&grid) || !grid.configured) {
+    /* TDMA is the non-stop bearer here: read the cached STOP-staged grid and
+     * deployment instead of the STOP-gated local snapshot.  The local SCPI
+     * paths keep their STOP-only snapshot. */
+    if (trigger_grid_preview_snapshot_cached(&grid) || !grid.configured) {
         return reject(reason);
     }
-    if (trigger_deployment_snapshot(&deployment) || !deployment.active.valid) {
+    if (trigger_deployment_snapshot_cached(&deployment) ||
+        !deployment.active.valid) {
         return reject(reason);
     }
     if (trigger_action_template_snapshot(&templates) || !templates.installed ||

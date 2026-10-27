@@ -39,6 +39,9 @@ uint32_t trigger_deployment_stage(const trigger_deployment_t *table, uint32_t ex
 uint32_t trigger_deployment_activate(uint32_t generation, uint32_t expected_crc);
 uint32_t trigger_deployment_clear(void);
 uint32_t trigger_deployment_snapshot(trigger_deployment_snapshot_t *out);
+/* Read-only cached copy for the unified-control T2 configure path while TDMA
+ * is running; the STOP-gated snapshot above remains the local SCPI gate. */
+uint32_t trigger_deployment_snapshot_cached(trigger_deployment_snapshot_t *out);
 /* Local destination qualification plus the existing exact-q clock planner.
  * No transport, READY, output claim or device completion is implied. */
 uint32_t trigger_deployment_plan(uint32_t deployment_generation, uint32_t role,

@@ -322,6 +322,17 @@ uint32_t trigger_grid_preview_snapshot(trigger_grid_preview_snapshot_t *out)
     return stopped ? TRIGGER_TIME_GRID_OK : TRIGGER_GRID_PREVIEW_NOT_STOPPED;
 }
 
+uint32_t trigger_grid_preview_snapshot_cached(trigger_grid_preview_snapshot_t *out)
+{
+    if (!out) return TRIGGER_TIME_GRID_ARGUMENT;
+    if (!preview_enter()) return TRIGGER_GRID_PREVIEW_BUSY;
+    *out = s_grid;
+    const bool configured = s_grid.configured != 0u;
+    preview_leave();
+    return configured ? TRIGGER_TIME_GRID_OK
+                      : TRIGGER_GRID_PREVIEW_UNCONFIGURED;
+}
+
 uint32_t trigger_grid_preview_plan(uint32_t epoch, uint32_t generation,
     uint64_t ordinal, uint64_t minimum_lead_ns, uint64_t maximum_ahead_ns,
     trigger_grid_preview_plan_t *out)

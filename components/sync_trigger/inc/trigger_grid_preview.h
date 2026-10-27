@@ -45,6 +45,10 @@ typedef struct {
 uint32_t trigger_grid_preview_configure(const trigger_time_grid_t *grid);
 uint32_t trigger_grid_preview_clear(void);
 uint32_t trigger_grid_preview_snapshot(trigger_grid_preview_snapshot_t *out);
+/* Read-only cached copy for the unified-control T2 configure path: TDMA is
+ * running, so the STOP-gated snapshot above is unavailable, but the staged
+ * grid must still be readable by the command handler. */
+uint32_t trigger_grid_preview_snapshot_cached(trigger_grid_preview_snapshot_t *out);
 /* Success proves arithmetic and a stable local snapshot only. It never
  * reserves an output, changes a model, publishes READY or issues a pulse.
  * All rejected calls preserve *out. A later executor must revalidate. */

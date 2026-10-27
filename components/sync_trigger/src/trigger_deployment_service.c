@@ -220,6 +220,17 @@ uint32_t trigger_deployment_snapshot(trigger_deployment_snapshot_t *out)
     return idle ? TRIGGER_DEPLOYMENT_OK : TRIGGER_DEPLOYMENT_SERVICE_NOT_IDLE;
 }
 
+uint32_t trigger_deployment_snapshot_cached(trigger_deployment_snapshot_t *out)
+{
+    if (!out) return TRIGGER_DEPLOYMENT_ARGUMENT;
+    if (!deployment_enter()) return TRIGGER_DEPLOYMENT_SERVICE_BUSY;
+    *out = s_deployment;
+    const bool valid = s_deployment.active.valid != 0u;
+    deployment_leave();
+    return valid ? TRIGGER_DEPLOYMENT_OK
+                 : TRIGGER_DEPLOYMENT_SERVICE_UNCONFIGURED;
+}
+
 uint32_t trigger_deployment_plan(uint32_t generation, uint32_t role,
     uint32_t grid_epoch, uint32_t grid_generation, uint64_t ordinal,
     uint64_t minimum_lead_ns, uint64_t maximum_ahead_ns, trigger_deployment_plan_t *out)
