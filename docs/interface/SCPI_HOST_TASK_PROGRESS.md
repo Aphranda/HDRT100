@@ -8,6 +8,21 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-008：远程 target 命令超时，IF-012 正向需先补转发
+
+- **现场**：`t2_workflow --steps 1-20 --leave-running` 全 20 步 OK；`FLIGHT:MODE 1`；
+  四板 ring 已启动。
+- **实测**：`SYSTem:CTRL:EXECute 36,2,1,0`（target NO2）→ **timeout**；
+  `CTRL:STATus?` 仍停在上一条本地命令 `397158`，说明命令没有进入目标板。
+- **归因**：`CTRL:EXECute` 的 target>1 转发/RefMem 命令通道尚未实现；本地 target=1
+  又因 NO1=COUNTER 返回 NOT_LOCAL。因此 IF-012 的 START 正向被**远程分发缺口**阻塞，
+  不是 T2 action row 本身。
+- **影响**：IF-012 本地命令面/STOP/ABORT/SWITCH 可用；START 正向必须等 IF-002/IF-015
+  的 target 转发（或明确只支持本地执行板）。
+- **证据**：`out/n7/local_hil/trigger_start_target2.txt`、`out/n7/t2_ring_up.log`。
+- **下一步**：先补 `CTRL:EXECute` target>1 的分发（仍复用 RefMem 命令面，不新增 owner），
+  再复测 NO2/NO3/NO4 START；否则保持 fail-closed。
+
 ### SCPI-PROGRESS-20261027-007：NOT_LOCAL 是 COUNTER 角色语义，不是映射缺陷
 
 - **核对**：`tools/sync_trigger/t2_workflow.py::action_row(0)` 对 slot0/COUNTER 明确返回
