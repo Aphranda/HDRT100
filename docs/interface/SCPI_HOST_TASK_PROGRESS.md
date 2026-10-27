@@ -8,6 +8,18 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-007：NOT_LOCAL 是 COUNTER 角色语义，不是映射缺陷
+
+- **核对**：`tools/sync_trigger/t2_workflow.py::action_row(0)` 对 slot0/COUNTER 明确返回
+  `role=2, kind=2`（GATEWAY pulse），注释说明 COUNTER 没有自己的 action kind，
+  只携带一条可验证行，**不执行本地 action**。
+- **结论**：协调者 NO1 是 COUNTER，`ACTion:EXECute:PREPare 0` 返回 42/NOT_LOCAL 是预期；
+  `TRIGger:STARt` 必须 target 到 NO2 SWITCH_A / NO3 GATEWAY / NO4 SWITCH_B，而不是协调者本板。
+- **影响**：IF-012 START 正向不能在本板验证；需要 process-image REFMEM ring 起来后按 target 执行。
+- **证据**：`t2_workflow.py` 行 46–60；`ACTion:ROW? 0` role=2；`PREPare 0 → 42`。
+- **下一步**：启动四板 process-image ring，`CTRL:EXECute 36,<node>,1,0` 指向 SWITCH/GATEWAY，
+  验证 START ACK + STATe；否则保持 fail-closed。
+
 ### SCPI-PROGRESS-20261027-006：T2 action table 无本板行，START 仍 fail-closed
 
 - **实测**：安装 T2 workflow steps 1–10 后，`TRIGger:REServation:ACTion:ROW? 0` 返回 role=2、
