@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-17
+Last updated: 2026-10-27
 Version: 5
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -116,7 +116,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 
 | 组件 | 顶层约束 | 由谁细化 |
 |---|---|---|
-| SCPI / UI / System Pack | 只能表达意图、配置和查询；不能直接驱动硬实时边沿。 | `interface/`、`storage/` |
+| SCPI / UI / System Pack | 只能表达意图、配置和查询；不能直接驱动硬实时边沿。 | `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`、`storage/` |
 | Active Object | 拥有事件队列、生命周期和执行预算；外部入口只能投递事件。 | 各功能域设计 |
 | Function Block | 执行 ECC 状态迁移、资源规则和错误归因；Action 必须立即返回，耗时动作只能返回 busy 并由后续 tick 推进。 | `trigger/`、`ota/`、`storage/`、`sync/` |
 | Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer、值域、生命周期和快照规则。 | `refmem/`、各 Domain Vector |
@@ -128,6 +128,8 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Flash Persistence Domain | App 唯一 writer 是 core0 `FlashTransactionAO`；Bootloader 使用无 RTOS 的 `BootFlashService`；各业务域只提交 versioned intent 并读取 durable completion。 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`、`drivers/mcu/flash/`、`components/ota_manager/` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
 | PIO/DMA/IRQ | 只执行硬实时动作和最小事实回写；对外维护入口归 `REALtime`，产品业务动作入口仍归 `TRIGger`。 | `sync/`、`trigger/`、board profile |
+
+SCPI 对外接口的 canonical 事实源是 `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`。该文档当前已覆盖 node-sequence 族的执行来源与本地输出（`CONFigure:SEQuence:SOURce/CODE/OUTPut/REPeat/IO` 与 `READ:IO:*?`）、节点槽位与角色装载（`CONFigure:SEQuence:NODE:ROLE/LOAD/ACTivate`）、序列 LINK 物理回环、软件推进入口（`TRIGger:SEQuence:NEXT`）、计数与运行状态读取，以及 TDMA 环维护和拓扑探针。它只描述外部可见的命令语义和响应字段顺序，不改变本节的 owner 边界：SCPI 仍只能写 command/config slot，边沿与电平事实仍由对应 owner 写入。
 
 ### 板级约束入口
 

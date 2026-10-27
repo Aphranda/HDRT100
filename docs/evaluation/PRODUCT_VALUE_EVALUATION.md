@@ -4,8 +4,12 @@ Status: Active
 Domain: EVALUATION
 Canonical: `docs/evaluation/PRODUCT_VALUE_EVALUATION.md`
 Related: `docs/evaluation/README.md`, `docs/evaluation/PRODUCT_VALUE_TRACKING_TODO.md`, `docs/arch/HAOFV_PORTABILITY_EVALUATION.md`, `docs/arch/HAOFV_ARCHITECTURE_RISK_EVALUATION.md`, `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`, `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md`
-Last updated: 2026-09-05
+Last updated: 2026-10-12
 
+> 复评提示：E7/E8 的性能主张与 R6 的契约计数已按 2026-10-12 复评更新；R5 的域完成度快照
+> （`DOCS_PROJECT_STATUS_REVIEW_20260824.md`）与报告级总体进度仍为 2026-08-24 / 2026-09-19
+> 口径，截至 2026-10-10 未复评，见 §1.1 R5、§1.2 E14–E21 与 §7。
+>
 > 本文是项目级**综合价值评估** canonical，位于评估与监督子域 `docs/evaluation/`，作为长期
 > 审核监督项目滚动更新（域规则与更新触发见 `docs/evaluation/README.md`；行动追踪见
 > `docs/evaluation/PRODUCT_VALUE_TRACKING_TODO.md`）。它不是冻结契约，不登记
@@ -56,10 +60,10 @@ Last updated: 2026-09-05
 | R2 | 风险：S0=004 XIP+Flash 双核冲突（已升顶层硬约束）；S1=ECC 190 条失真（文档 58→实际 190）、Vector 缺逐字段标注、跨核契约未落地、Metadata failsafe、49 天回绕；S2=资源优先级/OTA 矩阵/预算 overrun；处置顺序 004→003→001 | `docs/arch/HAOFV_ARCHITECTURE_RISK_EVALUATION.md` 登记表+推荐顺序 |
 | R3 | 平台化分层（产品→平台→生态）；八平台映射；四层 portable 边界；开源组件优先交付 simulator/validator/visualizer；F0 当前闭环 → F4 开源生态包；核心卖点"小 MCU 可观察、可校准、可恢复的分布式硬实时系统" | `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md` |
 | R4 | 产品边界（背景引用）：A0 扫描/DPLL 主控、A1 DUT、A2 馈源/极化、A3 VNA/上位机网关；百 ns 级目标（稳定 <10 ns 需 FPGA/TDC）；SCPI/System Pack 只表达意图；发布门禁 9 项。此结论属独立 canonical `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`，仅背景引用 | `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`（独立 canonical，不在合并范围） |
-| R5 | 域完成度快照：OTA v1≈86%、RefMem≈70%、SD≈63%、TDMA≈50%、VDC≈46%、Flash v2≈45%、RTOS/HAOFV≈39%、Calibration≈39%、RS485≈17%；主链路=硬件时间戳→Calibration active→TDMA 常驻环→VDC/DPLL LOCKED→RefMem 可靠完成→T2→长稳，统一 active gate 未过 | `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` |
-| R6 | 治理三环门禁（7 天新鲜度环 + 契约登记 + pre-commit 双检查器）；登记 27 条契约（5 active/21 pending/1 superseded）；C11 禁止自审自批；另有 P3 硬件验收凭证门禁 | `docs/check/DOCS_REGISTRY.md`、`docs/check/DOCS_REGRESSION_PLAN.md`、`.githooks/pre-commit` |
+| R5 | **（2026-10-12 复评：本快照仍为 2026-08-24 口径，索引中无更新的状态审查文件，已明显滞后于各域进展，见 E14）** 域完成度快照：OTA v1≈86%、RefMem≈70%、SD≈63%、TDMA≈50%、VDC≈46%、Flash v2≈45%、RTOS/HAOFV≈39%、Calibration≈39%、RS485≈17%；主链路=硬件时间戳→Calibration active→TDMA 常驻环→VDC/DPLL LOCKED→RefMem 可靠完成→T2→长稳，统一 active gate 未过 | `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` |
+| R6 | **（2026-10-12 复评：契约登记已增至 46 条 = 5 active / 40 pending / 1 superseded，见 E16；下方 27 条为 2026-09-05 旧值）** 治理三环门禁（7 天新鲜度环 + 契约登记 + pre-commit 双检查器）；登记 27 条契约（5 active/21 pending/1 superseded）；C11 禁止自审自批；另有 P3 硬件验收凭证门禁 | `docs/check/DOCS_REGISTRY.md`、`docs/check/DOCS_REGRESSION_PLAN.md`、`.githooks/pre-commit` |
 
-### 1.2 一手证据（E1–E12，2026-09-05 观察）
+### 1.2 一手证据（E1–E12，2026-09-05 观察；E14–E21，2026-10-12 复评观察）
 
 | ID | 证据 | 来源 |
 |---|---|---|
@@ -76,6 +80,14 @@ Last updated: 2026-09-05
 | E10 | 全库检索不到 NDA/保密/专利/论文字样 | docs 关键词检索 |
 | E11 | **PIO 程序按 persona 动态装载（不全部常驻）**：PIO 指令内存按功能装载/卸载，persona 枚举事实源为 `tdma_pio_spi_program_persona_t`（NORMAL、粗 CLK 训练、板内校准回环、编码 CLK 等），装载由 core1 owner 在 SM/DMA stop + safe IO gate 后执行，失败恢复上一 persona 并保持 STOPPED；SYNC_IO 侧另有 INPUT_CAPTURE/WAVE_OUTPUT/SCHEDULED_TRIGGER/LOGIC_ANALYZER/SMA 等 persona 生命周期（claim→load→ARM→RUN→release）。PIO program 随签名 App catalog 发布、System Pack 只选已登记 program/persona ID（ARCH-PIOCAT-01），即可随 OTA 更新 IO 语义，不加载任意机器码 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`（PIO 动态装载段）、`docs/sync/SYNC_IO_ARCHITECTURE.md`（persona）、`docs/arch/HAOFV_FLASH_ARCHITECTURE.md`（ARCH-PIOCAT-01）、`docs/calibration/CALIBRATION_TASK_PROGRESS.md`（CAL-TASK-20260821-004） |
 | E12 | **TDMA 时隙/维护窗口编排功能切换与训练**：TDMA 定义 window class/guard/deadline 与 maintenance gate（默认关闭，只有显式 maintenance window 才打开，配置/OTA/LOG 属低优先级 maintenance traffic 且不得借用实时 guard）；训练执行顺序固定 `STOP→APPLY→ARM→TRAIN→publish/restore→STOP`，reference 发 `TRAIN_PREPARE`、收齐 ACK 后 commit sequence 统一切换全节点 training persona，结束恢复普通 persona——即 persona 装载/校准/维护都在确定性时隙边界内完成，不打断实时路径 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`（schedule/window/maintenance gate/训练编排段）、`docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` |
+| E14 | **（2026-10-12 复评）E7 性能主张须收窄为"采样窗口内的实测"**：报告级口径为稳态典型 **±25 ns**、无外参十分钟长窗全部落在 **±50 ns** 内（既定判据 ±100 ns）；相对相位包络约 **24 ns 峰峰（达 sync 规范 B 档 ≤25 ns，非 C 档 ≤10 ns）**；分钟等效频差最大 **\|0.215\| ppb**。**注意 ①**"10 ns 量级"无报告依据，且 `ARCH_PRODUCT_ARCHITECTURE.md` 明确 RP2350 原型应按**百 ns 级**定义、稳定 <10 ns 需升级 FPGA/TDC；**②** `physical_continuous_lock_qualified` / `measurement_noise_floor_qualified` **恒为 false**，`continuous_lock_claimed` 亦为 false，故只能按"采样窗口锁相"主张，测量噪声底**尚未标定**；**③** 跨轮不可重复性显著：2026-09-22 同日外部最大绝对相差横跨 **31.98 / 34.335 / 41.899 / 48.367 / 172.231 ns**（其中一轮 12 个稀疏窗全部 >100 ns） | `docs/reports/distributed-trigger/DHRT100_PROJECT_OVERVIEW_REPORT_20260919.html`、`docs/vdc/VDC_TASK_PROGRESS.md`（20260920-036、20260921-039、20260922-043/047）、`docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`（20260922-030/031）、`docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（20260922-007、20260923）、`docs/arch/ARCH_SYNC_STANDARD_CORE_DESIGN.md`、`docs/arch/ARCH_PRODUCT_ARCHITECTURE.md` |
+| E15 | **（2026-10-12 复评）E8 的"当前重构分支未收敛"在 2026-09-19 之后进一步恶化，且新增一项超预算事实**：TDMA 稳态 `steady_peak` 四板实测 **1154.8–1209.6 µs**，相对 850 µs 压缩后设计预算**超 36–42%**，`schedule_miss_count` 占 `cycle_count` **30–52%**；而 `TDMA_RUNTIME_CONSTRAINTS.md`（2026-09-19）已明示**不得继续套用历史 380/500/850 µs 门限**——即 2026-09-14 的 `MET` 判定所依据的门限本身已废止，不能再作为收敛结论。接收侧亦未闭合：`tx_publish_reject_count` 825–1777 高于 `tx_publish_count` 935–1016 | `docs/tdma/TDMA_TASK_PROGRESS.md`（20261008-002）、`docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`、`docs/check/submissions/TDMA_CROSS_REVIEW_05.md` |
+| E16 | **（2026-10-12 复评）治理规模增长，R6 契约计数过期**：契约登记实测 **46 条 = 5 active / 40 pending / 1 superseded**（R6 记 21 条 pending，+19）；条款落点表含 `VIOLATED` 一条（HAOFV-879 seqlock）、`PARTIAL` 一条（HAOFV-139）。另 `REFMEM_TASK_PROGRESS.md` 已 298.56 KiB，超 `DOCS-PROGRESSROTATE-01` 的 200 KB 阈值 | `docs/check/DOCS_REGISTRY.md`、`docs/check/DOCS_PROGRESS_ROTATION_PLAN.md` |
+| E17 | **（2026-10-12 复评）E5 代码/测试规模已过期，开源复现门槛不变**：当前提交数 **1620**（E3 记 934）；`tests/python`+`tests/hil` 的 `def test_` 函数 **1968 个**（E5 记 81 个 pytest 文件，现 `test_*.py` 为 335–336 个）；`tests/unit/` C 单测程序 **101 个**；文档记载的最大全量 pytest 通过数为 **6768 passed / 1 skipped**（原文明确限定为"累计基线"，且文档禁止把重叠分片相加，故**不将任何分片加总作为全量通过数**）。许可证仍未落地（`license: null`、无 Releases、`RELEASE_CHECKLIST.md` 为空白模板），A1–A3 状态不变 | `git rev-list --count HEAD`、`tests/` 树实测、`docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`、`docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`、`docs/release/RELEASE_CHECKLIST.md` |
+| E18 | **（2026-10-12 复评）P3 验收凭证与四板里程碑的最新事实（直接命中本域更新触发）**：① **RefMem 静态向量缩容切片**表容量 65,536 B → **18,432 B**、布局版本 1 → 2、node 步长 512 B → 128 B，单子系统净释放 47,104 B（**该缩容只针对 RefMem 静态向量表，整机 RAM 聚合仍约 526 KB，不得表述为整机 RAM 占用**），但同轮 `strict_gates_passed=false`、`closed_loop_passed=false`、`realtime_gate_passed=false`，SOAK 最终 2.006283 s 超时；② 链接余量口径已由该切片的 47,132 B 变为 **20,296 B vs 49,152 B 门限未通过**（沿用临时下限 16,384 B，到期 2026-09-25）；③ Calibration `P3-03` endpoint bias/reference loopback 仍 **BLOCKED**（bench 缺每板本地三线 loopback），两份 App 链接剩余 4,904 B、RAM 门禁仍失败；④ VDC 六项正式资格门禁（`VDC-LOCK-001`/`VDC-HOLD-001`/`VDC-RUN-001`/`VDC-LOCAL-004`/`VDC-TIME-003/004`/`VDC-SERVO-001/002`）**全部 PENDING**，`strict_gates_passed=false`，外参十分钟专项未完成（**不得沿用无外参结果**）；⑤ `T2-GATE-001` **BLOCKED**，阻塞于 `VDC-LOCK-001`/`VDC-RUN-001`；⑥ SYNC_IO 四板仍 `STARVED`（专项 FAIL）；⑦ OTA 与 Watchdog 仍各三项未闭合，进度文件最新条目停在 **2026-09-06** | `docs/refmem/REFMEM_TASK_PROGRESS.md`、`docs/refmem/REFMEM_DOMAIN_TODO.md`、`docs/vdc/VDC_TASK_PROGRESS.md`、`docs/vdc/VDC_DOMAIN_TODO.md`、`docs/calibration/CALIBRATION_TASK_PROGRESS.md`、`docs/calibration/CALIBRATION_DOMAIN_TODO.md`、`docs/trigger/t2/TRIGGER_T2_TODO.md`、`docs/sync/SYNC_IO_TASK_PROGRESS.md`、`docs/ota/OTA_TASK_PROGRESS.md`、`docs/watchdog/ARCH_WATCHDOG_TASK_PROGRESS.md` |
+| E19 | **（2026-10-12 复评）报告级总体进度 70.8% 已过期，且无更新的复评**：70.8%（六域四项等权 17/24；HAOFV 87.5 / TDMA 75 / VDC 75 / RefMem 75 / Calibration 62.5 / T2 50）出自 **2026-09-19** 报告，原文自称"跨分支研发评估，不是主线合并率或工期比例"；该报告已落后 HEAD（2026-10-10）21 天，且其打分依据被 E14/E15/E18 改写。`docs/` 树中无更新的项目级百分比；各域进展文件最新条目日期从 2026-08-24（Flash v2）到 2026-10-10（TDMA/VDC/T2）**并不齐**。**结论：本次复评只同步域内事实，不改动总体百分比；域完成度百分比须待新的 `DOCS_PROJECT_STATUS_REVIEW_*` 或新报告发布后再刷新 R5 与 §3.2** | `docs/reports/distributed-trigger/DHRT100_PROJECT_OVERVIEW_REPORT_20260919.html`、`docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md`、各域 `*_TASK_PROGRESS.md` 条目 ID 日期 |
+| E20 | **（2026-10-12 复评）两条并行且互不包含的代码/文档谱系**：工作树 `wip/tdma-real-flight-processing`@`2c338fe0`（2026-10-10，工作树干净，**无任何 tag**，提交总数 1620）与 `feature/node-sequence-reservation-trigger`@`19b9c5ff`（**2026-10-12，全仓最新**，`risk push`，改动 431 文件）在 2026-09-15 分叉：该分支独有 `docs/trigger/sequence/` 三件套（单板三槽位物理验收通过，进度 076 / 2026-09-20）与 `TDMA_BUDGET_PLAYBOOK.md`，**这些文件在当前工作树中不存在**；反之该分支的 TDMA 进度文件顶部条目仅到 20260919-001，落后于工作树的 20261010-002。**故"当前状态"必须以分支为限定条件表述** | `git log` / `git branch -a` / `git merge-base`；分支 `feature/node-sequence-reservation-trigger` 上的 `docs/trigger/sequence/` 目录（仅该分支可见） |
+| E21 | **（2026-10-12 复评）文档与代码事实源的不一致清单（举证移交，按 §6 边界不在本文件修改上游）**：① `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`（Last updated 2026-09-06）落地路线第 3 步仍写"冻结 **DistributedVectorTable 64 KB layout**"，未随 2026-09-16 的 18,432 B 缩容更新（**建议移交 `docs/arch/`**）；② `docs/reports/README.md`（Last updated 2026-08-28）只列到 0804 报告，未收录任何 2026-09 产物，比子目录 README 旧 22 天（**建议移交 `docs/reports/`**）；③ `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md` 与 `ARCH_SYNC_STANDARD_CORE_DESIGN.md` 的"最大空档约 1.8 s"仍为旧口径，权威值已由 `VDC_TASK_PROGRESS.md`（20260920-036）修正为 **5.046 s**；④ `HAOFV_FLASH_TASK_PROGRESS.md` 记 FlashMap 板端检查 14/14 分区，源码 `flash_map_v2.h` 为 **15 个分区**；⑤ 上述四项以各域 canonical 为准，本文件只作评估侧举证与追踪 | `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`、`docs/reports/README.md`、`docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`、`docs/arch/ARCH_SYNC_STANDARD_CORE_DESIGN.md`、`docs/vdc/VDC_TASK_PROGRESS.md`、`docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`、`config/flash_map_gen/flash_map_v2.h` |
 
 ---
 
@@ -180,6 +192,10 @@ Last updated: 2026-09-05
 3. 校准 endpoint bias（P3-03/P3-LB-06）解除 → 刷新 J5/J9 数据主张强度。
 4. 出现论文/专利动作或公司 IP 决策 → 刷新 J11。
 5. 域完成度快照随 `DOCS_PROJECT_STATUS_REVIEW_*` 更新 → 刷新 R5 与 §3.2。
+   **（2026-10-12 补充触发）**各域 P3 硬件验收凭证与四板 receipt 更新（`TDMA-DPLL-*`、RefMem 静态缩容、
+   Calibration endpoint bias、VDC 资格门禁）→ 回各域 `*_TASK_PROGRESS.md` 与
+   `out/HardwareAcceptance/` 重核 E7/E8/E14/E15/E18 后刷新性能主张与 §3.2；
+   报告级总体进度（如 `DHRT100_PROJECT_OVERVIEW_REPORT_*`）发布新版本 → 刷新 R5 与 §3.2。
 6. 上游专项评估更新（R1/R2/R3 任一修订）→ 回到对应文档重读后刷新本表。
 
 ## 6. 边界与来源
@@ -198,3 +214,4 @@ Last updated: 2026-09-05
 | 日期 | 触发 | 更新摘要 | 依据证据 |
 |---|---|---|---|
 | 2026-09-05 | 初始建档 | 在 `refactor/tdma-phy-split-p3-gated`@`1819fd5` 基线建立综合价值评估（R/E/J/C/A 链），并入 E11/E12（PIO persona 动态装载 + TDMA 时隙编排）、E8/E13（锁相能力已有两板 HIL 佐证、平台核心与客户/公司产品分离） | E1–E13、R1–R6、VDC_TASK_PROGRESS 2026-08-16 HIL、作者澄清 |
+| 2026-10-12 | HIL/门禁里程碑 + 上游统计变化（§5 触发 1/3/5 命中） | 同步 2026-09-19 报告之后的进展：新增 E14–E21。① 性能主张收窄（±25 ns / ±50 ns / 24 ns 峰峰达 B 档；锁相与噪声底资格恒 false；跨轮不可重复性 31.98–172.23 ns）；② TDMA 稳态超 850 µs 预算 36–42% 且该门限已废止，2026-09-14 的 `MET` 不可作收敛结论；③ 契约 27→46 条、测试函数 1968、提交 1620；④ P3/四板事实更新（RefMem 缩容属子系统口径、链接余量 20,296 B 未过门、Calibration P3-03 与 VDC 六项门禁仍 PENDING、T2-GATE-001 BLOCKED、SYNC_IO STARVED、OTA/Watchdog 停更）；⑤ 两条互不包含分支谱系；⑥ 上游不一致清单举证移交（64 KB layout、reports 索引、1.8 s 旧口径、Flash 分区 14 vs 15）。**总体进度 70.8% 未改动**（标注为 2026-09-19 快照，须待新状态审查/新报告再刷新） | E14–E21、R5/R6 就地标注；各域 Task Progress（TDMA 20261008-002、VDC 20260920-036/20260921-039/20260922-043/047、TOOLS 20260922-030/031、T2 20260922-007/20260923、REFMEM 20260916-001、CAL 20260913-026、SYNC 20260918-005）；`git log`/`git branch -a`；`docs/check/DOCS_REGISTRY.md` |

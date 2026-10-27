@@ -3,14 +3,14 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-Related: `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/interface/SCPI_COMMANDS.md`, `docs/archive/TASK_PROGRESS.md`
-Last updated: 2026-09-19
+Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.pdf`, `docs/interface/SCPI_COMMANDS.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`, `docs/archive/TASK_PROGRESS.md`
+Last updated: 2026-10-27
 
-版本：0.11
-日期：2026-08-13
+版本：0.12
+日期：2026-10-27
 产品：DHRT100 Distributed Trigger
 接口：USBTMC / USB488
-文档状态：Markdown 源文档，HTML 已同步到 0.11，后续 PDF 由本文同步导出
+文档状态：Markdown 源文档；HTML 仍停留在 0.11，待本版评审通过后同步，后续 PDF 由本文同步导出
 
 ## 1. 文档约定
 
@@ -223,7 +223,7 @@ HTML 分页将系统域拆成两页：系统状态与日志、系统门禁与分
 | `READ:ANGLe:INPut?` |  | `input,pulses_per_degree,input_hz,N,position_period_s,position_hz,bound` | 读取输入标定及换算结果；频率为预期值，不是实测值 |
 | `CONFigure:ANGLe:SPEed` / `READ:ANGLe:SPEed?` | `<speed_deg_s>` / 无参数 | `1` / `speed_deg_s` | 停止态单独设置或查询声明运行速度，不控制运动设备 |
 | `CONFigure:ANGLe:PULSe` | `<RISING|FALLING>,<pulse_width_us>,<timeout_ms>` | error（未实现） | 规划接口；当前输入边沿由POSITION链路共同边沿配置，不做输入脉宽检测 |
-| `READ:ANGLe:PULSe?` |  | error（未实现） | 不再返回固定统计，原始计数使用READ:SEQ:COUNTER? |
+| `READ:ANGLe:PULSe?` |  | error（未实现） | 不再返回固定统计，原始计数使用 `READ:SEQuence:COUNter?` |
 | `READ:ANGLe:POSition?` |  | `position block` | 读取 DTC 侧由扫描配置和角度脉冲推导出的角度状态；不代表运动控制器反馈的真实转台位置 |
 | `CONFigure:ANGLe:BREAkpoint` | `[angle_deg]` | `1` | 配置角度断点；给出参数时绑定指定扫描角度，运行中或暂停中省略参数时使用当前待输出角度游标 |
 | `CONFigure:ANGLe:BREAkpoint:CLEAr` |  | `1` | 清除角度断点和命中标志；若当前已因断点暂停，仅清除断点标志，不自动继续运行 |
@@ -306,6 +306,100 @@ wave_idx
 
 运行中若开关已被序列引擎占用，独立切换命令返回 busy。
 
+### 3.5 序列执行来源与本地输出
+
+序列推进来源和本地编码输出属于序列域配置，用于让被测件在没有上位机逐点干预时也能按自身节拍
+推进。写命令只提交配置意图，实际电平必须通过 `READ:IO:*?` 读回；配置被拒绝时命令向错误队列
+压入 token，不返回固定样例。
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `CONFigure:SEQuence:SOURce` | `MANUAL\|IN1\|IN2\|IN3\|IN4,<edge>` | `1` | 选择软件推进或外部输入推进；`edge=RISing/FALLing`；旧 `BUS` 拼写不再接受 |
+| `READ:SEQuence:SOURce?` |  | `source,edge` | 读回当前推进来源和有效边沿 |
+| `CONFigure:SEQuence:OUTPut` | `<sequence_mask>,<status_mask>,<mode>,<settle_us>,<pulse_us>` | `1` | 显式配置编码输出位、状态输出位及其时序；`mode=NONE/PULSe/LEVel` |
+| `READ:SEQuence:OUTPut?` |  | `sequence_mask,status_mask,mode,settle_us,pulse_us,generation,valid` | 读回输出角色配置、参数 generation 和有效性 |
+| `CONFigure:SEQuence:CODE` | `<state_id>,<value>` | `1` | 配置本节点某状态的编码值；`value` 不得超出 `sequence_mask` |
+| `READ:SEQuence:CODE?` | `<state_id>` | `state_id,value` | 读回单项编码；未配置返回 `CODE_MISSING` |
+| `CONFigure:SEQuence:REPeat` | `<count>` | `1` | 停止态配置完整计划轮次；`0` 表示显式持续运行 |
+| `READ:SEQuence:REPeat?` |  | `configured,active,finished` | 读回已配置轮次、本轮生效轮次和完成标志 |
+| `CONFigure:SEQuence:IO` | `<mask>,<OUT#>,<settle_us>,<pulse_us>` | `1` | 原子配置本地动作输出和完成通道，等价于 `PULSe` 模式下的单状态位 |
+| `READ:SEQuence:IO?` |  | `sequence_mask,completion_channel,settle_us,pulse_us,generation,valid` | 读回本地动作输出配置 |
+| `READ:IO:INPut?` / `READ:IO:OUTPut?` | `[channel]` | `mask` 或 `0\|1` | 无参数返回实际逻辑位掩码，`channel=1..4` 返回该通道实际电平 |
+| `READ:IO:STATe?` |  | `input_mask,output_mask,sequence_owned_mask,armed,busy` | 读回实际 IO、序列占用位和武装/忙状态 |
+
+`CONFigure:SEQuence:OUTPut` 的配置约束：
+
+| 条件 | 规则 |
+|---|---|
+| 编码位 | `sequence_mask` 不得为零；`sequence_mask\|status_mask` 不得超出 `OUT1..OUT4` |
+| 状态位 | `mode=NONE` 必须与 `status_mask=0` 一致；`mode!=NONE` 必须有非零 `status_mask` |
+| 掩码分离 | `sequence_mask` 与 `status_mask` 不得重叠；编码掩码与状态掩码不能互相冒充 |
+| 时序 | `settle_us`、`pulse_us` 上界引用 `SYNC_IO_SEQUENCE_TIME_MAX_US`；`mode=PULSe` 要求 `0<pulse_us<=上界`，`NONE/LEVel` 要求 `pulse_us=0` |
+| 编码失效 | 更换 `sequence_mask`（编码通道变化）使已配置 code 失效；只改 timing 不清除既有映射 |
+
+`CONFigure:SEQuence:CODE` 要求先有合法输出配置，否则返回 `IO_CONFIG_INVALID`；`state_id` 必须
+落在当前计划状态数和 `TRIGGER_SEQUENCE_STATE_MAX` 之内，`value` 超出编码掩码返回 `INVALID_ARGUMENT`。
+
+`READ:IO:*` 读的是实际引脚逻辑电平，编码映射和期望值不得冒充实际 IO。
+
+写命令被拒绝时错误队列返回下列 token 之一（实现见 `trigger_sequence_service_result_name()`）：
+`INVALID_ARGUMENT`、`FROZEN`、`NOT_READY`、`BUSY`、`SOURCE_MISMATCH`、`CONFIG_INVALID`、
+`IO_CONFIG_INVALID`、`CODE_MISSING`、`RESOURCE_BUSY`、`BACKEND_FAULT`、`RUN_EXHAUSTED`。
+
+### 3.6 节点槽位与角色装载
+
+`CONFigure:SEQuence:NODE:ROLE` 把“哪块板承担哪个序列角色”作为一次本地反射内存配置事务提交，
+同时暂存节点装载与真实 LINK_SWITCHER / INSTRUMENT_CONTROLLER 的启用、SMA IO 和 IP 声明。
+写命令只暂存，不执行硬件；激活仍受既有 owner、CRC、部署和资源门禁约束，返回 `STAGED`
+只表示 staging 已接受。
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `CONFigure:SEQuence:NODE:ROLE` | `<slot_id>,<instance_id>,<role>` | `STAGED` | 暂存角色配置；`role=DUT`/`DUT_LINK_CONTROL` 对应 LINK_SWITCHER，`VNA`/`VNA_GATEWAY` 对应 INSTRUMENT_CONTROLLER，`COUNTER`/`PULSE_COUNTER` 对应 PULSE_DISTRIBUTOR |
+| `READ:SEQuence:NODE:ROLE?` | `<instance_id>` | `instance_id,role,active_enabled,staged_enabled,active_resource,active_io,active_ip,staged_resource,staged_io,staged_ip` | 分别读回 active 与 staging；staging 已被消费时以 active 作为下一次配置基线 |
+| `CONFigure:SEQuence:NODE:LOAD` | `<node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` | `STAGED` 或 `REJECTED` + `node load block` | 通用节点装载事务；角色不属白名单模板时走这条入口 |
+| `CONFigure:SEQuence:NODE:ACTivate` |  | `ACTIVE` 或 `REJECTED`（快照暂不可得时为 `BUSY`）+ `activation block` | 激活 staging 镜像；staging 来自 `NODE:ROLE` 或 `NODE:LOAD` |
+| `READ:SEQuence:NODE:LOAD?` |  | `node load block` | 读回最近一次节点装载/激活的暂存状态 |
+
+`NODE:LOAD` 与 `NODE:ACTivate` 的响应块复用反射内存同一序列化函数
+（`scpi_refmem_result_load_snapshot()` 与 `scpi_refmem_result_activation_diagnostic()`），
+字段顺序与 `SYSTem:REFMEM:LOAD:*` 维护查询一致，不在本页另立定义。
+
+角色配置与装载的门禁：
+
+| 场景 | 拒绝 token | 上位机处理 |
+|---|---|---|
+| 序列正在运行 | `SEQUENCE_RUNTIME_FROZEN` | 先 `TRIGger:STOP`，回到 `IDLE` 后再改角色 |
+| 实时核心非 idle | `REFMEM_RT_NOT_IDLE` | 读取 `SYSTem:CORE?`，等 core1 空闲后重试 |
+| 模型模式非 idle | `REFMEM_MODE_NOT_IDLE` | 先退出模型/仿真模式 |
+| 暂存被拒 | `SEQUENCE_ROLE_STAGE_REJECTED` | 检查 slot→board 提案、能力、UUID 与槽位 policy |
+| 查询实例非法 | `SEQUENCE_ROLE_INSTANCE_INVALID` | `instance_id` 必须已处于 LINK_SWITCHER / INSTRUMENT_CONTROLLER / PULSE_COUNTER 之一 |
+
+角色模板白名单不包含 MODEL_VNA；启用 VNA 时应声明 SMA pulse capture/fire，不能沿用原本的
+RJ45/UART 声明冒充测量触发。角色 IO 声明是配置意图，运行绑定和资源租约仍须独立验证。
+
+### 3.7 序列 LINK 物理回环
+
+`CONFigure:SEQuence:LINK` 配置同板 RJ45 物理回环与网关 IO，让 DUT 切步由真实回程帧闭环，
+而不是由上位机逐点驱动。`LOOPBACK` 是显式物理线缆回程模式，`RJ45` 仅为兼容拼写，不代表
+远端节点路由；`POSITION` 额外启用转台脉冲计数推进。
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `CONFigure:SEQuence:LINK` | `OFF`，或 `LOOPBACK\|RJ45,<dut_slot>,<vna_slot>,<ready_in>,<OUT#>,<pulse_us>,<timeout_ms>,<edge>`，或 `POSITION,<counter_slot>,<dut_slot>,<vna_slot>,<counter_in>,<counter_threshold>,<ready_in>,<OUT#>,<pulse_us>,<timeout_ms>,<edge>` | `1`，或 `REJECTED,<result>,<tdma_result>,<gateway_result>,<rollback_result>` | 配置成功返回 accepted；组合非法时返回 `REJECTED` 与四段诊断码，错误 token 留在错误队列 |
+| `READ:SEQuence:LINK?` |  | `sequence link block` | 读回配置、阶段、错误、绑定/模型 epoch、收发与 READY/完成计数、角色 IO 时序和最近 exchange 延迟 |
+| `READ:SEQuence:LINK:TRANsport?` |  | `transport block` | 读回 local-return 适配器 6 个计数和快照质量 |
+
+取值约束：`edge=RISing/FALLing`，`ready_in=MANUAL|IN1..IN4`，`OUT#=OUT1..OUT4`。
+`POSITION` 模式下 `counter_in` 只能取 `IN1..IN4`（不得为 `MANUAL`），`counter_threshold`
+必须非零，否则返回 `COUNTER_INPUT_OR_THRESHOLD_INVALID`。
+网关输出不得与编码输出重叠；组合 DUT source 固定为 `MANUAL`/`NONE`。
+
+`READ:SEQuence:LINK:TRANsport?` 的快照质量为 `FRESH` / `CACHED` / `UNAVAILABLE`：前两者都是
+一致快照，`UNAVAILABLE` 是显式可观测状态，不用 SCPI 失败或遗留错误队列表达。
+
+序列与 TDMA 都停止后才能修改 LINK 配置；运行中修改被拒绝，不是排队等待。
+
 ## 4. 运行控制指令
 
 | 指令 | 参数 | 响应 | 说明 |
@@ -316,6 +410,8 @@ wave_idx
 | `TRIGger:STOP` |  | `1` | accepted：中止当前扫描任务，清空未执行预约队列，保留配置、断点和日志；正常流程由扫描完成进入 COMPLETE |
 | `TRIGger:PAUSe` |  | `1` | 在下一个安全边界暂停；不截断正在执行的角度点内部动作 |
 | `TRIGger:CONTinue` |  | `1` | 从暂停角度继续；若因角度断点暂停，对当前断点做一次性越过 |
+| `TRIGger:SEQuence:NEXT` |  | `1` | 软件推进一步：`SOURce=MANUAL` 时直接请求一步；LINK 已开启时改走 LINK 网关 READY 通路，只有真实回环回帧通过后才请求 DUT 切步 |
+| `TRIGger:SEQuence:NEXT?` |  | `sequence state block` | 返回与 `READ:SEQuence:STATe?` 相同的运行状态块，不推进序列 |
 | `READ:TRIGger:STATe?` |  | `state block` | 读取 `mode,run_state,run_id,plan_id,current_angle,angle_index,angle_count,seq_index,seq_count,angle_pulse_count,missed_angle_pulse_count,late_count,error_code,reject_reason` |
 | `READ:TRIGger:PARameter?` |  | `param block` | 读取触发参数、序列 CRC、角度配置 CRC、同步门禁和校准 CRC |
 
@@ -324,6 +420,13 @@ wave_idx
 `4=SIM` 需要 `DEBUG+`；`START` 只允许在 IDLE/CONFIG/ARM 前安全边界进入运行，
 `STOP` 可在任意状态安全执行，`PAUSe/CONTinue` 和断点续测由现场测试 profile 决定是否显示，
 但不需要 `DEBUG` 权限。
+
+软件推进只保留 `TRIGger:SEQuence:NEXT` 一个写入口，且不带参数：`SOURce=MANUAL` 时接纳一步；
+LINK 网关为 `MANUAL` READY 时结束当前网关等待并发布 `READY_NEXT`；选择 `IN1..IN4` 时只允许
+真实输入完成推进，`TRIGger:SEQuence:NEXT` 返回 `SOURCE_MISMATCH`，防止软件源与外部源混用。
+`MANUAL` 只代替 VNA READY 输入，不能代替 `LINK_APPLIED` 或 `READY_NEXT` 的物理回环。
+`TRIGger:SEQuence:NEXT?` 是纯查询，不推进序列，也不清除错误。
+旧的 `TRIGger:SEQuence:STEP`、`CONFigure:SEQuence:NEXT` 和 `READ:SEQuence:NEXT?` 不再注册。
 
 典型流程：
 
@@ -385,6 +488,9 @@ TRIGger:STARt PLAN_A
 |---|---|---|---|
 | `READ:RUN:SUMMary?` |  | `summary block` | 兼容读取最近 RUN 摘要；产品上位机优先使用 `SYSTem:RUN:SUMMary?` |
 | `READ:STATistics?` | `[kind]` | `statistics block` | 读取 `e_vdc/e_act/e_pll/late/crc/seq` 统计摘要 |
+| `READ:SEQuence:STATe?` |  | `sequence state block` | 读回本地序列完整运行状态、游标、计数、时间和错误；`TRIGger:SEQuence:NEXT?` 返回同一块 |
+| `READ:SEQuence:COUNter?` |  | `sequence counter block` | 读回计数推进配置、事件/消费/半计数、历史容量和阶段 |
+| `READ:SEQuence:COUNter:HISTory?` | `<ordinal>` | `sequence counter history block` | 按序读回单条计数推进记录；未保留返回 `COUNTER_HISTORY_NOT_RETAINED` |
 
 `SYSTem:T2:DATA?` 字段：
 
@@ -481,6 +587,25 @@ CONFigure:CALibration:LINK:ADD SMA,A0,OUT1,A1,IN1,BIDIR,1,1
 CALibration:STARt SMA,A0,OUT1,A1,IN1
 READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1
 ```
+
+### 6.6 拓扑探测
+
+`CALibration:TOPology:PROBE` 是 RJ45 环的插入式拓扑探针：在 TDMA 环未启动时打开探针模式，
+用可配置的相位延时让相邻节点把回程帧再转发一次，用于确认物理接线、槽位顺序和往返路径。
+它不产生校准 delay，也不写 active 校准表。
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `CALibration:TOPology:PROBE` | `<enabled>[,<phase_delay_cycles>]` | `enabled,phase_delay_cycles` | `enabled=0` 关闭探针；`enabled=1` 必须给出 `phase_delay_cycles` |
+
+约束：
+
+| 条件 | 规则 |
+|---|---|
+| 环状态 | 必须在 `SYSTem:TDMA:RING:STATus?` 的 `enabled=0` 且 `adapter_started=0` 时配置；已启动的环拒绝 |
+| 相位延时 | `enabled=1` 时 `phase_delay_cycles` 必须落在 1..31；关闭时回读为 0 |
+| 拒绝 token | `CAL_TOPOLOGY_PROBE_REJECTED` |
+| 语义边界 | 探针只验证物理拓扑和转发路径，不是 delay 测量；链路 delay 仍走 `CALibration:STARt` |
 
 ## 7. 校准参数与流程
 
@@ -931,7 +1056,43 @@ owner task 后续接入。
 | `COMMunication:SERial:UART#:RX:COUNt?` |  | `<uart>,<byte_count>,<frame_count>` | 查询 UART# 接收计数 |
 | `COMMunication:SERial:UART#:ERRor?` |  | `<uart>,<error_count>,<last_error>` | 查询 UART# 错误计数和最近错误 |
 
-### 13.2 错误处理速查
+### 13.2 TDMA 环维护
+
+TDMA 环是 RJ45 物理环上的共同时间运输通道，维护指令负责拓扑声明、链路训练、启停和运行档位选择。
+环与序列 LINK 回环共用同一物理环，因此两者的配置必须成对：先 `SYSTem:TDMA:RING:STOP`，再改环配置
+或 `CONFigure:SEQuence:LINK`，最后重新 `ARM`/`STARt`。
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `SYSTem:TDMA:OPMode?` |  | `active profile,staged profile,stage_count,apply_count,reject_count,last_result` | 读回生效与暂存运行档位及暂存/应用/拒绝计数 |
+| `SYSTem:TDMA:OPMode:CATalog?` |  | `profile_count`，随后每档 6 字段 | 列出固件内置全部运行档位，每档为 `level,baud_hz,cycle_period_ns,train_cycles,flags,profile_crc32` |
+| `SYSTem:TDMA:OPMode:STAGe` | `<level>` | `level,baud_hz,cycle_period_ns,train_cycles,flags,profile_crc32` | 暂存运行档位，不立即生效；非法档位返回 `TDMA_OPMODE_STAGE` |
+| `SYSTem:TDMA:OPMode:APPLy` |  | `level,baud_hz,cycle_period_ns,train_cycles,flags,profile_crc32` | 把暂存档位应用为 active；环未停止时返回 `TDMA_OPMODE_APPLY_STOP_REQUIRED` |
+| `SYSTem:TDMA:RING:TOPOlogy` | `<node_count>,<local_slot>,<reference_slot>` | `QUEUED,<node_count>,<local_slot>,<reference_slot>,<owner_sequence>` | 经反射内存下发拓扑声明；`QUEUED` 只表示排队，生效由 owner 完成，须回读 `STATus?` 确认 |
+| `SYSTem:TDMA:RING:ARM` |  | `1` | 武装环，为启动做准备；拒绝 token `TDMA_RING_ARM` |
+| `SYSTem:TDMA:RING:TRAIn` | `<cycles>` | `<cycles>` | 按指定周期数做链路训练；拒绝 token `TDMA_RING_TRAIN` |
+| `SYSTem:TDMA:RING:STARt` |  | `1` | 启动环；拒绝 token `TDMA_RING_START` |
+| `SYSTem:TDMA:RING:STOP` |  | `1` | 停止环并取消正在进行的 TDMA 记录；拒绝 token `TDMA_RING_STOP` |
+| `SYSTem:TDMA:RING:STATus?` |  | `tdma ring block` | 读回环使能、节点数与槽位、上下行运行态、帧 CRC、时间戳和适配器错误计数 |
+| `SYSTem:TDMA:FLIGht:MODE` / `SYSTem:TDMA:FLIGht:MODE?` | `<0\|1>` / 无参数 | `OK,<process_image>` / `<forwarding_mode>` | 切换转发处理模式，`1` 表示转发帧进入处理镜像；拒绝 token `TDMA_FLIGHT_MODE` |
+
+环维护的典型顺序与调试工具一致：
+
+```scpi
+SYSTem:TDMA:OPMode:STAGe 2
+SYSTem:TDMA:OPMode:APPLy
+SYSTem:TDMA:RING:TOPOlogy 2,0,0
+SYSTem:TDMA:RING:ARM
+SYSTem:TDMA:RING:TRAIn 4096
+SYSTem:TDMA:RING:STARt
+SYSTem:TDMA:RING:STATus?
+```
+
+`OPMode:STAGe`/`APPLy` 只切换运行档位参数，不启动环；`ARM`/`STARt` 才是动作入口。
+`TOPOlogy` 返回 `QUEUED` 后必须回读 `STATus?` 的 `config_seq` 与 `applied_config_seq` 是否一致，
+不能把排队序号当作生效证据。
+
+### 13.3 错误处理速查
 
 | 场景 | 上位机处理 |
 |---|---|
@@ -958,6 +1119,12 @@ owner task 后续接入。
 | `sequence block` | `query_plan_id,query_index,sequence_crc,state_count,index_valid,state_id...` | 查询配置序列库；支持读取指定序列摘要或任意一条状态引用 |
 | `sequence check block` | `plan_id,state_count,sequence_crc,state_range_ok,map_crc_ok,switch_range_ok,pol_range_ok,freq_range_ok,wave_range_ok,duplicate_state,missing_state,reject_reason` | 详细预检结果；`TEST+` 可选读取，调试上位机可显示逐项诊断，功能上不替代 active sequence 查询 |
 | `sequence active block` | `active_plan_id,active_crc,state_count,valid,last_check_state,reject_reason` | 查询当前活动序列；测试上位机 START 前确认将要执行的 active sequence |
+| `sequence state block` | `state,run_id,generation,count,current_index,current_state,next_index,executed_index,executed_state,completed_index,completed_state,cycles,accepted,completed,busy_rejected,notready_rejected,cancelled,faults,error,written_at_us,completion_rise_at_us,completed_at_us,alarm_late_us,backend_fault` | `READ:SEQuence:STATe?` 与 `TRIGger:SEQuence:NEXT?` 共用；`state` 取 `IDLE/STARTING/READY/BUSY/PAUSING/PAUSED/STOPPING/FAULT`，未建立运行时 `backend_fault` 与时间字段为零 |
+| `sequence counter block` | `counter_enabled,counter_slot,counter_input,counter_threshold,counter_events,counter_consumed,counter_partial,counter_fault_events,history_total,history_retained,phase,error` | `READ:SEQuence:COUNter?` 固定字段；用于确认 POSITION 模式脉冲推进是否被接纳 |
+| `sequence counter history block` | `ordinal,run_id,generation,position,sequence_index,threshold_pulses,observed_pulses,outcome_flags` | `READ:SEQuence:COUNter:HISTory?` 单条记录；`outcome_flags` 按位表示该位置计数是否达标 |
+| `sequence link block` | `enabled,phase,error,binding_epoch,model_epoch,run_id,generation,step,tx_fragments,rx_messages,rejected,triggers,ready,completed,dut_slot,vna_slot,ready_input,trigger_output_mask,pulse_us,timeout_ms,falling,repeat_count,exchange_id,offer_delay_ms,return_delay_ms,inbox_delay_ms,message_total_ms` | `READ:SEQuence:LINK?` 固定字段；延迟字段描述请求/回程在网关内的驻留，不是物理边沿 |
+| `transport block` | `local_return_delivery,local_return_seen,local_return_seq16,local_return_last_reject,local_return_matches,local_return_published,quality` | `READ:SEQuence:LINK:TRANsport?` 固定字段；`quality=FRESH/CACHED/UNAVAILABLE`，`UNAVAILABLE` 时前 6 个值清零 |
+| `tdma ring block` | `enabled,node_count,local_slot_id,reference_slot_id,up_running,down_running,ring_seq,last_reason,adapter_started,adapter_service_count,up_tx_sequence,down_rx_sequence,up_tx_frame_crc32,down_rx_frame_crc32,idle_beacon_tx_count,idle_beacon_rx_count,feedback_round_trip_ns,timestamp_resolution_ns,timestamp_flags,reference_tx_timestamp_ns_lo,reference_tx_timestamp_ns_hi,feedback_rx_timestamp_ns_lo,feedback_rx_timestamp_ns_hi,adapter_last_error,adapter_tx_count,adapter_rx_count,adapter_rx_bad_count,adapter_rx_transport_bad_count,adapter_rx_schedule_bad_count,adapter_rx_profile_bad_count,adapter_last_bad_transport_result,adapter_last_bad_sequence,adapter_last_bad_schedule_crc32,adapter_last_bad_profile_crc32,adapter_last_bad_header_diff_count,adapter_last_bad_header_first_diff_offset,adapter_last_bad_header_expected_byte,adapter_last_bad_header_observed_byte,config_seq,applied_config_seq` | `SYSTem:TDMA:RING:STATus?` 固定字段；64 位时间戳按 lo/hi 两段输出，`config_seq` 与 `applied_config_seq` 不等表示 owner 尚未应用最新拓扑 |
 | `quality block` | `state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_us,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns` | VDC 同步质量统计；`lock_quality_tier=1/2/3` 对应 10 us / 1 us / 100 ns，按连续稳定样本晋级，只有 100 ns fine tier 可作为正式 RUN 质量依据 |
 | `ack block` | `command_seq,target_mask,ack_flags,nack_flags,busy_flags,timeout_flags,nack_reason[node]` | 分布式命令完成态；写命令返回 accepted 后由该 block 闭环 |
 | `fault block` | `fault_code,source_node,first_ts,last_ts,evidence_seq,sticky,recoverable,text` | 故障锁存证据 |
@@ -1027,6 +1194,7 @@ crc
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| `0.12` | 2026-10-27 | 按调试上位机 `tools/sequence_trigger_debug_ui` 实际使用的指令补齐 node-sequence 分支缺口：新增序列执行来源与本地输出（`SEQuence:SOURce/CODE/OUTPut/REPeat/IO`、`READ:IO:*?`）、节点槽位与角色装载（`SEQuence:NODE:ROLE/LOAD/ACTivate`）、序列 LINK 物理回环（`SEQuence:LINK` 及 `TRANsport?`）、软件推进入口（`TRIGger:SEQuence:NEXT`）、计数与运行状态读取（`READ:SEQuence:STATe?/COUNter?/COUNter:HISTory?`）、TDMA 环维护（`SYSTem:TDMA:OPMode*/RING:*/FLIGht:MODE`）和拓扑探针（`CALibration:TOPology:PROBE`）；同步补齐 `sequence state/counter/counter history/link/transport/tdma ring` 响应块字段顺序。修正正文引用了但未定义的 `READ:SEQuence:COUNter?`，并把 `Related` 中失效的 HTML 路径改为实际所在位置。 |
 | `0.11` | 2026-08-11 | 根据测试/调试上位机边界复审业务配置、序列状态和运行控制：角度触发脉冲归入角度域，明确转台在目标角度点输出脉冲、A0 每个角度完整执行 active sequence；测试上位机 RUN 中只从网分取数据，调试上位机面向当前系统任意状态验证和控制，并通过 `TEST/SERVICE/DEBUG/FACTORY` 四级权限 profile、状态策略表、资源仲裁和 ACK 闭环执行、排队或拒绝；新增专门调试功能页；RUN 后摘要归入 `SYSTem:RUN:*` 日志/复盘接口。 |
 | `0.10` | 2026-08-11 | 按产品化页面阅读方式重新分页：系统 2 页、校准 4 页、同步 4 页、维护 2 页；系统域补齐模式表、资源表、故障表、反射内存、配置 ACK、core/protection 和兼容状态查询；DPLL 调试范围移入同步状态与门禁页。 |
 | `0.9` | 2026-08-11 | 结合 HAOFV 和 RTOS 分区架构复审 CAL/SYNC：补分布式 ACK 闭环、节点新鲜度门禁、HOLDOVER/RELOCK 保守策略、flash/storage 持久化门禁、epoch/run_id 追溯和表驱动 owner/seq/CRC/stale 字段。 |
