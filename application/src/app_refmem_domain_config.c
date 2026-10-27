@@ -296,27 +296,17 @@ static bool vdc_start_handler(const uint32_t *params, uint32_t param_words,
 static bool trigger_start_handler(const uint32_t *params, uint32_t param_words,
                                   uint32_t *reason)
 {
-    if (params == NULL || param_words != 1u) {
+    if (params == NULL || param_words != 4u) {
         return reject(reason);
     }
-    /* The plan source is the existing T2 action table; no second sequence
-     * store is added.  The row is prepared and armed through the T2 owner. */
-    const uint32_t prepare = trigger_action_execution_prepare(params[0]);
-    if (prepare != 0u) {
-        if (reason != NULL) {
-            *reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
-        }
-        return false;
+    /* New node-sequence table: START carries the optional 4-word plan_id
+     * (all zero = active plan).  The plan service/active-CRC gate is still
+     * owned by the node-sequence implementation, so fail closed until that
+     * backend is wired; do not fall back to a T2 action row index. */
+    if (reason != NULL) {
+        *reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
     }
-    const uint32_t arm = trigger_action_execution_arm();
-    if (arm != 0u) {
-        (void)trigger_action_execution_stop();
-        if (reason != NULL) {
-            *reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
-        }
-        return false;
-    }
-    return true;
+    return false;
 }
 
 static bool trigger_stop_handler(const uint32_t *params, uint32_t param_words,
@@ -409,7 +399,7 @@ bool app_refmem_domain_config_init(void)
                                          vdc_stop_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_VDC_START, 0u,
                                          vdc_start_handler) &&
-           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_START, 1u,
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_START, 4u,
                                          trigger_start_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_STOP, 0u,
                                          trigger_stop_handler) &&
@@ -428,3 +418,4 @@ bool app_refmem_domain_config_init(void)
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_UNMOUNT, 0u,
                                          t2_unmount_handler);
 }
+
