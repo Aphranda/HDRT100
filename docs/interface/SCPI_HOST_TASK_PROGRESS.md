@@ -8,6 +8,18 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-027：REFMEM fragment RX=0，target 分发阻断
+
+- **查询**：`SYSTem:REFMEM:LOAD:STATus?`
+  - COM5（协调者）：`1,2,2,...`（有提交/发送）；
+  - COM4/COM3/COM6（目标）：`1,0,0,...`（**rx=0**）。
+- **结论**：target>1 的命令 fragment 已提交到 maintenance runtime，但目标板没有收到；
+  这不是 handler/plan 的问题，而是 **REFMEM fragment/维护流 carriage 未闭环**。
+- **影响**：四板 CONFigure/SEQUENCE/ACTIVE/START 全部 PENDING/timeout；本地 target1 正常。
+- **证据**：本轮 `SYSTem:REFMEM:LOAD:STATus?` 输出；`out/n7/local_hil/four_board_start.txt`。
+- **下一步**：检查 `tdma_maintenance_runtime` 的 REFMEM_FRAGMENT 目标/掩码/ring 路由；
+  这是 IF-002/IF-018 的前置，handler 层无法修复。
+
 ### SCPI-PROGRESS-20261027-026：target slot 映射确认，远程命令仍未消费
 
 - **slot 映射**：`distributed_refmem_local_slot() = board_identity_no - 1`；NO2 → slot1 → bit2。
