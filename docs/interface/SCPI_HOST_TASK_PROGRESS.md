@@ -8,6 +8,19 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-002：IF-012 基线移植尝试与 RAM 阻塞
+
+- **范围**：在 `wip/node-seq-refmem` 上移植 `trigger_sequence_config.h/.c`、
+  `trigger_sequence_service.h/.c`，并接入 `sync_trigger_init()` 与 core1 `trigger_sequence_service_service()`。
+- **编译**：C 源文件编译通过；补齐 `sync_trigger_sequence_can_start()` 后无编译错误。
+- **链接（阻塞）**：全量 `STATE_MAX=256/PLAN_MAX=4` → **RAM overflow 4460 B**；
+  降为 `64/2` → overflow **204 B**；降为 `48/2` → overflow **28 B**。
+  结论：**容量/内存预算未冻结前不能合入**；不得静默降容量。
+- **WIP 保存**：`refs/wip/node-seq-port-wip`（stash `7aa48d4b`），已切回
+  `wip/closeout-all-domains`；未提交固件代码，未跑 P3。
+- **下一步**：IF-020 决定 `STATE_MAX/PLAN_MAX` 或释放 RAM；再重新应用 WIP、构建、P3。
+- **门禁**：本轮只提交文档；`docs_check`/`doc_regression` 通过。
+
 ### SCPI-PROGRESS-20261027-001：IF-011 基线评估与 node-sequence 映射冻结
 
 - **范围**：`origin/feature/node-sequence-reservation-trigger` 的 24 条 set/action → REFMEM 统一面。
