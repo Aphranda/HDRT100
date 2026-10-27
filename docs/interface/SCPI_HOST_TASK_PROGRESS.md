@@ -8,6 +8,18 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-035：heap 水位与 START 仅到 READY
+
+- **heap**（`SYSTem:RTOS:STAT?`，4 板）：free/min 均 **10104 B**；heap 106 KiB 下仍有约 10 KB 余量。
+  最低栈余量为既有 `loop_engine` 42 B、`ota` 98 B、`usb_device` 30 B。
+- **START 行为**：配置 + plan + ACTIVE + START 后等待 2 s，
+  `READ:TRIGger:STATe?` 仍为 `READY`，`angle_index=0`、`seq_index=0`；
+  未进入 `WAIT_ANGLE_PULSE/SEQ_RUNNING`。
+- **结论**：START ACK 只到 service READY；角度脉冲/运行循环尚未驱动 sequence，
+  不能把“START 正向”标成完整运行。
+- **证据**：本轮 `SYSTem:RTOS:STAT?`、`READ:TRIGger:STATe?`。
+- **下一步**：实现 angle pulse → service step 的驱动，再验 RUN/COMPLETE。
+
 ### SCPI-PROGRESS-20261027-034：READ:SEQuence/ACTive 返回真实 plan
 
 - **实现**：`READ:SEQuence?` 读 `trigger_sequence_get_plan(store,NULL)`；
