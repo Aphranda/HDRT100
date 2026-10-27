@@ -371,6 +371,75 @@ static bool trigger_switch_handler(const uint32_t *params,
     return true;
 }
 
+static bool trigger_mode_handler(const uint32_t *params, uint32_t param_words,
+                                 uint32_t *reason)
+{
+    if (params == NULL || param_words != 1u) {
+        return reject(reason);
+    }
+    /* Mode owner wiring is part of IF-013; fail closed until the trigger
+     * mode state machine exposes the TEST/SERVICE/DEBUG policy. */
+    return reject(reason);
+}
+
+static bool trigger_configure_handler(const uint32_t *params,
+                                      uint32_t param_words, uint32_t *reason)
+{
+    if (params == NULL || param_words != 4u) {
+        return reject(reason);
+    }
+    return reject(reason);
+}
+
+static bool trigger_angle_sweep_handler(const uint32_t *params,
+                                        uint32_t param_words, uint32_t *reason)
+{
+    if (params == NULL || param_words != 6u) {
+        return reject(reason);
+    }
+    return reject(reason);
+}
+
+static bool trigger_angle_pulse_handler(const uint32_t *params,
+                                        uint32_t param_words, uint32_t *reason)
+{
+    if (params == NULL || param_words != 3u) {
+        return reject(reason);
+    }
+    return reject(reason);
+}
+
+static bool trigger_angle_breakpoint_handler(const uint32_t *params,
+                                             uint32_t param_words,
+                                             uint32_t *reason)
+{
+    if (params == NULL || param_words != 2u) {
+        return reject(reason);
+    }
+    return reject(reason);
+}
+
+static bool trigger_angle_breakpoint_clear_handler(const uint32_t *params,
+                                                   uint32_t param_words,
+                                                   uint32_t *reason)
+{
+    (void)params;
+    if (param_words != 0u) {
+        return reject(reason);
+    }
+    return reject(reason);
+}
+
+static bool trigger_sequence_active_handler(const uint32_t *params,
+                                            uint32_t param_words,
+                                            uint32_t *reason)
+{
+    if (params == NULL || param_words != 4u) {
+        return reject(reason);
+    }
+    return reject(reason);
+}
+
 bool app_refmem_domain_config_init(void)
 {
     refmem_domain_config_reset();
@@ -399,6 +468,8 @@ bool app_refmem_domain_config_init(void)
                                          vdc_stop_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_VDC_START, 0u,
                                          vdc_start_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_MODE, 1u,
+                                         trigger_mode_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_START, 4u,
                                          trigger_start_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_STOP, 0u,
@@ -411,6 +482,21 @@ bool app_refmem_domain_config_init(void)
                                          trigger_abort_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_SWITCH, 2u,
                                          trigger_switch_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_CONFIGURE, 4u,
+                                         trigger_configure_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_ANGLE_SWEEP,
+                                         6u, trigger_angle_sweep_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_ANGLE_PULSE,
+                                         3u, trigger_angle_pulse_handler) &&
+           refmem_domain_config_register(
+               REFMEM_COMMAND_TYPE_TRIGGER_ANGLE_BREAKPOINT, 2u,
+               trigger_angle_breakpoint_handler) &&
+           refmem_domain_config_register(
+               REFMEM_COMMAND_TYPE_TRIGGER_ANGLE_BREAKPOINT_CLEAR, 0u,
+               trigger_angle_breakpoint_clear_handler) &&
+           refmem_domain_config_register(
+               REFMEM_COMMAND_TYPE_TRIGGER_SEQUENCE_ACTIVE, 4u,
+               trigger_sequence_active_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_CONFIGURE, 13u,
                                          t2_configure_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_MOUNT, 3u,

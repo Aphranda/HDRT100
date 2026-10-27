@@ -410,3 +410,101 @@ commands:
     required_capabilities: 0
     idempotent: false
     timeout_us: 0
+
+  - id: 35
+    name: TRIGGER_MODE
+    scpi: "TRIGger:MODE"
+    command_type: TRIGGER_MODE
+    owner: TRIGGER
+    realtime: false
+    param_words: 1
+    param_kind: inline
+    params: [mode]
+    allowed_states: [0, 1, 2, 3, 4]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0
+
+  - id: 41
+    name: TRIGGER_CONFIGURE
+    scpi: "CONFigure:TRIGger"
+    command_type: TRIGGER_CONFIGURE
+    owner: TRIGGER
+    realtime: false
+    param_words: 4
+    param_kind: inline
+    params: [chan_cnt, pol, freq_cnt, wave_cnt]
+    allowed_states: [0, 1, 2, 3, 4]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0
+
+  - id: 42
+    name: TRIGGER_ANGLE_SWEEP
+    scpi: "CONFigure:ANGLe:SWEEP"
+    command_type: TRIGGER_ANGLE_SWEEP
+    owner: TRIGGER
+    realtime: false
+    param_words: 6
+    param_kind: inline
+    params: [start_deg, stop_deg, step_deg]
+    allowed_states: [0, 1, 2, 3, 4]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0
+
+  - id: 43
+    name: TRIGGER_ANGLE_PULSE
+    scpi: "CONFigure:ANGLe:PULSe"
+    command_type: TRIGGER_ANGLE_PULSE
+    owner: TRIGGER
+    realtime: false
+    param_words: 3
+    param_kind: inline
+    params: [edge, pulse_width_us, timeout_ms]
+    allowed_states: [0, 1, 2, 3, 4]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0
+
+  - id: 44
+    name: TRIGGER_ANGLE_BREAKPOINT
+    scpi: "CONFigure:ANGLe:BREAkpoint"
+    command_type: TRIGGER_ANGLE_BREAKPOINT
+    owner: TRIGGER
+    realtime: false
+    param_words: 2
+    param_kind: inline
+    params: [present, angle_deg]
+    allowed_states: [0, 1, 2, 3, 4]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0
+
+  - id: 46
+    name: TRIGGER_ANGLE_BREAKPOINT_CLEAR
+    scpi: "CONFigure:ANGLe:BREAkpoint:CLEar"
+    command_type: TRIGGER_ANGLE_BREAKPOINT_CLEAR
+    owner: TRIGGER
+    realtime: false
+    param_words: 0
+    param_kind: inline
+    params: []
+    allowed_states: [0, 1, 2, 3, 4]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 47
+    name: TRIGGER_SEQUENCE_ACTIVE
+    scpi: "CONFigure:SEQuence:ACTive"
+    command_type: TRIGGER_SEQUENCE_ACTIVE
+    owner: TRIGGER
+    realtime: false
+    param_words: 4
+    param_kind: inline
+    params: [plan_id_0, plan_id_1, plan_id_2, plan_id_3]
+    allowed_states: [0, 1, 2, 3, 4]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0

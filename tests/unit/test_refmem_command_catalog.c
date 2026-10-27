@@ -1,4 +1,4 @@
-#include <assert.h>
+﻿#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -6,7 +6,7 @@
 
 int main(void)
 {
-    assert(refmem_command_catalog_count == 27u);
+    assert(refmem_command_catalog_count == 34u);
 
     const refmem_catalog_entry_t *board =
         refmem_command_catalog_find_by_id(REFMEM_CMD_ID_REFMEM_LOAD_BOARD);
@@ -80,3 +80,4 @@ int main(void)
     printf("refmem_command_catalog: lookup/validate OK\n");
     return 0;
 }
+
