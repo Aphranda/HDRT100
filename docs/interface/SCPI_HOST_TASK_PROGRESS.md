@@ -8,6 +8,20 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-014：确认 T2/sync_io 即已移植 node-sequence
+
+- **口径**：T2 action table + `components/sync_io/sync_io_sequence` 就是已移植的
+  node-sequence，不再新增 `trigger_sequence_config/service` 副本。
+- **清理**：重复移植的 4 个 service 文件已归档到 `out/n7/archive/ported-seq/`，
+  CMake/sync_trigger/app 接线已回退，构建不引用。
+- **映射**：`CONFigure:TRIGger` 状态展开 → `sync_io_sequence_arm_plan`/T2 action table；
+  `CONFigure:SEQuence` → T2 generation/rows；`STARt [plan_id]` → T2 generation，
+  不用 row index。
+- **残留**：PAUSE/CONTINUE 的 `sync_io_sequence_pause` 要求 core1，当前 core0 handler
+  fail-closed；ANGLe 配置尚无 owner API。
+- **下一步**：在 `sync_io_sequence` 现有 API 上接 `CONFigure:TRIGger`/ANGLE 配置，
+  不新增 service/owner。
+
 ### SCPI-PROGRESS-20261027-013：IF-013 catalog 覆盖与后端阻塞
 
 - **测试**：`test_refmem_command_catalog` 扩展为覆盖 13 条 Trigger 命令

@@ -848,18 +848,21 @@ REFMEM handler 只做参数校验、target/required、ACK/NACK；实际动作由
 - `UART`、`SCPI PERMission/ROLE`、`FAULT:CLEar`、`CAL LOAD/STOP`、`SYNC SAVE/LOAD`：本地/安全/bring-up。
 - 旧分支的 `CONFigure:ANGLe:PULSe/BREAkpoint` unsupported 结论作废；新表已把它们纳入配置面。
 
-### 14.6 T2 静态表复用（2026-10-27 修正）
+### 14.6 T2 / sync_io 复用（2026-10-27 修正）
 
-- **不新增 `trigger_sequence_store_t`**。node-sequence 的 plan/sequence 表复用 T2 已有的
-  `trigger_action_table_t`（`TRIGGER_ACTION_TABLE_CAPACITY=8`）与
-  `trigger_action_execution_prepare/arm/stop`。
-- `CONFigure:SEQuence` 把 plan/state 行映射到 T2 action table generation/rows；
-  `SEQuence:ACTive` 选择 T2 installed generation，不建立第二份计划表。
-- `TRIGger:STARt [plan_id]` 仍按新指令表使用 plan ID（0/4 words），**不改成 row index**；
-  T2 action table 只作为 plan 的存储/执行后端。
-- `TRIGger:STOP/ABORt` 对应 `trigger_action_execution_stop/release`；
-  `PAUSE/CONTINUE` 在 T2 action execution 没有对应语义，保持 fail-closed。
-- 这样 RAM 不增加；当前 1-word row-index 封装是旧版临时壳，必须回退到 plan ID。
+- **T2 action table + `components/sync_io/sync_io_sequence` 就是已移植的 node-sequence 实现**；
+  不再新增 `trigger_sequence_config/service` 副本，也不新增第二份序列表。
+- `CONFigure:TRIGger` 把 chan/pol/freq/wave 自动展开为状态行，最终交给
+  `sync_io_sequence_arm_plan`/T2 action table 执行；
+  `CONFigure:SEQuence` 把 plan_id + state_id 列表映射到 T2 table 的 generation/rows；
+  `SEQuence:ACTive` 选择 T2 installed generation，不建立第二套计划表。
+- `TRIGger:STARt [plan_id]` 把 plan_id 解析到 T2 installed generation 后启动；
+  不带参数时使用当前 active generation；**不使用 row index**。
+- `TRIGger:STOP/ABORt` 对应 `sync_io_sequence_stop` / T2 `trigger_action_execution_stop`；
+  `PAUSE/CONTINUE` 走 `sync_io_sequence_pause`，但该 API 要求 core1，当前 core0 handler
+  仍 fail-closed。
+- 这样不新增 owner/RAM；重复移植的 4 个 service 文件已归档到
+  `out/n7/archive/ported-seq/`，不进入构建。
 
 ### 14.5 编码规则
 
