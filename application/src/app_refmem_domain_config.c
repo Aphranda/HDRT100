@@ -504,6 +504,36 @@ static bool trigger_angle_breakpoint_clear_handler(const uint32_t *params,
     return reject(reason);
 }
 
+static bool trigger_sequence_plan_handler(const uint32_t *params,
+                                         uint32_t param_words,
+                                         uint32_t *reason)
+{
+    if (params == NULL || param_words != 16u) {
+        return reject(reason);
+    }
+    char plan_id[33];
+    if (!decode_plan_id(params, plan_id)) {
+        return reject(reason);
+    }
+    const uint32_t count = params[4];
+    if (count == 0u || count > 11u) {
+        return reject(reason);
+    }
+    if (!trigger_sequence_service_configuration_begin()) {
+        return reject(reason);
+    }
+    const trigger_sequence_result_t result = trigger_sequence_write_plan(
+        trigger_sequence_service_config(), plan_id, &params[5], count);
+    trigger_sequence_service_configuration_end();
+    if (result != TRIGGER_SEQUENCE_OK) {
+        if (reason != NULL) {
+            *reason = (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+        }
+        return false;
+    }
+    return true;
+}
+
 static bool trigger_sequence_active_handler(const uint32_t *params,
                                             uint32_t param_words,
                                             uint32_t *reason)
@@ -590,6 +620,8 @@ bool app_refmem_domain_config_init(void)
            refmem_domain_config_register(
                REFMEM_COMMAND_TYPE_TRIGGER_SEQUENCE_ACTIVE, 4u,
                trigger_sequence_active_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_SEQUENCE_PLAN,
+                                         16u, trigger_sequence_plan_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_CONFIGURE, 13u,
                                          t2_configure_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_MOUNT, 3u,

@@ -1141,6 +1141,7 @@ static bool app_realtime_run_phase(
 
 #undef APP_DISPATCH_RAM
 
+__attribute__((aligned(32)))
 static void app_realtime_tdma_phase(void)
 {
     tdma_service_timing_phase_begin();

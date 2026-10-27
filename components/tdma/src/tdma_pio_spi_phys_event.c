@@ -1463,6 +1463,7 @@ static void tdma_event_recovery_step(tdma_pio_spi_phys_t *phys)
     tdma_event_publish_state(phys);
 }
 
+__attribute__((aligned(32)))
 void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
 {
     if (!tdma_pio_spi_phys_event_selected(phys) || !phys->armed) {
