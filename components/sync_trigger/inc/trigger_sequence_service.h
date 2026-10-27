@@ -143,6 +143,7 @@ trigger_sequence_service_result_t trigger_sequence_service_counter_inject(
 void trigger_sequence_service_service(void);
 void trigger_sequence_service_get_status(trigger_sequence_service_status_t *status);
 bool trigger_sequence_service_is_active(void);
+bool trigger_sequence_service_pending(void);
 /* A bounded read of the command mailbox, before the owner publishes STOPPING.
  * Realtime coordinators must not submit another action over a pending STOP. */
 bool trigger_sequence_service_stop_pending(void);

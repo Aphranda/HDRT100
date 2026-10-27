@@ -1169,7 +1169,9 @@ static void app_realtime_tdma_phase(void)
     uint64_t timing_start = tdma_service_timing_now();
     sync_io_logic_analyzer_service_core1(8u);
     tdma_service_timing_record(TDMA_TIMING_ANALYZER, timing_start);
-    trigger_sequence_service_service();
+    if (trigger_sequence_service_pending()) {
+        trigger_sequence_service_service();
+    }
     timing_start = tdma_service_timing_now();
     drv_watchdog_mark_progress(1u, 0x0101u);
     diagnostics_record_core1_loop();

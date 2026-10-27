@@ -758,6 +758,13 @@ bool trigger_sequence_service_is_active(void)
     return status.state != TRIGGER_SEQUENCE_SERVICE_IDLE;
 }
 
+bool trigger_sequence_service_pending(void)
+{
+    return __atomic_load_n(&s_command, __ATOMIC_ACQUIRE) != COMMAND_NONE ||
+           __atomic_load_n(&s_processing, __ATOMIC_ACQUIRE) ||
+           trigger_sequence_service_is_active();
+}
+
 const char *trigger_sequence_service_result_name(trigger_sequence_service_result_t result)
 {
     static const char *const names[] = { "NONE", "INVALID_ARGUMENT", "FROZEN",
