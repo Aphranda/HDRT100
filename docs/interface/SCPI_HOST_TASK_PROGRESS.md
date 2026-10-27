@@ -8,6 +8,15 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-029：广播 target15 ACK，单目标 target2 仍 PENDING
+
+- **窗口**：COM4/COM3/COM6 的 `REFMEM:CONFig:BEGIN` 均已打开（`STATus?=1,1`）。
+- **广播**：`41,15,15,8,2,5,1` → QUEUED，6 s 后 `CTRL:STATus?` **state=4 ACKED**。
+- **单目标**：`41,2,2,...` → 4 s 后仍 PENDING；随后 `41,3,2` 因单槽被占直接 timeout。
+- **结论**：维护流不是完全不通；**广播 target_mask=15 能 ACK，单目标 bit2 不能**。
+  下一步应在清空 PENDING 槽后验证 NO2 的真实 target bit（可能不是 slot bit2，而是 node bit4），
+  并对比 broadcast 与单目标路径；不要改 handler。
+
 ### SCPI-PROGRESS-20261027-028：目标窗口已开，6 s 后仍 PENDING
 
 - **按 HAOFV 既有路径复测**：COM4 `SYSTem:REFMEM:CONFig:BEGIN` → `1`，
