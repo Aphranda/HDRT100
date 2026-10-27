@@ -8,6 +8,20 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-033：ANGLe 查询返回真实配置
+
+- **实现**：`READ:ANGLe:SWEEP?/PULSe?/BREAkpoint?` 改读 `trigger_sequence_service_get_angle()`，
+  不再返回硬编码 `-10/370/381/PLAN_A`。
+- **硬件**（build `20261027135824`）：
+  - SWEEP：`-10,370,1,381,0`；
+  - PULSe：`RISING,10,30000,0,0,0,"OK",1,10`（pulse_hz=10 = speed10/step1）；
+  - BREAkpoint：`0,1,0,0`。
+- **RAM**：double 查询增加格式化开销，`configTOTAL_HEAP_SIZE` 107→106 KiB 后链接通过；
+  heap 余量需后续 RTOS 水位复核。
+- **凭证**：P3 `20261027135824`、scope `QUICK`、trials=8。
+- **证据**：`out/n7/local_hil/angle_q.txt`。
+- **提交**：`7d2beade`。
+
 ### SCPI-PROGRESS-20261027-032：READ:TRIGger:STATe? 接真实状态
 
 - **实现**：`scpi_trigger_state_q` 不再返回硬编码 `PLAN_A/381`，改为读
