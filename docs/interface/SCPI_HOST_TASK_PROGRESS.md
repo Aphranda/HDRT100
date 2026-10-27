@@ -8,6 +8,18 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-025：四板 target2 命令 PENDING
+
+- **现场**：T2 ring steps 1–20 全 OK；build `20261027101303`。
+- **实测**：target_mask=2、required=2 的
+  `41` CONFigure:TRIGger / `48` plan 均 QUEUED 后 **PENDING**，无目标 ACK；
+  `47` ACTIVE / `36` START 直接 timeout。
+- **对比**：本地 target_mask=1 同一 build 全部 ACK；8 通道 START 已通过。
+- **结论**：四板 target2 分发/ACK 未闭环；可能是目标 slot 位、目标 command
+  service 或 process-image 通道问题，当前不能把四板算完成。
+- **证据**：`out/n7/local_hil/four_board_start.txt`、`out/n7/four_board_ring.log`。
+- **下一步**：先确认 target_mask 的 slot 位与 NO2 映射，再查目标 command service。
+
 ### SCPI-PROGRESS-20261027-024：8 通道映射 START ACK
 
 - **实现**：4 output lane 用二进制 code 映射 8 个 SP8T 通道：
