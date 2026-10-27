@@ -8,6 +8,18 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-019：guard-only P3 通过，回归锁定 plan 命令
+
+- **guard-only**（只加 `trigger_sequence_service_pending()` 条件调用）：
+  build `20261027075933`，P3 **PASS_WITH_WARNINGS**；已提交 `15eb65f6`。
+- **plan 命令**（type 48 + catalog + handler）：
+  build `20261027074119` 连续 4 次 TRN-03B；相对 guard-only 仍失败。
+- **结论**：TRN-03B 回归锁定在 `CONFigure:SEQuence` 增量，不在 guard；
+  plan patch 仍归档在 `out/n7/seq_plan_guard.patch`，未提交。
+- **下一步**：对 plan 增量再二分（只加 catalog 行 / 只加 handler / 只加注册），
+  定位后再合入。
+- **当前主线**：service/config + guard + `CONFigure:TRIGger` ACK，P3 `20261027075933`。
+
 ### SCPI-PROGRESS-20261027-018：plan/guard 增量导致 P3 TRN-03B，已归档回退
 
 - **基线对比**：回刷已通过的 build `20261027070203`（service/config + IF-013 ACK），
