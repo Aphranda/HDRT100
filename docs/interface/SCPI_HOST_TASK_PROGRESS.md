@@ -8,6 +8,19 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-034：READ:SEQuence/ACTive 返回真实 plan
+
+- **实现**：`READ:SEQuence?` 读 `trigger_sequence_get_plan(store,NULL)`；
+  `READ:SEQuence:ACTive?` 读 `trigger_sequence_get_active()`；不再硬编码 PLAN_A/6。
+- **硬件**（build `20261027140903`）：
+  - 初始：`"",0,0,0,...`；ACTIVE：`"",0,0,0,"FAIL","NO_ACTIVE_PLAN"`；
+  - 配置+plan+ACTIVE 后：`"PLAN_A",1,2536602160,3,1,0,1,2,...`；
+  - ACTIVE：`"PLAN_A",2536602160,3,1,"PASS","NONE"`。
+- **凭证**：P3 `20261027140903`、scope `QUICK`、trials=8。
+- **证据**：`out/n7/local_hil/seq_q.txt`。
+- **提交**：`b727b2e6`。
+- **残余**：远程 target 仍 PENDING；plan 仍 ≤11 states；ANGLe RUN 计数未实现。
+
 ### SCPI-PROGRESS-20261027-033：ANGLe 查询返回真实配置
 
 - **实现**：`READ:ANGLe:SWEEP?/PULSe?/BREAkpoint?` 改读 `trigger_sequence_service_get_angle()`，
