@@ -829,6 +829,7 @@ REFMEM handler 只做参数校验、target/required、ACK/NACK；实际动作由
 | `CONFigure:ANGLe:PULSe` | 43 | edge/width_us/timeout_ms (3) | A0 角度脉冲输入；不再标 unsupported |
 | `CONFigure:ANGLe:BREAkpoint` | 44 | present + angle bits (2) | 运行/暂停中可省略角度用当前游标 |
 | `CONFigure:ANGLe:BREAkpoint:CLEAr` | 45 | 0 | 只清断点/命中，不自动继续 |
+| `CONFigure:ANGLe:SPEEd` | 49 | speed IEEE-754 (2) | 角度速度，用于计算每秒输入脉冲数 |
 | `CONFigure:SWITch#` | 46 | number + value (2) | `#=1`:1..8；`#=2`:0/1 |
 | `CONFigure:SEQuence:ACTive` | 47 | plan_id packed (4) | RUN 中禁止切换 |
 
@@ -870,6 +871,8 @@ REFMEM handler 只做参数校验、target/required、ACK/NACK；实际动作由
 - `CONFigure:ANGLe:SWEEP`：3 个 IEEE-754 32-bit（start/stop/step）。
 - `CONFigure:ANGLe:PULSe`：edge enum + pulse_width_us + timeout_ms（3 words）。
 - `CONFigure:ANGLe:BREAkpoint`：present flag + angle IEEE-754（2 words）。
+- `CONFigure:ANGLe:SPEEd`：角度速度（deg/s，IEEE-754 32-bit）；每秒输入脉冲数按
+  `pulse_hz = speed_deg_s / step_deg` 计算；step 必须非 0，结果做上下限校验。
 - double：IEEE-754 32-bit 位模式；target 侧校验有限值与范围。
 - 参数超过 16 words：走参数区 `payload_ref`/`payload_size`/`payload_crc32`，或 table package。
 - ACK 后必须能通过 `READ:TRIGger:STATe?`/`READ:SEQuence:ACTive?` 等回读，不能只看 OK。

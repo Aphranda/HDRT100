@@ -8,6 +8,16 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-017：ANGLe 速度参数纳入角度配置
+
+- **用户口径**：ANGLe 需要一个速度参数，用于计算每秒输入脉冲数量。
+- **映射**：新增 `CONFigure:ANGLe:SPEEd`（type 49，2 words IEEE-754）：
+  `pulse_hz = speed_deg_s / step_deg`，step 必须非 0，结果做上下限校验。
+- **范围**：IF-013 从 7 条调整为 **8 条**；`ANGLe:SPEEd` 是 2026-09-01 表之外的
+  用户补充项。
+- **状态**：仅文档冻结；ANGLe 后端仍未实现，等待与 SWEEP/PULSe/BREAkpoint 一起落地。
+- **待确认**：speed 单位按 **deg/s** 处理；若实际是 pulse/s 或 rpm，需要改公式。
+
 ### SCPI-PROGRESS-20261027-016：CONFigure:SEQuence 小 plan 写入验证，P3 阻塞
 
 - **实现**（未提交）：新增 command_type 48 `TRIGGER_SEQUENCE_PLAN`，16 words =
