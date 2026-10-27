@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
 Related: `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/interface/SCPI_COMMANDS.md`, `docs/archive/TASK_PROGRESS.md`
-Last updated: 2026-08-11
+Last updated: 2026-10-28
 
 版本：0.11
 日期：2026-08-13
@@ -371,6 +371,19 @@ TRIGger:STARt PLAN_A
 | `COMPLETE` | 扫描角度范围完成，RUN 摘要已锁存或可读取 |
 | `HOLDOVER` | 同步或节点新鲜度短时异常，停止新增预约 |
 | `FAULT` | 故障锁存，要求读取证据并清除 |
+
+> **实现对照（2026-10-28，快照，非契约）**：上表是**建议命名**，固件里目前没有这 9 个状态名。
+> 实际存在两套状态，各自的归属必须分清：
+>
+> | 状态来源 | 现有取值 | 观测入口 |
+> |---|---|---|
+> | `trigger_sequence_service`（服务层 arm 状态） | `IDLE/STARTING/READY/BUSY/PAUSING/PAUSED/STOPPING/FAULT` | `READ:TRIGger:STATe?` 第 2 字段 |
+> | T2 runtime（真正的按位置执行） | `configured/active` + 每位置 `action_armed/completed/failed` | `READ:TRIGger:STATe?` 第 15–24 字段、`TRIGger:REServation:T2?`、`T2:ACTion?` |
+>
+> 因此**不要把 `READY` 读成"未开始"**：`TRIGger:STARt` 的语义是"配置完成、已 arm、
+> 等转台输入脉冲"，`READY` 就是等待态本身；脉冲到达后由 T2 按角色本地 FIFO 推进整段序列。
+> 另：`TRIGger:STARt` 是**单节点命令**——只有脉冲源节点（部署表 COUNTER 角色）执行，
+> 其余角色 fail-closed（`PERMISSION_DENIED`），不得回假 ACK。
 
 ## 5. 状态与数据读取
 
