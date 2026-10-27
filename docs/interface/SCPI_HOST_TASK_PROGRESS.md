@@ -8,6 +8,20 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-032：READ:TRIGger:STATe? 接真实状态
+
+- **实现**：`scpi_trigger_state_q` 不再返回硬编码 `PLAN_A/381`，改为读
+  `trigger_sequence_service_get_status()`、`trigger_sequence_service_get_angle()` 和
+  `trigger_sequence_get_active()`。
+- **硬件**（build `20261027134553`）：
+  - 初始：`TRIG,IDLE,0,"",...`；
+  - 配置 + plan + ACTIVE 后：`TRIG,IDLE,0,"PLAN_A",...`；
+  - START 后：`TRIG,READY,1,"PLAN_A",...,3,...`（run_id=1、seq_count=3）。
+- **凭证**：P3 `20261027134553`、scope `QUICK`、trials=8。
+- **证据**：`out/n7/local_hil/stateq.txt`。
+- **提交**：`7a5a1f8b`。
+- **残余**：角度计数/脉冲计数仍为 0（angle RUN 未实现）；远程 target 仍 PENDING。
+
 ### SCPI-PROGRESS-20261027-031：广播 ACK 是假 ACK，已修复为 PENDING
 
 - **根因**：`distributed_refmem_mirror_local_control()` 无条件把本地 command slot 的
