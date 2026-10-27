@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-015`。
+- 最新条目：`REFMEM-TASK-20261027-016`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,19 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-016 — 四板 VDC 正向通过：目标闭环
+
+- 状态：**四板 VDC `FUNC_VDC_RECONFIG` 正向 ✅；统一控制面目标闭环。**
+- 关键修正：此前 `reason=7` 是**参数非法**，不是 reference 不退休：
+  - `input_port=0` 非法（1..4），`timeout_ms=100 <= window_ms=1000` 非法（必须 `timeout_ms > window_ms`）。
+  - 合法参数：`input_port=4`、`edge=0`、`nominal=10000000`、`window_ms=1000`、`timeout_ms=2500`；timing `12000/16000/6000`。
+- 本地：`FUNC_VDC_RECONFIG,1,1,4,0,10000000,1000,2500,0,12000,16000,6000` → `COMPLETED/ack=1`，timing 读回 `12000,16000,6000`。
+- 四板（process-image 环）：`FUNC_VDC_RECONFIG,14,14,...` → `state=2 COMPLETED`、step 4/4、`ack=14`、`nack=0`；COM4/3/6 `VDC:OUTPut:TIMing?` 均 `12000,16000,6000`；四板 ring `up/down=1`、TX/RX 推进。
+- 证据：`out/n7/local_hil/vdc_function_success.txt`、`out/n7/four_board_hil/vdc_positive_four_board.txt`、`trn03_vdc4_1/`。
+- 边界：`T2_MOUNT/START` 仍 `NOT_ONLINE_SAFE`（需 running-safe 位置复位），属于已声明首版边界，不是本轮回归。
+- 处置：HIL 后 `RING:STOP` 四板。
+- 结论：N6.0–N6.5、N7.1–N7.6 的目标范围均已闭环；可标记目标完成。
 
 ### REFMEM-TASK-20261027-015 — 四板 T2 正向通过：T2 读 STOP 暂存快照
 
