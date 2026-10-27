@@ -8,6 +8,21 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-024：8 通道映射 START ACK
+
+- **实现**：4 output lane 用二进制 code 映射 8 个 SP8T 通道：
+  `code = (switch1_ch-1) | (switch2_sel<<3)`，output mask `0xF`。
+- **硬件**（build `20261027101303`）：
+  - `41,1,1,8,2,5,1` CONFigure:TRIGger → ACK；
+  - `48` plan → ACK；
+  - `47` ACTIVE → ACK；
+  - `36` START → ACK；
+  - `37` STOP → ACK。
+- **凭证**：P3 `20261027101303`、scope `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、trials=8。
+- **证据**：`out/n7/local_hil/chan8.txt`。
+- **提交**：`2629957c`。
+- **残余**：P3 首次 TRN-03B、重试通过（布局敏感仍存在）。
+
 ### SCPI-PROGRESS-20261027-023：ANGLe 配置 ACK（deg/s）
 
 - **实现**：`trigger_sequence_service` 增加 angle 标量配置（SWEEP/PULSe/BREAkpoint/CLEar/SPEEd），
