@@ -1,4 +1,4 @@
-﻿#include "scpi_system_snapshot_commands.h"
+#include "scpi_system_snapshot_commands.h"
 #include "vdc_run_output.h"
 
 #include <stdbool.h>
@@ -722,7 +722,11 @@ scpi_result_t scpi_cmd_refmem_node_control_q(scpi_t *context)
     uint32_t crc32 = 0u;
     if (!distributed_refmem_node_control_read(node_id, &snapshot, &seq,
                                               &crc32)) {
-        return SCPI_RES_ERR;
+        /* 同 CTRL:STATus?：空记录应答而不是无响应。node_id 仍照实回填，
+         * 其余全零表示"该节点尚无命令事实"。 */
+        memset(&snapshot, 0, sizeof(snapshot));
+        seq = 0u;
+        crc32 = 0u;
     }
 
     SCPI_ResultUInt32(context, node_id);
@@ -924,7 +928,13 @@ scpi_result_t scpi_cmd_ctrl_status_q(scpi_t *context)
     uint32_t crc32 = 0u;
     if (!distributed_refmem_node_control_read(distributed_refmem_local_slot(),
                                               &snapshot, &seq, &crc32)) {
-        return SCPI_RES_ERR;
+        /* 空记录（seq==0）或 CRC 暂不匹配：必须给出确定应答。
+         * 返回 SCPI_RES_ERR 会让本查询完全没有响应，并把执行错误留在队列里，
+         * 使后续查询被错配成 -113 "Undefined header"（四板实测 2026-10-27）。
+         * 全零 = "本板尚无命令事实"，这是可判读的状态，不是失败。 */
+        memset(&snapshot, 0, sizeof(snapshot));
+        seq = 0u;
+        crc32 = 0u;
     }
     SCPI_ResultUInt32(context, seq);
     SCPI_ResultUInt32(context, crc32);

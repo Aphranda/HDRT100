@@ -7,6 +7,7 @@
 #include "refmem_command.h"
 #include "refmem_domain_config.h"
 #include "sync_io_sequence.h"
+#include "sync_io_turntable_source.h"
 #include "trigger_action_service.h"
 #include "trigger_sequence_service.h"
 #include "tdma_runtime_owner.h"
@@ -334,21 +335,37 @@ static uint32_t trigger_result_reason(trigger_sequence_service_result_t result)
     }
 }
 
+/* TRIG:START 的节点映射（EV-2）。
+ *
+ * 语义：配置完成后，"等转台输入脉冲、然后执行整段序列"这件事只由**脉冲源节点**
+ * 发起——即部署表里 COUNTER 角色的那块板开脉冲流（台架为 OUT4→IN1 回环，
+ * 生产为转台直驱 IN1）。其余角色只等位置描述符，按本地 FIFO 推进，它们执行
+ * START 属于角色越界，必须 fail-closed，不得回假 ACK。
+ *
+ * 参数仍是 4 word（历史 HIL 脚本以 plan_id 形式发送），本轮只改语义不动 schema；
+ * 参数不参与判定。schema 收敛（4→0）留给 M5，需同步接口表与脚本。
+ */
 static bool trigger_start_handler(const uint32_t *params, uint32_t param_words,
                                   uint32_t *reason)
 {
     if (params == NULL || param_words != 4u) {
         return reject(reason);
     }
-    char plan_id[33];
-    const bool present = decode_plan_id(params, plan_id);
-    const trigger_sequence_service_result_t result =
-        trigger_sequence_service_start(present ? plan_id : NULL);
-    if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
+    trigger_deployment_snapshot_t deployment;
+    if (trigger_deployment_snapshot_cached(&deployment) != TRIGGER_DEPLOYMENT_OK ||
+        deployment.active.valid == 0u) {
+        /* 部署表未激活时无法判定本板角色，START 无从归属：fail-closed。 */
+        return reject(reason);
+    }
+    if (deployment.active.local_role != TRIGGER_DEPLOYMENT_SLOT_COUNTER) {
         if (reason != NULL) {
-            *reason = trigger_result_reason(result);
+            *reason = (uint32_t)REFMEM_COMMAND_REASON_PERMISSION_DENIED;
         }
         return false;
+    }
+    /* PWM 源只在 STOP 维护窗口预装；未预装时 START 不得假装成功。 */
+    if (!sync_io_turntable_source_start()) {
+        return reject(reason);
     }
     return true;
 }
@@ -360,6 +377,14 @@ static bool trigger_stop_handler(const uint32_t *params, uint32_t param_words,
     if (param_words != 0u) {
         return reject(reason);
     }
+    /* EV-2：收尾是全局语义——源节点停脉冲流，所有节点都允许 STOP。 */
+    trigger_deployment_snapshot_t deployment;
+    if (trigger_deployment_snapshot_cached(&deployment) == TRIGGER_DEPLOYMENT_OK &&
+        deployment.active.valid != 0u &&
+        deployment.active.local_role == TRIGGER_DEPLOYMENT_SLOT_COUNTER) {
+        (void)sync_io_turntable_source_stop();
+    }
+    /* 兼容：service 侧状态仍要清（EV-1 退役它之前保持幂等 STOP）。 */
     const trigger_sequence_service_result_t result =
         trigger_sequence_service_stop();
     if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
