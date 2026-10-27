@@ -8,6 +8,25 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-015：移植 sequence config/service，TRIGger 配置接通
+
+- **移植**：`trigger_sequence_config.h/.c`、`trigger_sequence_service.h/.c`；
+  全量 `STATE_MAX=256`/`PLAN_MAX=4`，`configTOTAL_HEAP_SIZE` 112→107 KiB 后链接通过。
+- **接线**：`sync_trigger_init` 初始化 service；core1 增加 `trigger_sequence_service_service()`；
+  STOP/ABORT/PAUSE/CONTINUE/START 走 service；`CONFigure:TRIGger` 走
+  `trigger_sequence_configure`；`SEQuence:ACTive` 走 `trigger_sequence_activate`。
+- **硬件**（build `20261027070203`）：
+  - `41,1,1,8,2,5,1` CONFigure:TRIGger → **ACK**；
+  - `47` SEQUENCE_ACTIVE PLAN_A → NACK 7（plan 尚未写入）；
+  - `36` START（无 plan/PLAN_A）→ NACK 13；
+  - `37` STOP → ACK。
+- **凭证**：P3 `20261027070203`、scope `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、trials=8；
+  host 75 passed（未改测试）。
+- **证据**：`out/n7/local_hil/seq_service.txt`。
+- **提交**：`373fabbc`。
+- **下一步**：`CONFigure:SEQuence` plan/state 写入（需要参数区，>16 words）；ANGLe 配置；
+  plan 写入后 SEQUENCE_ACTIVE/START 正向。
+
 ### SCPI-PROGRESS-20261027-014：确认 T2/sync_io 即已移植 node-sequence
 
 - **口径**：T2 action table + `components/sync_io/sync_io_sequence` 就是已移植的
