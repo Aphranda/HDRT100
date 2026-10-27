@@ -8,6 +8,21 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-013：IF-013 catalog 覆盖与后端阻塞
+
+- **测试**：`test_refmem_command_catalog` 扩展为覆盖 13 条 Trigger 命令
+  （MODE/START/STOP/PAUSE/CONTINUE/ABORT/TRIGger/ANGLE SWEEP/PULSE/BREAKpoint/CLEAR/
+  SWITCH/SEQUENCE ACTIVE）；host 75 passed。
+- **后端**：7 条配置命令仍 fail-closed（reason 13）；当前分支没有
+  `trigger_sequence_config/service` 的角度/状态展开实现。
+- **阻塞**：可选路径只有
+  1) 移植 node-sequence config/service（RAM overflow 4460 B）；
+  2) 扩展现有 T2/trigger owner 的 scalar API（需新增少量状态）；
+  3) 仅保留指令面，等新架构。
+  需要用户明确选择，不能在“不新增 owner/不加 RAM”约束下继续伪造后端。
+- **提交**：`c8e2a7ac`（test）。
+- **状态**：IF-013 命令面完成；后端未闭环，目标 blocked 候选。
+
 ### SCPI-PROGRESS-20261027-012：IF-013 七条配置命令封装
 
 - **范围**（新表）：`TRIGger:MODE` 35、`CONFigure:TRIGger` 41、
