@@ -8,6 +8,20 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-026：target slot 映射确认，远程命令仍未消费
+
+- **slot 映射**：`distributed_refmem_local_slot() = board_identity_no - 1`；NO2 → slot1 → bit2。
+  因此 `target_mask=2, required=2` 对 NO2 是正确的。
+- **实测**（ring steps 1–20 全 OK）：
+  - NO2 `41,2,2` / `48,2,2` → QUEUED 后 PENDING；
+  - NO4 `41,4,4` → timeout；
+  - 本地 target1 同 build 全部 ACK。
+- **结论**：target>1 的命令没有被目标板消费；本地 coordinator 只写自己的 node-control 记录，
+  远程 transport/command carriage 未闭环；首个 PENDING 还占住单命令槽，导致后续 timeout。
+- **证据**：`out/n7/local_hil/four_board_start.txt`、本轮查询。
+- **下一步**：确认 REFMEM 命令在 process-image/维护流中的实际承载点；这是 IF-002/IF-018
+  的前置，不是 IF-013 handler 能修的。
+
 ### SCPI-PROGRESS-20261027-025：四板 target2 命令 PENDING
 
 - **现场**：T2 ring steps 1–20 全 OK；build `20261027101303`。
