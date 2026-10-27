@@ -8,6 +8,21 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-009：START target NO2 正向 ACK
+
+- **修正**：`REFMEM_COMMAND_TYPE_TRIGGER_START` 注册参数由 4 改为 1（catalog 已是 1），
+  此前 handler 被参数数校验提前拒绝。
+- **target 语义**：`CTRL:EXECute <id>,<target_mask>,<required_mask>,...` 是**位掩码**；
+  NO2 用 `2,2`，不是 `2,1`。`36,2,1,0` 的 required 不是 target 子集，属参数错误。
+- **实测**（build `20261027055237`，四板 ring up）：
+  - `EXECute 36,2,2,0` → QUEUED；
+  - 等待后 `CTRL:STATus?` → **state=4 ACKED**，target=2，required=2，ack=1；
+  - START 正向通过。
+- **残余**：`EXECute 37,2,2` STOP → 5 s 后仍 state=1 PENDING，未拿到目标板 STOP ACK；
+  需查目标板 STOP 路径/命令队列。
+- **证据**：`out/n7/local_hil/trigger_start_target2_mask2.txt`、`out/n7/t2_ring_up2.log`。
+- **提交**：`de591ad0`（firmware）、P3 `20261027055237`。
+
 ### SCPI-PROGRESS-20261027-008：远程 target 命令超时，IF-012 正向需先补转发
 
 - **现场**：`t2_workflow --steps 1-20 --leave-running` 全 20 步 OK；`FLIGHT:MODE 1`；
