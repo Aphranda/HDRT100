@@ -37,7 +37,7 @@ Last updated: 2026-10-27
 |---|---|---|---|
 | IF-011 | 按 2026-09-01 指令表冻结 node-sequence 第一批 13 条 → REFMEM 映射、plan-ID/角度编码、查询排除、coordinator-only 与 STOP/run 门禁 | IN PROGRESS | 新表已变更：`ANGLe:PULSe/BREAkpoint` 纳入，`INPut/SPEEd/REPeat/NEXT/INJect/NODE:ROLE/LINK` 删除；映射见 `SCPI_COMMAND_PLAN.md` §14 |
 | IF-012 | TRIGger 运行控制 6 条：`MODE/STARt/STOP/PAUSe/CONTinue/ABORt` + `READ:TRIGger:STATe?` 回读 | IN PROGRESS | START 必须回到 `[plan_id]` 语义（0/4 words），当前 1-word row-index 壳需回退；target NO2 START ACK，STOP 仍 PENDING；PAUSE/CONTINUE/MODE 未闭环 |
-| IF-013 | Trigger/角度配置 7 条：`CONFigure:TRIGger`、`ANGLe:SWEEP/PULSe/BREAkpoint/BREAkpoint:CLEAr`、`SWITch#`、`SEQuence:ACTive` | PENDING | 新表：SWEEP 3 doubles；PULSe edge/width/timeout；BREAkpoint 可省略角度；`ANGLe:INPut/SPEEd` 已删除 |
+| IF-013 | Trigger/角度配置 7 条：`CONFigure:TRIGger`、`ANGLe:SWEEP/PULSe/BREAkpoint/BREAkpoint:CLEAr`、`SWITch#`、`SEQuence:ACTive` | IN PROGRESS | 7 条 command_type 35/41–44/46/47 已封装，catalog 34；配置命令当前 NACK13 fail-closed，SWITch# ACK；后端待接 |
 | IF-014 | 旧 Sequence 运行时 7 条：`REPeat/NEXT/INJect/SOURce/IO/OUTPut/CODE` | SUPERSEDED | 2026-09-01 新表已删除这些指令；不再作为本期范围 |
 | IF-015 | 旧 Node/link 4 条：`NODE:LOAD/ACTIVATE`、`NODE:ROLE`、`LINK` | SUPERSEDED | 新表无 `NODE:ROLE/LINK`；`NODE:LOAD/ACTIVATE` 仅在 IF-016/节点表需要时复用 |
 | IF-016 | `CONFigure:SEQuence` plan 表 + plan ID 编码；必要时参数区/table package | PENDING | **复用 T2 `trigger_action_table_t`/`trigger_action_execution_*`，不新增 sequence store**；plan_id + state_id 列表；>64 B 走参数区 |

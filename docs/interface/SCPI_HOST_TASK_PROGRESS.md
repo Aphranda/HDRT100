@@ -8,6 +8,23 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-012：IF-013 七条配置命令封装
+
+- **范围**（新表）：`TRIGger:MODE` 35、`CONFigure:TRIGger` 41、
+  `CONFigure:ANGLe:SWEEP` 42、`PULSe` 43、`BREAkpoint` 44、`SWITch#` 45、
+  `BREAkpoint:CLEar` 46、`SEQuence:ACTive` 47；catalog 34 条。
+- **行为**：7 条配置命令当前统一 NACK `reason=13`（后端未接，fail-closed）；
+  `SWITch#` 仍走 `sync_io_sequence_set_switch` 并 ACK。
+- **硬件**（build `20261027063907`）：
+  - `35/41/42/43/44/46/47` → NACK 13；
+  - `45,1,1,1,3` → ACK。
+- **凭证**：P3 `20261027063907`、scope `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、trials=8；
+  host acceptance 75 passed。
+- **证据**：`out/n7/local_hil/if013_surface.txt`。
+- **提交**：`d427fc07`。
+- **下一步**：按新表接后端：`CONFigure:TRIGger` 状态表、ANGLE 配置、plan active；
+  优先确定哪些 owner API 已存在，避免新增 owner。
+
 ### SCPI-PROGRESS-20261027-011：按 2026-09-01 node-sequence 指令表重冻结
 
 - **新表来源**：`docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` §3–§4。
