@@ -1,6 +1,8 @@
 #include "scpi_trigger_commands.h"
 
 #include "sync_trigger.h"
+#include "trigger_sequence_config.h"
+#include "trigger_sequence_service.h"
 
 static uint32_t s_product_trigger_mode;
 
@@ -103,19 +105,42 @@ scpi_result_t scpi_cmd_trigger_abort(scpi_t *context)
 
 scpi_result_t scpi_trigger_state_q(scpi_t *context)
 {
+    trigger_sequence_service_status_t status;
+    trigger_sequence_angle_t angle;
+    trigger_sequence_active_t active;
+    trigger_sequence_service_get_status(&status);
+    trigger_sequence_service_get_angle(&angle);
+
+    const char *plan_id = "";
+    if (trigger_sequence_get_active(trigger_sequence_service_config(), &active) ==
+            TRIGGER_SEQUENCE_OK) {
+        plan_id = active.id;
+    }
+
+    uint32_t angle_count = 0u;
+    int32_t current_angle = 0;
+    if (angle.sweep_valid && angle.step_deg != 0.0f) {
+        const float span = (angle.stop_deg - angle.start_deg) / angle.step_deg;
+        if (span >= 0.0f && span < 1000000.0f) {
+            angle_count = (uint32_t)span + 1u;
+        }
+        current_angle = (int32_t)angle.start_deg;
+    }
+
     SCPI_ResultText(context, "TRIG");
-    SCPI_ResultText(context, "IDLE");
-    SCPI_ResultUInt32(context, 1u);
-    SCPI_ResultText(context, "PLAN_A");
-    SCPI_ResultInt32(context, -10);
+    SCPI_ResultText(context, trigger_sequence_service_state_name(status.state));
+    SCPI_ResultUInt32(context, status.run_id);
+    SCPI_ResultText(context, plan_id);
+    SCPI_ResultInt32(context, current_angle);
     SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 381u);
+    SCPI_ResultUInt32(context, angle_count);
+    SCPI_ResultUInt32(context, status.current_index == TRIGGER_SEQUENCE_NO_INDEX
+                                 ? 0u : status.current_index);
+    SCPI_ResultUInt32(context, status.count);
+    SCPI_ResultUInt32(context, status.accepted);
     SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 6u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultText(context, "NONE");
+    SCPI_ResultUInt32(context, status.alarm_late_us);
+    SCPI_ResultUInt32(context, (uint32_t)status.error);
+    SCPI_ResultText(context, trigger_sequence_service_result_name(status.error));
     return SCPI_RES_OK;
 }
