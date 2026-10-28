@@ -10,7 +10,9 @@ from tools.workflows.vdc_joint_capture import run_output
 
 UIDS = ("u1", "u2", "u3", "u4")
 INITIAL = (12000, 16000, 6000)
-TRIAL = (24000, 32000, 16000)
+# The trial must satisfy (plan_ahead - refill_low) >= (steps + 1) * cycle at
+# the 2.0 ms core1 cycle, i.e. 10 ms for the 16-edge commit window.
+TRIAL = (28000, 32000, 16000)
 
 
 def fake_phase(events):
@@ -52,9 +54,12 @@ def fake_phase(events):
                 return str(self.run_generation[uid])
             if command == run_output.PREFIX + "?":
                 row = valid_row()
+                plan_ahead, commit_ahead, refill_low = self.timing[uid]
                 row.update(
                     generation=self.run_generation[uid], source_retirements=1,
                     model_changes=1, blocks_planned=2,
+                    plan_ahead_us=plan_ahead, commit_ahead_us=commit_ahead,
+                    refill_low_us=refill_low,
                     anchor_before=1000, anchor_after=1100)
                 return encode(row)
             return "OK"

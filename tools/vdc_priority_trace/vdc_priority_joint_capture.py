@@ -564,7 +564,10 @@ def main():
         child.append('--p3-provisional')
     runner = ResumeTrial(
         SerialBackend(inputs.board_uids), receipt, a.out,
-        (24000, 32000, 16000), child, board_uids=inputs.board_uids,
+        # Same profile the child trials: (plan_ahead - refill_low) must cover
+        # (planner_steps + 1) * core1_cycle, i.e. 10 ms at the 2.0 ms cycle.
+        # The 24000/32000/16000 profile leaves 8 ms and is rejected (193).
+        (28000, 32000, 16000), child, board_uids=inputs.board_uids,
         output_delays=tuple(a.output_delays), capture_timeout=a.seconds + 240)
     runner.report['workflow_inputs'] = inputs.evidence(ROOT)
     runner.save()

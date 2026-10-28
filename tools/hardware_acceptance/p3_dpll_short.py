@@ -711,6 +711,38 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
     if (inner.get("passed") is not True or inner.get("joint_internal_health_passed") is not True or
             verdict.get("internal_health_passed") is not True or inner.get("errors")):
         errors.append("four-board internal health did not pass")
+    # Name the matcher facts behind a failed internal run. A zero-match capture
+    # used to report only the GUARD reason bits, which cannot distinguish "the
+    # followers never bound the armed generation" from "the frames arrived and
+    # every one was rejected" (hawf-222401: matched=0 at a generation 14 above
+    # the host arm). Page layout: tools/workflows/vdc_joint_capture/match.py
+    # SCALARS (schema, generation, ..., calls, matched).
+    binding_generation = inner.get("binding_generation")
+    pages = []
+    boards_raw = inner.get("boards")
+    if isinstance(boards_raw, dict):
+        for uid, board in list(boards_raw.items())[1:]:
+            raw = board.get("match") if isinstance(board, dict) else None
+            if not isinstance(raw, str):
+                continue
+            try:
+                tokens = [int(value.strip().strip('"')) for value in raw.split(",")]
+            except ValueError:
+                continue
+            if len(tokens) > 6:
+                pages.append({"uid": uid, "generation": tokens[1],
+                              "calls": tokens[5], "matched": tokens[6]})
+    if errors:
+        for page in pages:
+            if (isinstance(binding_generation, int) and
+                    page["generation"] != binding_generation):
+                errors.append(
+                    f"follower matcher generation {page['generation']} differs from "
+                    f"the armed {binding_generation} on {page['uid']}")
+            elif page["calls"] and not page["matched"]:
+                errors.append(
+                    f"follower matcher rejected every priority frame on {page['uid']} "
+                    f"(calls={page['calls']}, matched=0)")
     elapsed = inner.get("quiet_elapsed_s")
     if isinstance(elapsed, bool) or not isinstance(elapsed, (int, float)) or elapsed < seconds:
         errors.append("internal observation did not cover the requested duration")

@@ -134,6 +134,38 @@ def load_runtime(runtime_entrypoint: Path, board_uids, *, runtime_module=None):
                     row = self.report["boards"][participant.address]
                     row["run_prepare_requested"] = True
                     self.save()
+                    # RUN prepare needs a non-zero feedback session on every
+                    # board, but that session must stay the generation the host
+                    # already armed with: the VDC owner re-arms any lane whose
+                    # session it does not recognise (see
+                    # components/vdc_dpll_manager/src/vdc_dpll_manager.c,
+                    # priority_match_owner_arm_core1), which moves the matcher
+                    # off the armed generation and makes every typed record
+                    # reject with no follower success. So never mint a new
+                    # session here; repair a zero one with the armed generation
+                    # and refuse any other drift by name.
+                    armed = int(self.report.get("binding_generation") or 0)
+                    if armed <= 0:
+                        raise RuntimeError(
+                            "run prepare requires an armed binding generation")
+                    current = int(self.command(
+                        participant,
+                        "SYSTem:VDC:FEEDback:SESSion?").strip('"') or 0)
+                    if current == 0:
+                        # The session setter answers `"OK",<id>` (not a bare
+                        # int), so verify with a readback instead of control().
+                        self.command(
+                            participant,
+                            f"SYSTem:VDC:FEEDback:SESSion {armed}")
+                        current = int(self.command(
+                            participant,
+                            "SYSTem:VDC:FEEDback:SESSion?").strip('"') or 0)
+                    if current != armed:
+                        raise RuntimeError(
+                            f"feedback session drift on {participant.address}: "
+                            f"{current} != armed {armed}")
+                    row["feedback_session"] = current
+                    row["feedback_session_armed"] = armed
                     row["run_request"] = int(self.command(
                         participant, f"{capture.PREFIX} 1000000,2000,0").strip('"'))
                     if row["run_request"] <= 0:

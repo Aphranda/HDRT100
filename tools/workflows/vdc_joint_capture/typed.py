@@ -183,8 +183,15 @@ def load_typed(runtime_entrypoint: Path, *, runtime_module=None):
                 require(response == expected, "TX prime composite ACK mismatch")
             self.composite(master, SESSION, fresh)
             self.control(master, f"{SYNC} {fresh}", fresh)
-            require(int(self.command(master, SYNC + "?").strip('"')) == fresh,
-                    "SYNC generation readback mismatch")
+            readback = int(self.command(master, SYNC + "?").strip('"'))
+            # The host arm (SYNC + MATCH) is the only writer of this
+            # generation. A differing readback means the VDC owner adopted the
+            # lane under another session, which would leave every follower
+            # matcher on a generation the source never publishes under; fail
+            # here instead of running a capture that cannot match.
+            self.report["sync_readback"] = {"requested": fresh, "observed": readback}
+            require(readback == fresh,
+                    f"SYNC generation readback mismatch: expected {fresh}, got {readback}")
             for board in reversed(self.boards):
                 slot = base.IDS.index(board.address)
                 row = self.report["boards"][board.address]

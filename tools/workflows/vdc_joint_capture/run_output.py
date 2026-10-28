@@ -135,7 +135,14 @@ def load_run_output(runtime_entrypoint: Path, *, runtime_module=None):
             super().__init__(opt)
             self.scope = None
             self.original_timing = {}
-            self.trial_timing = (24000, 32000, 16000)
+            # RUN prepare requires (plan_ahead - refill_low) >=
+            # (planner_steps + 1) * core1_cycle. At the 2.0 ms cycle this is
+            # 10 ms for the 16-edge commit window, so the historical
+            # 24000/32000/16000 profile (8 ms) is rejected with firmware
+            # reject 193 and answers nothing (host sees a 3 s timeout).
+            # 28000/32000/16000 keeps commit/refill unchanged and restores a
+            # 12 ms horizon; measured admitted at 0.09 s on NO.1 (COM5).
+            self.trial_timing = (28000, 32000, 16000)
             self.trial_timing_applied = False
             self.report["schema"] = "DPLL_LIVE_PIO_RUN_TIMER1_V1"
             self.report["plan"].update(

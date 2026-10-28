@@ -2239,6 +2239,26 @@ def dpll_short_write_provisional(
 def dpll_short_discover_scope(config: dict[str, Any], out_dir: Path) -> tuple[Path, bool]:
     resource = str(config["dpll_short_scope_resource"])
     serial = str(config["dpll_short_scope_serial"])
+    if config.get("dpll_short_force_internal"):
+        # Operator request: qualify on board-internal evidence only. The capture
+        # still records external_status = SKIPPED so the receipt cannot be
+        # mistaken for a scope-qualified run. The page keeps the same schema and
+        # configured resource/serial as a real discovery, because the credential
+        # gate compares all of them against the bench config; an abbreviated
+        # page here made an internal-only run fail at step 35.
+        discovery_path = out_dir / "dpll-scope-discovery.json"
+        discovery_path.write_text(
+            json.dumps({
+                "schema": "HAOFV_P3_SCOPE_DISCOVERY_V1",
+                "resource": resource,
+                "expected_serial": serial,
+                "present": False,
+                "resources": [],
+                "reason": "FORCED_INTERNAL_BY_OPERATOR",
+                "forced_internal": True,
+            }, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+        return discovery_path, False
     discovery = discover_optional_scope(resource, serial)
     for _attempt in range(int(config.get("dpll_short_scope_discovery_retries", 3))):
         if discovery["present"] is True:
@@ -3319,7 +3339,11 @@ def phase_package(run: AcceptanceRun) -> None:
             raise AcceptanceError(f"firmware package missing: {package}")
     build_id = _read_package_build_id(package)
     run.put(package=package, build_id=build_id)
-    build_dir = run.get("build_dir")
+    # A resumed run (--package/--ota-summary) has no step 2 in its directory, so
+    # the linked image is only available when the operator names the build dir
+    # explicitly. verify_owner_hook_symbols still runs whenever an image is
+    # reachable; without one the package build id above remains the binding.
+    build_dir = run.state.get("build_dir") or getattr(args, "build_dir", None)
     if build_dir is not None:
         elf = Path(build_dir) / "DHRT100.elf"
         if not elf.is_file():
@@ -4181,6 +4205,50 @@ def phase_tdma_handoff(run: AcceptanceRun) -> None:
 
 
 # -- DPLL -------------------------------------------------------------------
+def dpll_short_arm_followers(config: dict[str, Any],
+                             board_ids: list[str]) -> dict[str, Any]:
+    """Arm each follower's exact-match layer over plain SCPI, boards stopped.
+
+    Sent from inside the capture the same write travels as a TDMA control frame
+    and never completes while the ring is stopped (measured: every arm returned
+    '<timeout>' while the identical command succeeded over plain SCPI).
+    """
+    sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
+    from tdma_start_ring import discover, board_command  # type: ignore
+
+    timing = config.get("hardware_acceptance_timing", {})
+    arm_args = argparse.Namespace(
+        board_ids=list(board_ids), baud=115200,
+        timeout=timing.get("serial_timeout_s", 3.0),
+        action_timeout=timing.get("action_timeout_s", 0.5),
+        settle=timing.get("input_settle_s", 0.05),
+        read_timeout=timing.get("serial_read_timeout_s", 0.02),
+        keep_open=False, short_open=True)
+    results: dict[str, Any] = {}
+    try:
+        boards = discover(arm_args)
+        for index, board_id in enumerate(board_ids):
+            board = boards.get(board_id)
+            if board is None:
+                results[board_id] = {"error": "board not discovered"}
+                continue
+            if index == 0:
+                results[board_id] = {"role": "origin", "armed": False}
+                continue
+            reply = str(board_command(
+                board, "SYSTem:VDC:FEEDback:SESSion?", arm_args)).strip().strip('"')
+            current = int(reply) if reply.isdigit() else 0
+            session = max(int(time.time()), current + 1)
+            board_command(board, f"SYSTem:VDC:FEEDback:SESSion {session}", arm_args)
+            match = str(board_command(
+                board, f"SYSTem:VDC:PRIORity:MATCH {session}", arm_args)).strip('"')
+            results[board_id] = {"session": session, "match": match,
+                                 "armed": match.strip() == str(session)}
+    except Exception as exc:  # noqa: BLE001 - the capture reports the real failure
+        results["error"] = f"{type(exc).__name__}: {exc}"
+    return results
+
+
 @acceptance_step(27, "示波器发现（discover_optional_scope；--tdma-only 时跳过 DPLL）")
 def phase_dpll_scope(run: AcceptanceRun) -> None:
     if run.tdma_only:
@@ -4191,6 +4259,12 @@ def phase_dpll_scope(run: AcceptanceRun) -> None:
         raise AcceptanceError("four-board DPLL short observation requires stopped TDMA evidence")
     discovery_path, scope_enabled = dpll_short_discover_scope(run.config, run.out_dir)
     run.put(dpll_scope_discovery_path=discovery_path, dpll_scope_enabled=scope_enabled)
+    # Arm each follower's exact-match layer over plain SCPI while every board is
+    # stopped and no run-output request exists. Sent from inside the capture the
+    # same command travels as a TDMA control frame, which never completes while
+    # the ring is stopped (measured: every arm returned '<timeout>').
+    armed = dpll_short_arm_followers(run.config, run.board_ids)
+    run.put(dpll_match_armed=armed)
 
 
 @acceptance_step(28, "临时凭证（供采集适配器读取，不可提交）")

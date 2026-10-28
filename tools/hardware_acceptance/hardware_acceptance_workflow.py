@@ -45,6 +45,11 @@ import p3_hardware_acceptance as p3  # noqa: E402
 LOG_DIR = ROOT / "out" / "HardwareAcceptance"
 HTML_VIEW = ROOT / "docs" / "validation" / "P3_FLOW.html"
 FULL_CONFIG = Path("config/hardware_acceptance/p3_bench.json")
+# Derived bench config used when the operator asks for internal-only monitoring
+# (faulty or unavailable oscilloscope). The receipt still marks the external
+# status as SKIPPED, so an internal-only run cannot be mistaken for a
+# scope-qualified one.
+INTERNAL_CONFIG = Path("out/HardwareAcceptance/p3_bench_internal.json")
 
 GROUPS = ((0, "准备"), (8, "拓扑"), (10, "标定"), (13, "时延"), (17, "训练"),
           (24, "TDMA"), (27, "DPLL"), (31, "收尾"))
@@ -119,6 +124,19 @@ def resolve_dir(value: str, require_steps: tuple[int, ...] = ()) -> Path:
     return path
 
 
+def write_internal_config(base: Path) -> Path:
+    """Config copy with `dpll_short_force_internal`, for `--monitor internal`."""
+    data = json.loads(base.read_text(encoding="utf-8"))
+    data["dpll_short_force_internal"] = True
+    INTERNAL_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    # Keep `extends` resolvable from the derived file's own directory.
+    if "extends" in data:
+        data["extends"] = str((base.parent / data["extends"]).resolve())
+    INTERNAL_CONFIG.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return INTERNAL_CONFIG
+
+
 def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None,
                     out_dir: Path | None = None) -> SimpleNamespace:
     """The namespace AcceptanceRun reads; a continued run keeps its launch settings."""
@@ -126,6 +144,8 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
     for key in ("full", "tdma_only", "diagnostic_continue"):
         if getattr(ns, key, False):
             launch[key] = True
+    if getattr(ns, "monitor", None):
+        launch["monitor"] = ns.monitor
     for key in ("package", "ota_summary", "build_dir", "reuse_topology"):
         if getattr(ns, key, None) is not None:
             launch[key] = str(getattr(ns, key))
@@ -133,12 +153,16 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
         launch["flash_method"] = ns.method
     resume = bool(launch.get("package") and launch.get("ota_summary"))
     full = bool(launch.get("full"))
+    internal = bool(launch.get("monitor") == "internal")
+    config_path = FULL_CONFIG if full else p3.DEFAULT_CONFIG
+    if internal:
+        config_path = write_internal_config(config_path)
 
     def path(key):
         return Path(launch[key]) if launch.get(key) is not None else None
 
     return SimpleNamespace(
-        root=ROOT, config=FULL_CONFIG if full else p3.DEFAULT_CONFIG,
+        root=ROOT, config=config_path,
         receipt=p3.DEFAULT_RECEIPT, command="resume" if resume else "run",
         full=full, tdma_only=bool(launch.get("tdma_only")),
         diagnostic_continue=bool(launch.get("diagnostic_continue")),
@@ -520,6 +544,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reuse-topology", type=Path, default=None)
     parser.add_argument("--full-bench", dest="full_config", action="store_true",
                         help="use config/hardware_acceptance/p3_bench.json (FULL profile)")
+    parser.add_argument("--monitor", choices=("scope", "internal"), default=None,
+                        help="DPLL qualification source: 'scope' (default) needs a "
+                             "working oscilloscope; 'internal' qualifies on "
+                             "board-internal evidence only and records "
+                             "external_status=SKIPPED")
     parser.add_argument("--tdma-only", action="store_true")
     parser.add_argument("--diagnostic-continue", action="store_true")
     parser.add_argument("--keep-going", action="store_true")

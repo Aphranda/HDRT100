@@ -47,6 +47,9 @@ class Scope:
         self.offset = offset
         self.resource = resource
         self.expected_serial = expected_serial
+        # Trigger channel is selectable so a bench wired to another channel can
+        # still be qualified; it must be set before prepare().
+        self.trigger_source = "CHAN1"
         self.folder = Path(folder)
         self.folder.mkdir(parents=True, exist_ok=True)
         self.rm = None

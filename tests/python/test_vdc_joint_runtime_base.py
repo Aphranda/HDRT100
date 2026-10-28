@@ -53,6 +53,9 @@ def fake_capture(events, *, start_result=None):
             self.report = {
                 "actions": [], "boards": {uid: {} for uid in UIDS},
                 "plan": {}, "errors": [], "tool_sources": [],
+                # The tracked arm (typed.configure) publishes the single
+                # generation every board must keep running.
+                "binding_generation": 7,
             }
             self.saved = 0
 
@@ -60,6 +63,8 @@ def fake_capture(events, *, start_result=None):
             events.append(("probe_command", board.address, command))
             if command == "PHASE?":
                 return "1"
+            if command == "SYSTem:VDC:FEEDback:SESSion?":
+                return "7"
             if command.startswith("RUN "):
                 return str(100 + UIDS.index(board.address))
             return "OK"
@@ -89,15 +94,83 @@ def test_runtime_control_prepares_phase_and_run_for_every_board(tmp_path):
     probe.control(boards[0], "SYNC 7", 7)
     assert ("follow_control", UIDS[0], "PHASE 0", 0) in events
     assert [(event[1], event[2]) for event in events if event[0] == "probe_command"] == [
+        (UIDS[0], "SYSTem:VDC:FEEDback:SESSion?"),
         (UIDS[0], "RUN 1000000,2000,0"),
-        (UIDS[1], "PHASE?"), (UIDS[1], "RUN 1000000,2000,0"),
-        (UIDS[2], "PHASE?"), (UIDS[2], "RUN 1000000,2000,0"),
-        (UIDS[3], "PHASE?"), (UIDS[3], "RUN 1000000,2000,0"),
+        (UIDS[1], "PHASE?"), (UIDS[1], "SYSTem:VDC:FEEDback:SESSion?"),
+        (UIDS[1], "RUN 1000000,2000,0"),
+        (UIDS[2], "PHASE?"), (UIDS[2], "SYSTem:VDC:FEEDback:SESSion?"),
+        (UIDS[2], "RUN 1000000,2000,0"),
+        (UIDS[3], "PHASE?"), (UIDS[3], "SYSTem:VDC:FEEDback:SESSion?"),
+        (UIDS[3], "RUN 1000000,2000,0"),
     ]
+    # The armed generation is authoritative: no board may start RUN under a
+    # different session, because the VDC owner would re-arm the DPLL lane.
+    for uid in UIDS:
+        assert probe.report["boards"][uid]["feedback_session"] == 7
+        assert probe.report["boards"][uid]["feedback_session_armed"] == 7
+    assert not [event for event in events
+                if event[0] == "probe_command" and "SESSion " in event[2]]
     assert [probe.report["boards"][uid]["run_request"] for uid in UIDS] == [
         100, 101, 102, 103]
     assert probe.report["plan"]["runtime_board_queries"] is False
     assert probe.report["monitor_script_sha256"] == runtime.source_sha256
+
+
+def test_runtime_control_refuses_feedback_session_drift(tmp_path):
+    """A board running another session must fail by name, never be re-minted."""
+    events = []
+    capture, boards, _ = fake_capture(events)
+    runtime = runtime_base.load_runtime(
+        Path("unused.py"), UIDS, runtime_module=capture)
+    probe = runtime.Probe(options(tmp_path))
+
+    def drifted(board, command, unused=None):
+        events.append(("probe_command", board.address, command))
+        if command == "PHASE?":
+            return "1"
+        if command == "SYSTem:VDC:FEEDback:SESSion?":
+            return "9"
+        if command.startswith("RUN "):
+            return "100"
+        return "OK"
+
+    probe.command = drifted
+    with pytest.raises(RuntimeError, match="feedback session drift"):
+        probe.control(boards[0], "SYNC 7", 7)
+    assert not [event for event in events
+                if event[0] == "probe_command" and "SESSion " in event[2]]
+    assert not [event for event in events
+                if event[0] == "probe_command" and event[2].startswith("RUN ")]
+
+
+def test_runtime_control_repairs_a_zero_feedback_session_with_the_armed_generation(tmp_path):
+    events = []
+    capture, boards, _ = fake_capture(events)
+    runtime = runtime_base.load_runtime(
+        Path("unused.py"), UIDS, runtime_module=capture)
+    probe = runtime.Probe(options(tmp_path))
+    session = {"value": "0"}
+
+    def zero_then_armed(board, command, unused=None):
+        events.append(("probe_command", board.address, command))
+        if command == "PHASE?":
+            return "1"
+        if command == "SYSTem:VDC:FEEDback:SESSion?":
+            return session["value"]
+        if command.startswith("SYSTem:VDC:FEEDback:SESSion "):
+            session["value"] = command.split()[-1]
+            return f'"OK",{session["value"]}'
+        if command.startswith("RUN "):
+            return "100"
+        return "OK"
+
+    probe.command = zero_then_armed
+    probe.control(boards[0], "SYNC 7", 7)
+    writes = [event[2] for event in events
+              if event[0] == "probe_command" and event[2].startswith(
+                  "SYSTem:VDC:FEEDback:SESSion ")]
+    assert writes == ["SYSTem:VDC:FEEDback:SESSion 7"]
+    assert probe.report["boards"][UIDS[0]]["feedback_session"] == 7
 
 
 def test_parallel_start_uses_distinct_preverified_connections_and_joins(tmp_path):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -121,8 +122,21 @@ def load_follow(runtime_entrypoint: Path, *, runtime_module=None):
         def control(self, board, text, expected="OK"):
             if text.upper() == parent.SYNC.upper() + " 0":
                 super().control(board, FOLLOW + " 0", 0)
-                require(int(self.command(board, FOLLOW + "?").strip('"')) == 0,
-                        "Follower disable readback mismatch")
+                # The follower phase is serviced on core1. While the ring is
+                # still running the phase can be re-asserted right after the
+                # disable, so the strict "reads back 0" check only applies
+                # once the ring is stopped (verified on the bench).
+                observed = None
+                for _ in range(20):
+                    observed = int(self.command(board, FOLLOW + "?").strip('"'))
+                    if observed == 0:
+                        break
+                    time.sleep(0.05)
+                if observed != 0:
+                    ring = int(self.command(board, "SYSTem:REFMEM:SYNC:TDMA:STATus?")
+                               .split(",")[55])
+                    require(ring != 0,
+                            f"Follower disable readback mismatch: got {observed}")
             result = super().control(board, text, expected)
             if text.upper().startswith(parent.SYNC.upper() + " ") and \
                     int(text.split()[-1]) > 0 and \

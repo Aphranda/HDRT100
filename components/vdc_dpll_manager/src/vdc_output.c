@@ -576,25 +576,31 @@ static bool run_output_prepare_stopped(void *context)
     tdma_ring_clock_snapshot_t ring;
     vdc_output_timing_profile_t timing;
     app_realtime_schedule_snapshot_t schedule;
-    if (!session || __atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE) ||
-        !tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
-        ring.adapter_started || ring.config_seq!=ring.applied_config_seq ||
-        !vdc_dpll_manager_get_output_timing_profile(&timing) ||
-        !app_realtime_get_schedule_snapshot(&schedule) || !schedule.cycle_cycles ||
-        !vdc_timestamp_clock_is_current(BOARD_SYS_CLOCK_HZ)) return false;
+    if (!session) { tdma_seat_mount_store_note_reject(181u); return false; }
+    if (__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE)) { tdma_seat_mount_store_note_reject(182u); return false; }
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring)) { tdma_seat_mount_store_note_reject(183u); return false; }
+    if (ring.enabled) { tdma_seat_mount_store_note_reject(184u); return false; }
+    if (ring.adapter_started) { tdma_seat_mount_store_note_reject(185u); return false; }
+    if (ring.config_seq!=ring.applied_config_seq) { tdma_seat_mount_store_note_reject(186u); return false; }
+    if (!vdc_dpll_manager_get_output_timing_profile(&timing)) { tdma_seat_mount_store_note_reject(187u); return false; }
+    if (!app_realtime_get_schedule_snapshot(&schedule) || !schedule.cycle_cycles) { tdma_seat_mount_store_note_reject(188u); return false; }
+    if (!vdc_timestamp_clock_is_current(BOARD_SYS_CLOCK_HZ)) { tdma_seat_mount_store_note_reject(189u); return false; }
     /* These capacity checks are not a proof that the full planner actually
      * runs every table period. Runtime misses and hardware runway stay visible. */
-    if (!vdc_output_timing_profile_valid(&timing)) return false;
+    if (!vdc_output_timing_profile_valid(&timing)) { tdma_seat_mount_store_note_reject(190u); return false; }
     const uint64_t count=(uint64_t)(timing.commit_ahead_us-timing.refill_low_us)*1000u/args[0];
-    if (!count || count>SYNC_IO_RUN_OUTPUT_MAX_EDGES) return false;
+    if (!count) { tdma_seat_mount_store_note_reject(191u); return false; }
+    if (count>SYNC_IO_RUN_OUTPUT_MAX_EDGES) { tdma_seat_mount_store_note_reject(192u); return false; }
     const uint64_t cycle_ns=((uint64_t)schedule.cycle_cycles*1000000000u+
         BOARD_SYS_CLOCK_HZ-1u)/BOARD_SYS_CLOCK_HZ;
     const uint64_t steps=(count+VDC_RUN_OUTPUT_PLAN_STEP_EDGES-1u)/VDC_RUN_OUTPUT_PLAN_STEP_EDGES;
     const uint64_t handoff_ns=((uint64_t)PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES*
         1000000000u+BOARD_SYS_CLOCK_HZ-1u)/BOARD_SYS_CLOCK_HZ;
-    if ((uint64_t)(timing.plan_ahead_us-timing.refill_low_us)*1000u<(steps+1u)*cycle_ns ||
-        (uint64_t)timing.refill_low_us*1000u<2u*cycle_ns+handoff_ns+
-            (uint64_t)SYNC_IO_RUN_OUTPUT_MIN_GUARD_US*1000u) return false;
+    if ((uint64_t)(timing.plan_ahead_us-timing.refill_low_us)*1000u<(steps+1u)*cycle_ns) {
+        tdma_seat_mount_store_note_reject(193u); return false; }
+    if ((uint64_t)timing.refill_low_us*1000u<2u*cycle_ns+handoff_ns+
+            (uint64_t)SYNC_IO_RUN_OUTPUT_MIN_GUARD_US*1000u) {
+        tdma_seat_mount_store_note_reject(194u); return false; }
     uint32_t generation;
     /* RUN fixes its pulse width at PREPARE. Keep that width in the PIO ISR
      * so each immutable edge consumes only one FIFO word. Match the planner's
@@ -602,16 +608,18 @@ static bool run_output_prepare_stopped(void *context)
     const vdc_run_output_slices_t slices = s_run_output_slices;
     const uint32_t high_ns = slices.enabled ? slices.marker_ns : args[1];
     const uint64_t high_ticks=((uint64_t)high_ns*BOARD_SYS_CLOCK_HZ+999999999u)/1000000000u;
-    if (high_ticks > UINT32_MAX) return false;
+    if (high_ticks > UINT32_MAX) { tdma_seat_mount_store_note_reject(195u); return false; }
     if (slices.enabled) {
         if (args[0] != VDC_DOMAIN_DEFAULT_PERIOD_NS ||
             !sync_io_run_output_prepare_sliced(BOARD_SYS_CLOCK_HZ, args[2],
                 (uint32_t)((uint64_t)args[0] * BOARD_SYS_CLOCK_HZ / UINT64_C(1000000000)),
                 (uint32_t)((uint64_t)slices.interval_ns * BOARD_SYS_CLOCK_HZ / UINT64_C(1000000000)),
                 (uint32_t)((uint64_t)slices.high_ns * BOARD_SYS_CLOCK_HZ / UINT64_C(1000000000)),
-                (uint32_t)high_ticks, &generation)) return false;
+                (uint32_t)high_ticks, &generation)) {
+            tdma_seat_mount_store_note_reject(196u); return false; }
     } else if (!sync_io_run_output_prepare_uniform(
-            BOARD_SYS_CLOCK_HZ,args[2],(uint32_t)high_ticks,&generation)) return false;
+            BOARD_SYS_CLOCK_HZ,args[2],(uint32_t)high_ticks,&generation)) {
+        tdma_seat_mount_store_note_reject(197u); return false; }
     memset(&s_run_output,0,sizeof(s_run_output));
     memset(&s_run_output_pending,0,sizeof(s_run_output_pending));
     s_run_output_coordinate_valid=false;

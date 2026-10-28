@@ -280,6 +280,50 @@ def test_internal_converged_endpoint_still_fails_when_unlocked(tmp_path):
     assert "phase exceeds 1000 ns" in summary["errors"]
 
 
+def _match_page(*, generation, calls, matched):
+    """A follower MATCH:STATus? page with the frozen SCALARS prefix."""
+    page = [0] * 67
+    page[0], page[1], page[5], page[6] = 1, generation, calls, matched
+    return ",".join(map(str, page))
+
+
+def test_failed_internal_run_names_the_matcher_generation_drift(tmp_path):
+    """A matcher left on another generation must be named, not folded into GUARD."""
+    joint, inner = reports(tmp_path, scope=False)
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    payload["passed"] = False
+    payload["joint_internal_health_passed"] = False
+    payload["joint_verdict"]["internal_health_passed"] = False
+    payload["binding_generation"] = 1000
+    for uid in UIDS[1:]:
+        payload["boards"][uid]["match"] = _match_page(
+            generation=1014, calls=37259, matched=0)
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=False, seconds=60)
+    assert summary["passed"] is False
+    assert any("follower matcher generation 1014 differs from the armed 1000"
+               in error for error in summary["errors"]), summary["errors"]
+
+
+def test_failed_internal_run_names_a_zero_match_generation(tmp_path):
+    """Same generation but no accepted frame must say so explicitly."""
+    joint, inner = reports(tmp_path, scope=False)
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    payload["passed"] = False
+    payload["joint_internal_health_passed"] = False
+    payload["joint_verdict"]["internal_health_passed"] = False
+    payload["binding_generation"] = 1000
+    for uid in UIDS[1:]:
+        payload["boards"][uid]["match"] = _match_page(
+            generation=1000, calls=37259, matched=0)
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=False, seconds=60)
+    assert any("rejected every priority frame" in error
+               for error in summary["errors"]), summary["errors"]
+
+
 def test_internal_startup_transient_is_recorded_but_not_used_for_severity(tmp_path):
     joint, inner = reports(
         tmp_path, scope=False, maximum=80, startup_maximum=5_000_000)

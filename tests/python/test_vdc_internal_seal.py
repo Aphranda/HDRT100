@@ -123,6 +123,10 @@ def options(tmp_path):
     return SimpleNamespace(
         out=tmp_path, seconds=60, summary_interval_ms=10000,
         no_reference=False, expire_output=False,
+        # The acquire gate waits `seconds + stop_margin_s`; pin the margin so
+        # the assertion checks the arithmetic instead of the CLI default
+        # (--stop-margin-s defaults to 8 s, the bench-proven ARM skew cover).
+        stop_margin_s=2.0,
         workflow_inputs_evidence={"adapter": {"migrated_sources": migrated}})
 
 
