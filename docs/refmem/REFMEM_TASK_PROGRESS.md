@@ -10,8 +10,8 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261029-006`。
-- N8：N8.0–N8.3 ✅、N8.6 凭证 ✅；N8.4 代码 ✅ 实机 ⏳；N8.5 设计包 ✅ 未落码；台架 flash 路径阻塞（四板 `IDLE`、环停）。
+- 最新条目：`REFMEM-TASK-20261029-007`。
+- N8：N8.0–N8.3 ✅、N8.6 凭证 ✅；**N8.4 ✅（含实机读回）**；N8.5 设计包 ✅ 未落码；四板 build `20261028180729`、OTA 已完成（P3 resume 进行中）。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -20,6 +20,17 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-007 — 台架换 flash 路径成功；N5.7 实机读回通过
+
+- 状态：**N8.4 ✅（代码 + 实机）**；`ota_send` 中途卡死的阻塞被绕过。
+- 关键：`tools/picotool_flash`（BOOTSEL UF2 工厂镜像）可用；四板刷到 `20261028180729`（含 N5.7）。随后 `ota_multi_update --skip-pre-reboot --block-size 512` 4/4 PASS，产出 `summary.json` 供 P3 `resume`。
+- N5.7 实机（COM5）：
+  - 合法 `41` 后 `SYSTem:COMMand:STATus?` = `8,0,0,0,1,0,0,4,0,0,21893`（acked=1、last_state=4）；
+  - 非法 `41` 后 = `8,0,0,0,0,1,0,5,13,0,21894`（nacked=1、last_state=5、reason=13）；
+  - `SYSTem:COMMand:TARget? 0` = `0,21894,5,41,1,1,0,1,13`。
+- 证据：`out/n8/n57_smoke.json`、`out/n8/ota_multi_n57/summary.json`、`out/n8/picotool_flash_*.txt`。
+- 下一步：P3 `resume`（进行中）→ 提交 N5.7；N8.6 四板 `FUNC_*` HIL；N8.5 视余量。
 
 ### REFMEM-TASK-20261029-006 — 台架 flash 路径受阻；N8.5 设计包交付
 
