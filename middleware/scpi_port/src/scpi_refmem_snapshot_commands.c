@@ -830,6 +830,49 @@ scpi_result_t scpi_cmd_refmem_nodes_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_command_status_q(scpi_t *context)
+{
+    (void)context;
+    refmem_command_aggregate_t aggregate;
+    if (!distributed_refmem_command_aggregate(&aggregate)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, aggregate.node_count);
+    SCPI_ResultUInt32(context, aggregate.posted);
+    SCPI_ResultUInt32(context, aggregate.taken);
+    SCPI_ResultUInt32(context, aggregate.busy);
+    SCPI_ResultUInt32(context, aggregate.acked);
+    SCPI_ResultUInt32(context, aggregate.nacked);
+    SCPI_ResultUInt32(context, aggregate.timed_out);
+    SCPI_ResultUInt32(context, aggregate.last_state);
+    SCPI_ResultUInt32(context, aggregate.last_reason);
+    SCPI_ResultUInt32(context, aggregate.last_reason_slot);
+    SCPI_ResultUInt32(context, aggregate.last_completed_seq);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_command_target_q(scpi_t *context)
+{
+    uint32_t slot = 0u;
+    if (!SCPI_ParamUInt32(context, &slot, TRUE)) {
+        return SCPI_RES_ERR;
+    }
+    refmem_command_snapshot_t snapshot;
+    if (!distributed_refmem_node_control_read(slot, &snapshot, NULL, NULL)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, slot);
+    SCPI_ResultUInt32(context, snapshot.command_seq);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.command_type);
+    SCPI_ResultUInt32(context, snapshot.target_mask);
+    SCPI_ResultUInt32(context, snapshot.required_mask);
+    SCPI_ResultUInt32(context, snapshot.ack_flags);
+    SCPI_ResultUInt32(context, snapshot.nack_flags);
+    SCPI_ResultUInt32(context, snapshot.last_reason);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
 {
     const char *token = NULL;

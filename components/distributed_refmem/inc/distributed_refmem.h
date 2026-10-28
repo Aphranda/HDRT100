@@ -630,6 +630,25 @@ typedef struct {
     uint32_t last_reason;
 } refmem_node_status_t;
 
+/* N5.7 read-only aggregate over the per-node command records.  It derives
+ * counts from the same records that NODE:CONTrol? returns; no second fact,
+ * no new state.  last_* fields describe the newest terminal record. */
+typedef struct {
+    uint32_t node_count;
+    uint32_t posted;
+    uint32_t taken;
+    uint32_t busy;
+    uint32_t acked;
+    uint32_t nacked;
+    uint32_t timed_out;
+    uint32_t last_state;
+    uint32_t last_reason;
+    uint32_t last_reason_slot;
+    uint32_t last_completed_seq;
+} refmem_command_aggregate_t;
+
+bool distributed_refmem_command_aggregate(refmem_command_aggregate_t *out);
+
 /* Parameter pool bound to the REFMEM TLV region (3 x 1 KB slots). */
 bool distributed_refmem_param_pool_access(uint8_t **region, size_t *size);
 bool distributed_refmem_node_control_apply_request(
