@@ -86,3 +86,27 @@ Last updated: 2026-10-29
 1. N8.5：T2 running-safe 位置复位——按 `out/n8/n8_5_running_safe_design.md` 落 quiesce+reset，并接线 `t2_mount_handler`。
 2. N8.6 已完成（TDMA/CLOCK/VDC 四板 `ack=14`）；T2 四板沿用 10-27 证据，待 N8.5 后补含 MOUNT 步的复跑。
 3. 全部完成后由 N8.7 重新评估本快照结论；在那之前本文件不代表"统一面完成"。
+
+## 7. N8.7 收口结论（2026-10-29 夜）
+
+**结论：统一控制面仍未完成，不能标记完成；N8.5（T2 running-safe）是唯一功能性缺口。**
+
+| 子项 | 状态 | 证据 |
+|---|---|---|
+| N8.0 基线/台架 | ✅ | `out/n8/baseline.json` |
+| N8.1 快照回正 | ✅ | 本文件；`a01b8004` |
+| N8.2 N5.5 入口边界 | ✅ | 架构「入口无关边界」；`a01b8004` |
+| N8.3 NACK 可见性 | ✅ | `4dc41dfe`；P3 `20261028171345` |
+| N8.4 N5.7 聚合 | ✅ | `4f7a94f0`；P3 `20261028180729`；实机 `acked/nacked` 变化 |
+| N8.5 T2 running-safe | ⏳ 未实现 | 设计 `out/n8/n8_5_running_safe_design.md` |
+| N8.6 四板 FUNC HIL | ✅ | `out/n8/four_board_hil/n86_summary.json`；`ack=14` |
+
+**契约状态**：`REFMEM-CTRL-01` 保持 `pending`（入口无关条款未满足、C11 未签）；`REFMEM-TRANSPORT/SESSION/ACTION/LOCAL` 仍 pending。
+
+**残余风险**：
+
+1. N8.5 需要跨任务（scpi/refmem）quiesce position TX/RX 并重排 `trigger_t2_runtime_start` 的“RX producer parked”前提；现有代码没有该锁，贸然实现会引入竞态，必须先做专门设计与 HIL 窗口。
+2. T2 四板证据仍是 10-27（cached STOP 配置）；含 MOUNT 步的复跑依赖 N8.5。
+3. `EXE-SEAT-01` 相位预算、C11 第三方签署均未完成，不属本目标可自决范围。
+
+**提交清单**：`a01b8004`、`2811ce31`、`bf811775`、`4dc41dfe`、`0525beed`、`20d16eb9`、`4f7a94f0`、`e2081303`、`e1d426a9`。

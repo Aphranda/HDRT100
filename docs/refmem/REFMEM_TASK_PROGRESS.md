@@ -10,8 +10,8 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261029-008`。
-- N8：N8.0–N8.4 ✅、**N8.6 ✅（四板 function HIL 复跑）**；N8.5 设计包 ✅ 未落码；四板 build `20261028180729`、环停。
+- 最新条目：`REFMEM-TASK-20261029-009`。
+- N8：N8.0–N8.4、N8.6 ✅；N8.5 设计包 ✅ 未落码；**整体不可标完成**（N8.5 为唯一功能缺口）；四板 build `20261028180729`、环停。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -20,6 +20,13 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-009 — N8.7 收口结论：统一面未完成，N8.5 为唯一功能缺口
+
+- 状态：**N8.0–N8.4、N8.6 完成；N8.5 只有设计、未实现；整体不可标完成。**
+- 结论写入 `REFMEM_UNIFIED_CONTROL_REVIEW.md` §7：子项表、契约状态（`REFMEM-CTRL-01` 保持 pending）、残余风险、提交清单。
+- 未实现 N8.5 的原因（工程判断）：`trigger_t2_runtime_start` 要求 “RX producer parked”，而运行中 position TX/RX 跨 scpi/refmem 两个任务，现有代码没有 quiesce 锁；没有专门设计与 HIL 窗口时，贸然落实时代码会引入竞态。设计包见 `out/n8/n8_5_running_safe_design.md`。
+- 下一步：N8.5 专项（quiesce 锁 + 有界等待 + HIL）；T2 四板含 MOUNT 复跑；C11/EXE-SEAT-01 由用户/第三方推进。
 
 ### REFMEM-TASK-20261029-008 — N8.6 四板 function HIL 复跑通过
 
