@@ -257,6 +257,13 @@ void distributed_refmem_node_control_service(void)
                 reason = distributed_refmem_lease_reason(s_lease_last_result);
             }
             (void)distributed_refmem_command_nack(local_slot, reason, 0u);
+            /* Mirror the terminal NACK into the local node-control record.
+             * Without this the observable record stays POSTED forever after a
+             * rejected command (CTRL:STATus? / REFMEM:NODE:CONTrol?), so a
+             * failed step is indistinguishable from an in-flight one. */
+            (void)distributed_refmem_node_control_update_status(
+                local_slot, (uint32_t)REFMEM_COMMAND_STATE_NACKED, 0u,
+                (1u << local_slot), 0u, 0u, reason, local_slot, 0u, 0u);
             distributed_refmem_cmd_reply_arm(
                 snapshot.command_seq, snapshot.source_node,
                 (uint32_t)REFMEM_COMMAND_STATE_NACKED, reason);

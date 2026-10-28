@@ -29,6 +29,10 @@ static bool s_stage_called;
 static bool s_ack_called;
 static uint32_t s_nack_reason;
 static uint32_t s_nack_count;
+static uint32_t s_node_status_state;
+static uint32_t s_node_status_nack;
+static uint32_t s_node_status_reason;
+static uint32_t s_node_status_calls;
 
 bool distributed_refmem_idle_window(void) { return s_window_open; }
 uint32_t distributed_refmem_local_slot(void) { return s_local_slot; }
@@ -112,6 +116,26 @@ bool distributed_refmem_node_control_ack(uint32_t node_id, uint32_t target_slot,
     (void)node_id;
     (void)target_slot;
     (void)evidence_index;
+    return true;
+}
+
+bool distributed_refmem_node_control_update_status(
+    uint32_t node_id, uint32_t state, uint32_t ack_flags, uint32_t nack_flags,
+    uint32_t busy_flags, uint32_t timeout_flags, uint32_t last_reason,
+    uint32_t last_reason_slot, uint32_t evidence_index,
+    uint32_t last_completed_seq)
+{
+    (void)node_id;
+    (void)ack_flags;
+    (void)busy_flags;
+    (void)timeout_flags;
+    (void)last_reason_slot;
+    (void)evidence_index;
+    (void)last_completed_seq;
+    s_node_status_state = state;
+    s_node_status_nack = nack_flags;
+    s_node_status_reason = last_reason;
+    s_node_status_calls++;
     return true;
 }
 
@@ -226,6 +250,10 @@ static void reset_state(uint32_t seq)
     s_ack_called = false;
     s_nack_reason = 0u;
     s_nack_count = 0u;
+    s_node_status_state = 0u;
+    s_node_status_nack = 0u;
+    s_node_status_reason = 0u;
+    s_node_status_calls = 0u;
 }
 
 static int run_case(uint32_t seq)
@@ -253,6 +281,13 @@ int main(void)
     failed += expect_u32("non-coordinator reason", s_nack_reason,
                          REFMEM_COMMAND_REASON_PERMISSION_DENIED);
     failed += expect_u32("non-coordinator never stages", s_stage_called ? 1u : 0u, 0u);
+    failed += expect_u32("non-coordinator node status updated", s_node_status_calls, 1u);
+    failed += expect_u32("non-coordinator node state", s_node_status_state,
+                         REFMEM_COMMAND_STATE_NACKED);
+    failed += expect_u32("non-coordinator node reason", s_node_status_reason,
+                         REFMEM_COMMAND_REASON_PERMISSION_DENIED);
+    failed += expect_u32("non-coordinator node nack mask", s_node_status_nack,
+                         1u << s_local_slot);
 
     /* 2. the local maintenance entry keeps the CP9 exception. */
     reset_state(1002u);

@@ -2027,6 +2027,17 @@ def step_12_t2_mount(ctx, slot, board, uid):
     if configured != "1" or active != "1":
         ctx.failures.append(f"slot {slot} Step 12 T2 not mounted after retries "
                             f"(configured {configured} active {active})")
+    # T2:MOUNT re-initialises the gateway module, which restores the firmware
+    # default ready_required=1 (trigger_sequence_timing.c:29). A rig without an
+    # analyzer cannot answer READY, and an unanswered READY refuses the next
+    # position table (sync_io_gateway.c:587), so assert the operator's choice here
+    # and verify it on the spot; step 17 re-asserts it after the dynamic start.
+    _ready_required = os.environ.get("T2_READY_REQUIRED", "0")
+    if _ready_required not in ("0", "1"):
+        raise SystemExit("T2_READY_REQUIRED must be 0 or 1")
+    ctx.send(board, f"TRIGger:SEQuence:REAdy {_ready_required}")
+    print(f"  slot {slot} SEQuence:REAdy {_ready_required} (after mount) -> "
+          f"{ctx.send(board, 'TRIGger:SEQuence:REAdy?')[:24]}", flush=True)
     # The wording "configured ... active ..." is the acceptance contract
     # (p3_hardware_acceptance.py counts "T2 configured 1 active 1" lines); the
     # semantics of this mount step are explained in the step table, not by renaming
@@ -2701,6 +2712,22 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
         if member is not None:
             ctx.set_load_mask(member, 91, f"{uid_r:016X} dynamic T2 start")
     print("  dynamic T2 start: LOAD:MASK bit 6 asserted on all boards", flush=True)
+    # The dynamic start re-initialises the sync_io modules (the same reason the
+    # legacy run_full path sent REAdy before *and* after the start), which returns
+    # the gateway to the firmware default ready_required=1: an unanswered READY
+    # then refuses the next position table (sync_io_gateway.c:587). A rig without
+    # an analyzer cannot answer READY, so re-assert the operator's choice here,
+    # before step 19 starts the pulse flow.
+    _ready_required = os.environ.get("T2_READY_REQUIRED", "0")
+    if _ready_required not in ("0", "1"):
+        raise SystemExit("T2_READY_REQUIRED must be 0 or 1")
+    for uid_r, slot_r, _i, _o, _f in ROWS:
+        member = ctx.boards.get(f"{uid_r:016X}")
+        if member is None:
+            continue
+        ctx.send(member, f"TRIGger:SEQuence:REAdy {_ready_required}")
+        print(f"  slot {slot_r} SEQuence:REAdy {_ready_required} (after dynamic start) -> "
+              f"{ctx.send(member, 'TRIGger:SEQuence:REAdy?')[:24]}", flush=True)
     cursor_probe(ctx, ctx.src, "after lock + mask 91")
 
 
@@ -2726,6 +2753,17 @@ def step_18_preflight_source_trial(ctx, slot, board, uid):
             _scan_fields = ctx.send(member, 'TRIGger:REServation:T2:SCAN?').split(",")
             if len(_scan_fields) >= 10:
                 ctx._t2_scan_last = [f.strip() for f in _scan_fields[:15]]
+            # Gateway staging refusals, the last eight GWDIAG fields:
+            # NO_LEASE / BAD_COUNT / BAD_OFFSET / BAD_DELTA / BUSY / READY /
+            # BAD_PULSE / SCHEDULE. READY is the one that stalls a rig without an
+            # analyzer; BUSY is a previous table still pending. Sampling this at
+            # the start of the window separates pre-sampling stalls from later ones.
+            _gw = [f.strip() for f in ctx.send(
+                member, "TRIGger:REServation:T2:ACTion:GWDIAG?").split(",")]
+            if len(_gw) >= 8:
+                print(f"  slot {slot_r} gw stage rejects "
+                      f"NO_LEASE/BAD_COUNT/OFFSET/DELTA/BUSY/READY/PULSE/SCHEDULE = "
+                      f"{','.join(_gw[-8:])}", flush=True)
         state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
         ring = ctx.send(member, "SYSTem:TDMA:RING:STATus?").split(",")
         schedule = ctx.send(member, "SYSTem:TDMA:SCHEDule?").split(",")
