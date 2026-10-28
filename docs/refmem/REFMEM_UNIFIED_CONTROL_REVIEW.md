@@ -18,6 +18,10 @@ Last updated: 2026-10-29
   - T2 `START/MOUNT` 仍 `NOT_ONLINE_SAFE`（需 running-safe 位置复位）。
   - 相位预算待 EXE-SEAT-01 签字，不得由实现单方重签。
 - 保留边界：T2 域停配置（`UNMOUNT→CONFIGURE`）已通；在线启动不在本快照承诺内。
+- **N8 夜间进展（2026-10-29）**：
+  - 失败路径 NACK 可见性已修并上板（`4dc41dfe`）：被拒命令从 `POSTED` 变为 `NACKED+reason`；P3 QUICK 凭证 build `20261028171345`、1609 files、`1fc53c7d…`。
+  - N5.7 只读聚合代码完成（`SYSTem:COMMand:STATus?` / `TARget?`），构建与 host 回归通过；**实机 smoke 未做**（台架 OTA 反复卡死）。
+  - N8.5（T2 running-safe）未实现，仍是 `START/MOUNT` 边界。
 
 ## 2. 子项总表
 
@@ -62,6 +66,9 @@ Last updated: 2026-10-29
 | 相位预算超支 | ② | 验收 DPLL 60 s 联合采集 | 全量验收可能再红 | EXE-SEAT-01 签字或临时分组计时，不得实现单方重签 | 非目标（用户） |
 | function 重试上限 | ② | 域停窗口 >3×100 ms | 超时仍 FAILED | 按域实测调整上限/预算 | N7.2 续 |
 | 四板 T2 逐板不可替代 | ③ | 非协调者本地 function 超时 `reason=11` | 不能拼凑四板证据 | 只认协调者单命令 `ack=14` | 已冻结 |
+| N5.7 实机读回 | ⑥ | 需要新 build 上板 | 聚合字段未证 | `COMMand:STATus?` 计数随 `CTRL:EXECute` 变化 | N8.4 |
+| 台架 OTA 不稳 | ⑥ | 单板/并发 OTA 中途 | 新 build 无法上板 | 换 flash 路径成功或 OTA 复跑通过 | N8.4/N8.5 |
+| N8.5 running-safe 复位 | ⑤ | T2 `START/MOUNT` | 功能面只能停+配置 | 四板 `FUNC_T2_RECONFIG` 含 MOUNT 步 `ack=14` | N8.5 |
 
 已闭环项：VDC reference/timing（根因是参数非法，不是 retire 缺陷）、四板 T2 正向（cached STOP 快照读只用于统一控制 T2 configure）。
 
@@ -76,7 +83,7 @@ Last updated: 2026-10-29
 
 ## 6. 下一步
 
-1. N8.2：把 N5.5 产品级入口收敛写入架构与登记表边界，保持 `pending`（C11 留第三方）。
-2. N8.3：IF-013 后端与证据；N8.4：N5.7 只读聚合。
-3. N8.5：T2 running-safe 位置复位；N8.6：当前树四板 HIL 复跑并写 P3 凭证。
-4. 全部完成后由 N8.7 重新评估本快照结论；在那之前本文件不代表“统一面完成”。
+1. N8.4：先解决台架 flash 路径（OTA 反复卡死），把 N5.7 聚合视图上板做一次 smoke（`COMMand:STATus?` 随 `CTRL:EXECute` 变化）。
+2. N8.5：T2 running-safe 位置复位——先出并发/写者/相位核算，再落代码与四板 `FUNC_T2_RECONFIG`（含 MOUNT 步）HIL。
+3. N8.6：四板 `FUNC_TDMA_ONLINE`/`FUNC_TDMA_CLOCK_ONLINE`/`FUNC_VDC_RECONFIG` 复跑并留证。
+4. 全部完成后由 N8.7 重新评估本快照结论；在那之前本文件不代表"统一面完成"。
