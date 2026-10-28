@@ -10,8 +10,8 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261029-007`。
-- N8：N8.0–N8.3 ✅、N8.6 凭证 ✅；**N8.4 ✅（含实机读回）**；N8.5 设计包 ✅ 未落码；四板 build `20261028180729`、OTA 已完成（P3 resume 进行中）。
+- 最新条目：`REFMEM-TASK-20261029-008`。
+- N8：N8.0–N8.4 ✅、**N8.6 ✅（四板 function HIL 复跑）**；N8.5 设计包 ✅ 未落码；四板 build `20261028180729`、环停。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -20,6 +20,15 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-008 — N8.6 四板 function HIL 复跑通过
+
+- 状态：**N8.6 ✅**：`FUNC_TDMA_ONLINE`(88291, 2/2)、`FUNC_TDMA_CLOCK_ONLINE`(88292, 4/4)、`FUNC_VDC_RECONFIG`(88293, 4/4) 均 `state=2 COMPLETED`、目标 `ack=14`。
+- 环：`trn03_closed_loop --stage process-image --leave-running --no-t2 --diagnostic-continue`（config `out/HardwareAcceptance/20261029/p3-n57/trn03-matrix.json`、row 1）；四板 `up/down=1`、TX/RX 推进（COM5 19159→19160 等）。
+- VDC 读回：COM5/4/3/6 `VDC:OUTPut:TIMing?` 均 `12000,16000,6000`。
+- 边界：本轮 `--no-t2`，T2 四板沿用 10-27 证据；本 HIL 是功能证据，不是新 build 凭证（`20261028180729` 的 P3 已随 `4f7a94f0` 提交）。
+- 台架：函数后四板 `RING:STOP`，`enabled=0`、`up/down=0`。
+- 证据：`out/n8/four_board_hil/n86_summary.json`、`out/n8/four_board_hil/trn03_run5/`。
 
 ### REFMEM-TASK-20261029-007 — 台架换 flash 路径成功；N5.7 实机读回通过
 
