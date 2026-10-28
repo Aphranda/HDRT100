@@ -8,6 +8,34 @@ Last updated: 2026-10-28
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261028-038：验收流程结构修复 + core1 相位预算实测（需用户签字）
+
+- **门禁修复（已提交）**：`SCPI-PROGRESS-037` 的缺陷已修 —— `check_staged` 的 T2 分支增加
+  `t2.get("verdict_ok") is True`，并新增 `tests/python/test_p3_t2_receipt_verdict.py`（5 例，
+  其中 3 例直接 eval 被测文件里的真实条件）。用 HEAD 自身条件求值证明缺陷：
+  修复前 `accepts verdict_ok=false : True`，修复后拒绝。提交 `8aae5e78`
+  （按用户授权走 host 例外：`host_acceptance PASS files=538 5 passed`）。
+- **流程修复（staged 未提交）**：`config/hardware_acceptance/p3_bench_quick.json` 的 TDMA 启动屏障
+  预算 `2.0 s/2 样本/0.25 s` 改为 `4.0 s/3 样本/0.5 s`。实测依据：环形稳态收敛需 1.76 s 才出现
+  第一个干净区间，`stable=3` 到 2.26 s，原 2.0 s 差 0.26 s 且末次样本跨截止线；放宽到 10 s 会因
+  板端记录器只装 17 个 250 ms 样本而溢出（`terminal.reason=2`）。改后 run `hawf-105019`：
+  `startup_barrier.passed=true`、`collection_errors={}`、`requested 12/written 12/missed 0/reason 0`。
+- **实测结论（卡点）**：验收第 29 步（DPLL 60 s 联合采集）仍 FAIL，`child.stdout.log` 给出
+  `internal_health_passed=false`、`external_status=FAIL`。同源计数在 step 24 已可见：
+  `periodic_interval_gate_failed`、`receive_missing_grew`、`vdc/refmem_deadline_miss_count_grew`、
+  slot3 `refmem_overrun_count_grew` + `refmem_max_runtime_exceeded_wcet`。
+  相位实测（COM5，250 样本）：DPLL `p50 71 643 / p99 97 692` 对声明预算 **39 000**（99% 周期超）；
+  TDMA `p50 139 / p90 210 757 / p99 273 940` 对预算 158 000；周期 375 000 在 p99 已超订。
+  `overrun` 判据是 `runtime > wcet`（`app.c:992`），与周期长度无关。
+- **方案**：见 `out/day/20261028_refmem/DECISION_BRIEF.md`。甲＝先加临时分组计时拿到 DPLL 内部拆分
+  （17 个子服务，`vdc_dpll_manager.c:3457`）；乙＝按 p99 重签 DPLL/TDMA 预算并把周期提到 ≈2.1 ms。
+- **状态**：**阻塞**——相位预算/周期重签属 EXE-SEAT-01，需用户签字；在签之前不动实时路径常量。
+- **M4 更正**：今日复测确认「命令面永久 POSTED」是 **STOP 专属**（`EXECute 37,2,2` 创建记录后
+  `state=1` 不动），不是整条命令面不通；上一轮基于 `EXECute 4,…` 的"从未投递"推断已撤回
+  （该调用的参数元数与 catalog 不符，主机侧留下 `-109 Missing parameter`）。
+  另：`CTRL:EXECute` 失败会在源板留 `-200`/`-350`，而 DPLL 采集的启动预检会因
+  `SCPI error queue not empty` 直接拒绝启动 —— 命令面与验收流程相互影响。
+
 ### SCPI-PROGRESS-20261028-037：门禁完整性缺陷——失败 verdict 仍可授权代码提交
 
 - **现象**：`tools/sync_trigger/sequence_workflow.py` 在 verdict 之前写
