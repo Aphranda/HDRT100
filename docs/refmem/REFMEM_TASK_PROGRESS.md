@@ -4,13 +4,14 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-10-27
+Last updated: 2026-10-29
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-016`。
+- 最新条目：`REFMEM-TASK-20261029-001`。
+- N8：**统一面收口夜间目标已立项**（40 轮上限、goal `goal-2c069112…`）；里程碑 N8.0–N8.7 见 `REFMEM_DOMAIN_TODO.md` N8 节；用户授权无人值守 HIL、实时路径改动（含 T2 running-safe），N5.5 由 AI 按 HAOFV 自决（预置：产品级入口收敛）。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -18,7 +19,15 @@ Last updated: 2026-10-27
 - N5.0.2c：node control 拆出（6,109→6,003）；P3 `20261024154054`；config txn HIL 14/14。
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
-- 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+- 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-001 — N8 统一面收口夜间目标立项
+
+- 状态：长期目标建立（`goal-2c069112…`，40 轮上限）；N8.0–N8.7 细化里程碑写入 `REFMEM_DOMAIN_TODO.md` N8 节。
+- 授权边界（用户 2026-10-29）：台架允许无人值守 HIL（复位/烧录/起环/P3 QUICK）；实时路径允许改动（含 T2 running-safe 位置复位）；N5.5 由 AI 按 HAOFV 架构自决。
+- N5.5 预置决策：**产品级入口收敛**——非协调者入口仅本地，远端 `REFMEM_CMD` 由非协调者发起一律 fail-closed（12），CP1 记为显式例外；不新增 payload class/wire/第二命令槽/第二 ACK；重开判据：产品要求非协调者远端发起时按紧凑 intent delta 重做，并先补 TLV/参数池同步与 256 B 容量证据。
+- 基线（本轮实测，非事实源）：host 4 套件通过（`run_refmem_function_tests.ps1`、`run_refmem_function_catalog_tests.ps1`、`run_refmem_command_catalog_tests.ps1`、`run_refmem_unified_control_host_tests.ps1`）；`command_catalog.yaml` 36 条、`function_catalog.yaml` 6 个；当前 P3 receipt build `20261028154542`（QUICK/DPLL scope、1609 files、fingerprint `80094026…`）；工作区仅 `t2_acceptance_receipt.json` 未提交（`passed=true/verdict_ok=false`，`8aae5e78` 已堵放行路径）。
+- 下一步：N8.0 台架可用性探测，随后 N8.1/N8.2 文档冻结。
 
 ### REFMEM-TASK-20261027-016 — 四板 VDC 正向通过：目标闭环
 

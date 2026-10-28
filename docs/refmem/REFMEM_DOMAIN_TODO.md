@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-10-26
+Last updated: 2026-10-29
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -856,3 +856,32 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 **非目标（本目标内不做）**：TDMA 停环/重启环、TDMA ring topology/period 运行时在线变更（部署期配置）、N5.5 非协调者入口、N5.3 显式 owner、N5.6 fence、N5.7 聚合广播、386 条 SCPI 全量目录、`ROLLBACK` 失败回滚、远程读回全量状态。
 
 **每步硬门禁**：①不新增总线/payload class/第二命令槽/第二 ACK；②不占 core1 硬实时窗口；③单写者/owner 边界不变；④fail-closed + reason/计数/快照；⑤布局/版本/契约同步；⑥host + 四板证据可复跑。C1/C2 不触碰；任一门失败即停并留证。
+
+## N8 - 统一面收口夜间目标（2026-10-29 立项，长期目标）
+
+**目标**：把统一控制面从"N6/N7 范围闭环、整体未收口"推进到可交付收口——契约文本回正（C11 留第三方）、N5.5 决策冻结、IF-013 后端、N5.7 只读聚合、T2 running-safe 复位、当前树四板 HIL 复跑与 P3 凭证。
+
+**用户授权（2026-10-29）**：
+
+- 台架：允许无人值守 HIL（复位 / 烧录 / 起环 / P3 QUICK）；台架异常时降级为 host/文档并留证，不伪造证据。
+- 实时路径：允许改动（含 T2 running-safe 位置复位）；实时路径改动必须给相位/预算核算与四板 HIL，缺证据按未验证处理。
+- N5.5：由 AI 按 HAOFV 架构自决。
+
+**N5.5 预置决策（按 HAOFV，2026-10-29）**：选**产品级入口收敛**——非协调者入口仅本地，远端 `REFMEM_CMD` 由非协调者发起一律 fail-closed（reason 12），CP1 记为显式例外。理由：HAOFV 要求单一 writer、单一事实、最小机制；该选项不新增 payload class、不改 wire、不加第二命令槽/第二 ACK、不新增 relay 状态。代价："任一切入点同语义"降级为有界承诺（须写入契约边界）。重开判据：产品要求非协调者远端发起时，按紧凑 intent delta 重做，且先补 TLV/参数池同步与 256 B 容量证据。
+
+| ID | 内容 | 退出判据 | 证据 | 类别 |
+|---|---|---|---|---|
+| **N8.0** | 基线冻结 + 台架可用性探测：HEAD/工作区、host 4 套件、catalog/function 计数、COM4/3/6/5 与 `RING:STATus?` | `out/n8/baseline.json`；`hardware_available` 明确 true/false | `out/n8/` | tooling |
+| **N8.1** | 收口快照回正：标题/Status/§1/§2/§5/§6 与事实一致（catalog 36、`b16f7b0a`、契约 pending、C11 未签） | 快照不再自称"完成"；`docs_check`/`doc_regression`/两套 pytest 全绿 | 文档 + 门禁输出 | docs |
+| **N8.2** | N5.5 决策冻结：产品级入口收敛写入架构/契约边界；非协调者远端 fail-closed；不写转发代码 | `REFMEM-CTRL-01` 文本回写 N6/N7+IF+N5.5 边界；锚点真实；门禁绿 | 决策记录 + 登记表 | docs |
+| **N8.3** | IF-013 后端收口：`TRIGger:MODE` 与 7 条配置命令的后端策略/接线；负测保留 fail-closed | host 全绿 + 四板 8 条 ACK；P3 绑定 staged | `out/n8/if013_*` | feature |
+| **N8.4** | N5.7 只读聚合：`SYSTem:COMMand:STATus?`/`TARget?` 从既有 node 记录派生，不建第二事实 | host + SCPI smoke；无新 wire/状态 | `out/n8/n57_*` | feature |
+| **N8.5** | T2 running-safe 位置复位：TDMA 不停环下安全复位位置；单写者/owner 不变；相位预算核算 | 四板 `T2_MOUNT/START` 在线 `ack=14`；环连续 | `out/n8/t2_running_safe/*` | feature(refactor 级证据) |
+| **N8.6** | 当前树四板 HIL 复跑：`FUNC_TDMA_ONLINE`/`FUNC_TDMA_CLOCK_ONLINE`/`FUNC_T2_RECONFIG`/`FUNC_VDC_RECONFIG` + continuity | 四板逐目标 `ack=14`；P3 QUICK 凭证 | `out/n8/four_board/` + receipt | — |
+| **N8.7** | 收口：§8 总表/六门/残余/契约状态/证据索引/提交清单；进度日志 C14/C15 | 文档门禁绿；目标完成判定 | 全部 | docs |
+
+**轮次预算（上限 40）**：N8.0–N8.2 ≈ 8 轮；N8.3–N8.4 ≈ 10 轮；N8.5 ≈ 10 轮（最高风险，失败即停并留证）；N8.6–N8.7 ≈ 8 轮；余量 4 轮。
+
+**硬门禁**：①不新增总线/payload class/第二命令槽/第二 ACK；②实时路径改动须给相位预算核算，不得只断言；③单写者/owner/phase/模式边界不变；④新失败路径有 reason/计数/快照，F0–F3 成立；⑤布局/版本/契约同步（wire 不变也要登记文本同步）；⑥凭证 scope 覆盖改动路径，host/四板/构建按需给齐。C1/C2 不触碰；N8.5 若触碰实时预算，先出核算再落代码。
+
+**非目标**：C11 第三方签署、EXE-SEAT-01 相位预算/周期重签、`REFMEM-CTRL-01` 转 active、N3.2.7 完整故障矩阵（可作余量项）。
