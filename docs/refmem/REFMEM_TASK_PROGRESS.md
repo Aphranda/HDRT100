@@ -10,8 +10,8 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261029-003`。
-- N8：**N8.0 ✅、N8.1 ✅、N8.2 ✅、N8.3 代码+单板 ✅**；N8.3b（48/4 根因）、N8.4–N8.7 待续；四板已统一 build `20261028171345`，P3 凭证因 OTA 并发卡死未取。
+- 最新条目：`REFMEM-TASK-20261029-004`。
+- N8：**N8.0–N8.3 ✅、N8.6 凭证 ✅（resume）**；N8.3b 更正为输入错误（非缺陷）；N8.4/N8.5 待做；四板已统一 build `20261028171345`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -20,6 +20,15 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-004 — N8.6 P3 凭证取得（resume）+ `48` 边界更正
+
+- 状态：**P3 QUICK 凭证已重置并 PASS**（build `20261028171345`，fingerprint `1fc53c7d…`，1609 files，`PASS_WITH_WARNINGS`：INFO 33 / WARN 12 / ERROR 0 / FATAL 0）。
+- 台架绕行：P3 `run` 的四板并发 OTA 两次卡在 `ota_send`（reboot 后立即开会话）；改为 `ota_multi_update --skip-pre-reboot --settle 2.0 --block-size 512` 先取得 `summary.json`，再 `p3_hardware_acceptance.py resume --package … --ota-summary …` 跑完 P0T/TRN/TDMA/DPLL。凭证 `config/hardware_acceptance/p3_acceptance_receipt.json`。
+- 更正：`CTRL:EXECute 48` 无应答**不是固件缺陷**——上一轮实际只发了 15 个参数（handler 要 16 个，`SYST:ERR? -109`）。按 16 词重发后 `QUEUED`，`CTRL:STATus?` 为 `state=5 NACKED/reason=13`（plan 业务校验拒绝）；`47` 仍依赖有效 plan，未做正向。
+- host：`run_refmem_command_authority_tests.ps1` 通过；`run_refmem_all_host_tests.ps1` 仅剩 `realtime_tdma` 既有 harness 债务。
+- 提交：代码（`distributed_refmem_command.c` + 测试）与 receipt 待提交；工作区另有既有 `tools/sync_trigger/t2_workflow.py` 改动，需一并入树才能通过 `check-staged` 的指纹一致性。
+- 下一步：N8.4（N5.7 只读聚合）与 N8.5（T2 running-safe）设计/实现；四板 `FUNC_*` HIL 复跑。
 
 ### REFMEM-TASK-20261029-003 — N8.3 控制面失败路径 NACK 可见性修复与 IF-013 复验
 
