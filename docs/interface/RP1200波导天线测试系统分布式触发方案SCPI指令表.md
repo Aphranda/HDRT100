@@ -311,7 +311,7 @@ wave_idx
 | `TRIGger:STOP` |  | `1` | accepted：中止当前扫描任务，清空未执行预约队列，保留配置、断点和日志；正常流程由扫描完成进入 COMPLETE |
 | `TRIGger:PAUSe` |  | `1` | 在下一个安全边界暂停；不截断正在执行的角度点内部动作 |
 | `TRIGger:CONTinue` |  | `1` | 从暂停角度继续；若因角度断点暂停，对当前断点做一次性越过 |
-| `READ:TRIGger:STATe?` |  | `state block` | 读取 `mode,run_state,run_id,plan_id,current_angle,angle_index,angle_count,seq_index,seq_count,angle_pulse_count,missed_angle_pulse_count,late_count,error_code,reject_reason` |
+| `READ:TRIGger:STATe?` |  | `state block` | 读取 `mode,run_state,run_id,plan_id,current_angle,angle_index,angle_count,seq_index,seq_count,angle_pulse_count,missed_angle_pulse_count,late_count,error_code,reject_reason`；**自 2026-10-28 起追加 10 项只读 T2 同源字段**：`role,t2_valid,t2_configured,t2_active,action_armed,action_completed,action_failed,action_groups_executed,published_mask,received_mask`（前 14 项位置不变；`role=0xFFFFFFFF` 表示部署表未激活，`t2_valid=0` 时其后 8 项恒 0 且不得解释为"T2 空闲"） |
 | `READ:TRIGger:PARameter?` |  | `param block` | 读取触发参数、序列 CRC、角度配置 CRC、同步门禁和校准 CRC |
 
 运行控制同属现场测试业务域，默认 `TEST+` 可用。写入类动作必须经过状态策略表：
