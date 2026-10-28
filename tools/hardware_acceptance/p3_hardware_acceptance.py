@@ -1676,6 +1676,7 @@ def check_staged(root: Path, receipt_path: Path) -> None:
         if t2_path.is_file():
             t2 = json.loads(t2_path.read_text(encoding="utf-8"))
             if (t2.get("schema") == "HAOFV_T2_SEQUENCE_ACCEPTANCE_RECEIPT_V1" and
+                    t2.get("verdict_ok") is True and
                     t2.get("passed") is True and
                     t2.get("source_tree_sha256") == fingerprint and
                     t2.get("source_file_count") == file_count):
