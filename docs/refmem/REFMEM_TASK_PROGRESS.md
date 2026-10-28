@@ -10,8 +10,8 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261029-002`。
-- N8：**统一面收口夜间目标进行中**（N8.0 基线 ✅、N8.1 快照 ✅、N8.2 契约/N5.5 ✅）；N8.3–N8.7 见 `REFMEM_DOMAIN_TODO.md` N8 节；台架无人值守可用（四板同 build `20261028154542`）。
+- 最新条目：`REFMEM-TASK-20261029-003`。
+- N8：**N8.0 ✅、N8.1 ✅、N8.2 ✅、N8.3 代码+单板 ✅**；N8.3b（48/4 根因）、N8.4–N8.7 待续；四板已统一 build `20261028171345`，P3 凭证因 OTA 并发卡死未取。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -20,6 +20,18 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-003 — N8.3 控制面失败路径 NACK 可见性修复与 IF-013 复验
+
+- 状态：**N8.3 代码 + 单板 HIL ✅；四板 P3 凭证未取（台架 OTA 并发卡死），N8.6 待续。**
+- 根因：`distributed_refmem_node_control_service()` 失败分支只 NACK command slot、不写 node-control，`CTRL:STATus?` 永远 `POSTED`（state=1），与在途命令不可区分。
+- 修复：失败分支补 `distributed_refmem_node_control_update_status(NACKED, nack=1<<slot, reason)`；无 wire/布局/槽位变化。
+- host：`run_refmem_command_authority_tests.ps1` 增加 NACK 镜像断言（state/nack 掩码/reason）并通过；`run_refmem_all_host_tests.ps1` 仍有 `run_refmem_realtime_tdma_tests.ps1` 一项失败，属 N5.0.4a 拆分后的既有 harness 债务（缺 `tdma_service_core1` 符号），与本修复无关。
+- 单板 HIL（COM5，build `20261028171345`，环停止）：非法 41 → `state=5 NACKED/nack=1/reason=13`；合法 41 → `ACKED`；42（合法浮点）→ `ACKED`；43/44/45/46 → `ACKED`；47（无 plan）→ `NACKED/13`；49 → `ACKED`；35 → `NACKED/13`（会话策略 fail-closed）。
+- 未闭环边界：`CTRL:EXECute 48`（16 词 plan）无应答、`SYST:ERR? -109`；`CTRL:EXECute 4`（self-check）超时；留 N8.3b。
+- 台架：P3 两次 `run` 均卡在四板 OTA（残留 `RECEIVING`/`FAILED`）；已逐板 `OTA:ABOR` + picotool reboot + 手动 `ota_send`（512 B 块）统一四板到 `20261028171345`，OTA 均 `IDLE`。
+- 提交：**未提交**——工作区存在他人未提交的 `tools/sync_trigger/t2_workflow.py`，`check-staged` 会拒绝混合树；待该改动落库或用户裁定后，再按 staged 指纹跑 P3 提交。
+- 下一步：N8.3b（48/4 根因 + 全量 host 复跑）→ N8.6（P3 凭证/四板 HIL）。
 
 ### REFMEM-TASK-20261029-002 — N8.1/N8.2 收口快照与入口无关边界回正
 
