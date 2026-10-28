@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
-Last updated: 2026-10-26
+Last updated: 2026-10-29
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面，并以统一控制面把系统级命令意图路由到显式目标插槽、聚合 ACK/NACK/fence，使接入点不再决定系统操作语义。
 
@@ -1670,7 +1670,7 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 | 阶段 | 内容 | 退出判据 |
 |---|---|---|
 | C0 | 信封字段、目录 CRC、聚合视图 schema 冻结；命令槽由 REFMEM 复制区承载（任意板可写、全环同步），本地单板语义不变 | host 用例 + process-image 环 HIL 回归 |
-| C1 | 两板与转发：Entry A（协调者）→ Target B；再测 Entry B（非协调者）→ Coordinator A → Target C，覆盖转发与聚合回程 | B/C 本地状态变化 + A/B 读到 ACK/fence |
+| C1 | 两板与转发：Entry A（协调者）→ Target B；再测 Entry B（非协调者）→ Coordinator A → Target C，覆盖转发与聚合回程（N5.5 冻结后，非协调者转发腿为显式非目标；只保留 Entry A→Target B 与本地入口） | B/C 本地状态变化 + A/B 读到 ACK/fence |
 | C2 | required/partial/timeout/preempt/重复幂等 | 负测覆盖 NACK、timeout、重复、抢占 |
 | C3 | 协调者租约、STOP/维护态迁移、双主拒绝 | 租约迁移与双主负测 |
 | C4 | 多板 all-target `START`/`STOP` + 权限/运行态矩阵 | 逐目标证据一致，无隐式跳过 |
@@ -1696,6 +1696,14 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 - DPLL/VDC/T2 允许在各自域内 STOP/START；TDMA 控制通道继续运行，命令与 ACK 仍走 `REFTMEM_CMD`。域停窗口内执行的配置 ACK 表示 `APPLIED`，不是 `STAGED`。
 - TDMA 自身只允许在线安全配置：seat rotation（`p/f/s` 打包为单个原子字，core1 每机会读取一致快照）与 load mask（现有原子 exchange）；ring topology/period 属部署期，运行时返回 `NOT_ONLINE_SAFE`，不做“停环换配置”。
 - 入口仍固定为协调者板（最低 claimed slot）；非协调者远端命令 fail-closed，不排队死 intent。
+
+**入口无关边界（N5.5，2026-10-29 按 HAOFV 冻结）**
+
+统一控制面当前不提供“任一板接口发起远端命令”的能力：非协调者板只保留本地控制面（`REFMEM-LOCAL-01`/CP9），其远端 `REFTMEM_CMD` 一律 fail-closed（12），不中继、不排队、不建 relay 状态；C1 的“Entry B → Coordinator A → Target C”转发腿为显式非目标。
+
+理由：N5.5.0 spike 已证两条前置不成立——远端 node 命令块不在 REFMEM 同步范围（D2 ❌），硬件也没有伪造非 owner 发送者的注入点（D3 ❌）；可行路径只剩新增 intent payload/TLV 容量（触碰 payload/布局/256 B 上限）或产品级入口收敛。HAOFV 要求单一 writer、单一事实、最小机制，故取后者：不新增 payload class/wire/第二命令槽/第二 ACK，也不新增 relay 状态。
+
+代价与重开判据：`REFMEM-CTRL-01` 的“接入点无关”条款由此**未满足**，契约保持 `pending`；若产品要求非协调者远端发起，按紧凑 intent delta 重做，且先补 TLV/参数池同步与 256 B 容量证据，再改本节与登记表，不直接翻条款。
 
 **原子域配置命令（15 条，`command_type` 见 `refmem_command.h`）**
 

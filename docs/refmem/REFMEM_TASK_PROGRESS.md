@@ -10,8 +10,8 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261029-001`。
-- N8：**统一面收口夜间目标已立项**（40 轮上限、goal `goal-2c069112…`）；里程碑 N8.0–N8.7 见 `REFMEM_DOMAIN_TODO.md` N8 节；用户授权无人值守 HIL、实时路径改动（含 T2 running-safe），N5.5 由 AI 按 HAOFV 自决（预置：产品级入口收敛）。
+- 最新条目：`REFMEM-TASK-20261029-002`。
+- N8：**统一面收口夜间目标进行中**（N8.0 基线 ✅、N8.1 快照 ✅、N8.2 契约/N5.5 ✅）；N8.3–N8.7 见 `REFMEM_DOMAIN_TODO.md` N8 节；台架无人值守可用（四板同 build `20261028154542`）。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -20,6 +20,14 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-002 — N8.1/N8.2 收口快照与入口无关边界回正
+
+- 状态：**N8.1 ✅、N8.2 ✅（均为文档面）**。
+- N8.1：`REFMEM_UNIFIED_CONTROL_REVIEW.md` 标题改为"范围闭环，整体未收口"、Status `Active`；§1 明确"不可标记完成"，§2 补 catalog 36/历史 21、N7.6 改 ⚠️，§3 补当前 P3 `20261028154542`/`out/n8/baseline.json`/`b16f7b0a`，§4 补契约 pending、N5.5、IF-012/013、相位预算，§6 指向 N8。
+- N8.2：N5.5 冻结为**产品级入口收敛**——非协调者远端 `REFTMEM_CMD` fail-closed(12)、不中继/不排队/不建 relay 状态；`REFMEM-CTRL-01` 增补"N6/N7 增量已实现 + 入口无关条款未满足、状态保持 pending"；`REFMEM_DOMAIN_ARCHITECTURE.md` 新增「入口无关边界（N5.5）」小节，C1 转发腿列为显式非目标。
+- 边界：不把契约转 active、不代替 C11、不写转发代码；wire/布局/槽位未动。
+- 下一步：N8.3 IF-013 后端（先核 `TRIGger:MODE` 与 7 条配置命令的 handler 与最新证据）。
 
 ### REFMEM-TASK-20261029-001 — N8 统一面收口夜间目标立项
 
