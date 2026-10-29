@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：REFTMEM-TASK-20261029-020。C11：REFMEM-ENTRY-01=active（C11-05）；REFMEM-CTRL-01=pending（C3/C6）；host 门禁已覆盖；TRN-03 re-arm 诊断已入残余。
+- 最新条目：REFTMEM-TASK-20261029-021。N10：非 owner 目标命令停留 POSTED 并堵死单槽（已复现，待修）；TRN-03 台架时序；C3/C6 与 EXE-SEAT-01 另立。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,14 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-021 — N10.1：VDC/非 owner 目标命令挂起复现（POSTED 不终结）
+
+- 复现（COM5，环停）：`CTRL:EXECute 28,14,14,1,0,1000`（以及 29）→ `CTRL:STATus?` = `465941,1780937987,1,465941,14,14,0,0,0,0,0,0,0`：**state=1（POSTED）**、`target=required=14`、`ack=0`、`nack=0`、`applied=0`。
+- 后果：随后再发 `CTRL:EXECute 29,...` **超时**——`post_command_replacing_complete` 要求上一条 complete，POSTED 记录把单槽堵死；需 reboot 协调者清除（已做）。
+- 更正上一轮措辞：不是 `TAKEN`（state=2），而是 **`POSTED`（state=1）**；`VDC:OUTPut:TIMing?` 读回 `12000,16000,6000` 说明本地 VDC 配置已被此前的 `FUNC_VDC_RECONFIG` 应用，与本次 28/29 无关。
+- 初判：`target=14` 只含 1/2/3（非 VDC owner），目标侧执行/回程未形成 ACK/NACK（期望 fail-closed 到 reason 12/13）；需在目标 dispatch/回复路径加"非 owner 目标必须回 NACK"或收窄发号前校验。
+- 证据：`out/n10/vdc_taken_repro.json`、`out/n10/vdc_taken_repro2.json`。
 
 ### REFMEM-TASK-20261029-020 — TRN-03 re-arm 预算诊断（FULL 阻断点）
 

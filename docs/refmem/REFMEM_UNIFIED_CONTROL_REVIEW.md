@@ -69,7 +69,7 @@ Last updated: 2026-10-29
 | IF-012/IF-013 | ⑥ | Trigger/角度统一命令 | 接口域 `IN PROGRESS` | 8 条 ACK + 角度 RUN | 接口域 |
 | EXE-SEAT-01 | ② | 相位预算 | 全量验收可能再红 | 用户签字 | 非目标 |
 | OTA 工具不稳 | ⑥ | 大包传输 | 例行 OTA 改用 picotool 绕行 | 工具修复 | 独立 |
-| VDC timing 读回异常 | ⑥ | 环停/VDC 非 idle 下 `CTRL:EXECute 29` | 读回 `24000,32000,16000`；29 停留 `TAKEN` 未回 ACK/NACK，不阻塞后续命令 | 复跑并归因 VDC/TDMA handler；不作为通过证据 | 待归因 |
+| 非 owner 目标命令挂起 | ⑤ | `target=14` 指向非 VDC owner 的 28/29 | 记录停留 `POSTED`（`ack=0/nack=0`），堵死单槽直到 reboot | 目标侧非 owner 必须回 NACK（reason 12/13）或发号前拒绝 | 待修（N10.2） |
 
 ## 5. 契约与边界
 
