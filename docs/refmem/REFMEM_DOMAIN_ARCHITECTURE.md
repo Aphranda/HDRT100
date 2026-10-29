@@ -1579,7 +1579,7 @@ origin 一律 `PERMISSION_DENIED`(12)，且**授权判定先于 idle 窗口判�
 | 目标执行后 ACK 丢失 | 只读状态核对，不重发执行；非幂等类 `UNKNOWN` | 目标 snapshot + dedup cache |
 | 目录/版本不一致 | 拒绝，不解释 payload | `CATALOG_MISMATCH` / `UNSUPPORTED_COMMAND` |
 
-`refmem_command_reason_t` 需补充 `UNSUPPORTED_COMMAND`、`CATALOG_MISMATCH`、`CONTROL_BUSY`、`CONTROL_OWNER_CONFLICT`、`TARGET_NOT_CLAIMED`、`ABORTED_BY_PREEMPT`、`ABORTED_LEASE_LOST`、`LATE_ACK`、`SKIPPED_STALE`；SCPI reason 表与 `SYSTem:COMMand:NACK?` 必须同步，不得只加枚举不加解释。
+`refmem_command_reason_t` 的九项扩展（`UNSUPPORTED_COMMAND`、`CATALOG_MISMATCH`、`CONTROL_BUSY`、`CONTROL_OWNER_CONFLICT`、`TARGET_NOT_CLAIMED`、`ABORTED_BY_PREEMPT`、`ABORTED_LEASE_LOST`、`LATE_ACK`、`SKIPPED_STALE`）属 **C3/C6 未实现部分（v1 显式非目标）**：当前枚举未包含这些值；SCPI 侧 `UNSUPPORTED_COMMAND`/`NOT_CONTROL_OWNER`/`REJECTED` 是文本执行错误，不进入 reason 表。恢复该承诺需枚举、reason 表与负测同批落地。
 
 ### 当前实现状态
 
@@ -1593,7 +1593,7 @@ origin 一律 `PERMISSION_DENIED`(12)，且**授权判定先于 idle 窗口判�
 | 显式 `target_mask` / `required_mask` 字段与本地 take 校验 | 已实现 |
 | 跨节点命令路由与 ACK 回程 | `REFTMEM_CMD` 分段经 TDMA 维护流投递到目标已实现（0x52/0x55）；目标执行后把终态写入自己的 **process-image ACK 席位**（`ACK_FLAG_COMMAND` + seq16 + reason），源板从本板 REFMEM 镜像逐槽聚合，更新源 node 控制记录的 `state/ack_flags/nack_flags/last_reason`；`SYSTem:CTRL:STATus?` 可见。**远程配置 stage 在目标窗口开启 + 环运行时已 ACK**（N5.2a.3/N5.2a.4 四板 HIL）；非协调者 Entry 转发、租约仍属 C1/C3 |
 | 协调者租约、`control_owner_slot` 唯一性门禁 | 未实现 |
-| 聚合视图 / 逐目标视图 / `control_reply` | 逐目标回复聚合已实现（源 node 控制记录 + `SYSTem:REFMEM:CMD:REPLy?` 计数）；系统级 `SYSTem:COMMand:STATus?/TARget?` 聚合广播与 `control_reply` 独立只读副本仍未实现 |
+| 聚合视图 / 逐目标视图 / `control_reply` | 逐目标回复聚合已实现（源 node 控制记录 + `SYSTem:REFMEM:CMD:REPLy?` 计数）；系统级 `SYSTem:COMMand:STATus?/TARget?` 只读聚合已实现（从本地 node 记录派生，无第二事实）；广播/`control_reply` 独立副本仍未实现 |
 | 跨节点 FENCE（activation gate 的全环 ACK） | 未实现 |
 | 命令目录 CRC 进入 Version Bundle | 未实现 |
 
@@ -1720,7 +1720,7 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 | 28 | `VDC_OUTPUT_DELAY` | VDC | VDC 域停窗口内 `APPLIED` |
 | 29 | `VDC_OUTPUT_TIMING` | VDC | VDC 域停窗口内 `APPLIED` |
 | 30 | `T2_CONFIGURE` | T2 | T2 域停窗口内 `APPLIED` |
-| 31 | `T2_MOUNT` | T2 | 首版本地启动；统一面 `NOT_ONLINE_SAFE`（TDMA 运行时缺 STOP-only position reset） |
+| 31 | `T2_MOUNT` | T2 | 在线可用（N8.5）：TDMA 不停环下清位置 TX/pending 后启动 T2；四板 `ack=14` |
 | 32 | `T2_UNMOUNT` | T2 | T2 域停 |
 | 33 | `VDC_STOP` | VDC | VDC 域停（映射到现有 output/reference stop） |
 | 34 | `VDC_START` | VDC | VDC 域启（映射到现有 output/reference start） |
@@ -1741,14 +1741,14 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 - function 表是编译期 `const` 静态表：`function_id → {name, step_count, failure_policy, steps[]}`；step = `{command_id, target_rule, required_rule, param_bindings[], flags}`。
 - 执行器在 `task_refmem_sync` 中有界、非阻塞、串行推进；每步走同一条原子 `CTRL:EXECute` 路径，一次只允许一个 in-flight 命令/目标；聚合 per-step ACK/NACK，最终 `COMPLETED/FAILED/PARTIAL`。
 - 失败策略首版只支持 `ABORT_REMAINING` / `CONTINUE_REPORT`；`ROLLBACK` 明确不实现。
-- 功能示例：`FUNC_TDMA_ONLINE`（21→23）、`FUNC_CLOCK_RECONFIG`（24→25→33→27→28→29→34）、`FUNC_T2_RECONFIG`（32→30，停+配置；T2 启动仍走本地 `T2:MOUNT`）、`FUNC_BRINGUP_ONLINE`（上述按序组合，不含部署期 20/22 和本地启动 31）。
+- 功能示例（以 `config/refmem/function_catalog.yaml` 为准）：`FUNC_TDMA_ONLINE`（21→23，2 步）、`FUNC_CLOCK_RECONFIG`（24→25，2 步）、`FUNC_TDMA_CLOCK_ONLINE`（21→23→24→25，4 步）、`FUNC_VDC_RECONFIG`（33→27→28→29，4 步）、`FUNC_VDC_OUTPUT_DELAY`（33→28，2 步）、`FUNC_T2_RECONFIG`（32→30，2 步；T2 启动走在线 `T2_MOUNT`）。
 - **TDMA 连续性不变量**：任何 function 执行前后，TDMA `up_sequence`/`down_rx_sequence` 必须单调推进；HIL 证据必须包含跨功能前后的序号与帧计数，不允许用“功能 ACK”替代链路连续性。
 - function 表不引入动态脚本、运行时注册、第二命令槽或第二 ACK 事实；单板本地 `T2:MOUNT/UNMOUNT` 等路径仍保留（`REFMEM-LOCAL-01`）。
 
 **状态与证据**
 
 - 契约状态：pending（作为 `REFMEM-CTRL-01` 的增量，不单独授予产品 RUN 结论）。
-- 实现状态（2026-10-27）：`config/refmem/function_catalog.yaml` 已生成 6 个 function（TDMA 在线、DPLL、T2 停配置、TDMA+DPLL 组合、VDC 停+配置、VDC 窄 delay）；执行器单 in-flight、串行 step、`ABORT_REMAINING`；`SYSTem:CTRL:FUNCtion:RUN/STATus?/CATalog?` 已接线；host 覆盖成功/失败/超时/单 in-flight。四板 HIL：`FUNC_TDMA_ONLINE` 2 步、`FUNC_TDMA_CLOCK_ONLINE` 4 步均 `COMPLETED/ack=14`；`FUNC_T2_RECONFIG,14,14` 四板正向 `COMPLETED/ack=14`（T2 handler 读 cached STOP 暂存 grid/deployment，本地 SCPI 仍 STOP-only）；`FUNC_VDC_RECONFIG,14,14` 四板正向 `COMPLETED/ack=14`，delay/reference/timing 读回正确（合法参数 `input_port=4`、`timeout_ms=2500`、timing `12000/16000/6000`）。关键修复：本板执行副本只带本板 `target/required`，避免多步远端命令被本地槽 `TAKEN` 阻塞。边界：T2 START/MOUNT 仍 `NOT_ONLINE_SAFE`。
+- 实现状态（2026-10-29）：`config/refmem/function_catalog.yaml` 共 6 个 function；执行器单 in-flight、串行 step、`ABORT_REMAINING`；`SYSTem:CTRL:FUNCtion:RUN/STATus?/CATalog?` 已接线；host 覆盖成功/失败/超时/单 in-flight。四板 HIL：`FUNC_TDMA_ONLINE` 2 步、`FUNC_TDMA_CLOCK_ONLINE` 4 步、`FUNC_VDC_RECONFIG` 4 步均 `COMPLETED/ack=14`；`FUNC_T2_RECONFIG,14,14` 四板正向 `COMPLETED/ack=14`（T2 handler 读 cached STOP 暂存 grid/deployment）；在线 `T2_MOUNT` 四板 `ack=14`（N8.5）。**证据等级**：P3 为 QUICK/DPLL scope、`strict_gates_passed=false`，不覆盖 T2 在线 MOUNT 与位置复位；该路径按 HIL 读数成立，契约验收需 full/等价专项。
 - 代码锚点：`refmem_command.h`、`refmem_command_catalog.h`、`refmem_function.h`、`refmem_function_catalog.h`。
 - 验收：host 覆盖目录/参数/入口/在线原子/域停序列/失败策略；四板 HIL 覆盖协调者单端口、逐目标 ACK、TDMA TX/RX 连续性、`NOT_ONLINE_SAFE` 负测。
 

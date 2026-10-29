@@ -8,21 +8,20 @@ Last updated: 2026-10-29
 
 ## 1. 结论
 
-**N6/N7 目标范围已闭环；T2 START/MOUNT 的 running-safe（N8.5）进行中；契约 `pending`，整体不可标记完成。**
+**N6/N7 与 N8 目标范围已闭环；契约 `pending`（C11 独立复核为 `PASS_WITH_CHANGES`），整体不可标记完成。**
 
 - 已闭环：N6.0–N6.5、N7.1–N7.5——四板 TDMA/DPLL/T2/VDC 正向、单条 `CTRL:FUNCtion:RUN` 功能封装、host 用例均有证据。
 - 未收口：
-  - `REFMEM-CTRL-01` 仍 `pending`，C11 未由第三方签署（`REFMEM_HAOFV_REVIEW_01` §6 自述不构成最终签署）。
-  - N5.5 已按 HAOFV 决策为**产品级入口收敛**：非协调者远端命令 fail-closed，属有界承诺，不是“任一切入点同语义”。
+  - `REFMEM-CTRL-01` 仍 `pending`：C11 复核（`docs/check/submissions/REFMEM_C11_REVIEW_01.md`）判定 5 满足 / 2 部分（协调者租约、fence 聚合）/ 1 未满足（接入点无关），**不能转 active**。
+  - N5.5 已按 HAOFV 决策为**产品级入口收敛**：非协调者远端命令 fail-closed，属有界承诺，不是"任一切入点同语义"。
   - IF-012/IF-013 Trigger 统一命令仍在接口域推进（`docs/interface/SCPI_HOST_TODO.md` 记 `IN PROGRESS`）。
-  - T2 `START/MOUNT` 已在线（N8.5 ✅）：四板 `CTRL:EXECute 31,14,14,1,0,0` → `ACKED/ack=14`，环连续。
   - 相位预算待 EXE-SEAT-01 签字，不得由实现单方重签。
-- 保留边界：T2 域停配置（`UNMOUNT→CONFIGURE`）已通；在线启动不在本快照承诺内。
+- N8.5 状态：四板 `CTRL:EXECute 31,14,14,1,0,0` → `ACKED/ack=14`、环连续（2026-10-29，单串口 COM5）。**证据等级**：P3 为 QUICK/DPLL scope、`strict_gates_passed=false`，不覆盖 T2 在线 MOUNT 与位置复位路径；该功能按单板/四板 HIL 读数成立，契约验收仍需 full 或等价专项。
 - **N8 夜间进展（2026-10-29）**：
   - 失败路径 NACK 可见性已修并上板（`4dc41dfe`）：被拒命令从 `POSTED` 变为 `NACKED+reason`；P3 QUICK 凭证 build `20261028171345`、1609 files、`1fc53c7d…`。
   - N5.7 只读聚合已上板并实机读回（`4f7a94f0`）：合法 41 后 `acked=1`、非法 41 后 `nacked=1/reason=13`；P3 QUICK 凭证 build `20261028180729`、1609 files、`2f667e55…`。
   - N8.6 四板 function HIL 复跑通过：`FUNC_TDMA_ONLINE`(2/2)、`FUNC_TDMA_CLOCK_ONLINE`(4/4)、`FUNC_VDC_RECONFIG`(4/4) 均 `COMPLETED`、`ack=14`；VDC timing 四板 `12000,16000,6000`。
-  - N8.5（T2 running-safe）未实现，仍是 `START/MOUNT` 边界；设计包见 `out/n8/n8_5_running_safe_design.md`。
+  - N8.5（T2 running-safe）已实现并四板通过：`CTRL:EXECute 31,14,14,1,0,0` → `ACKED/ack=14`（见 §4 残余中的证据等级说明）。
 
 ## 2. 子项总表
 
@@ -33,7 +32,7 @@ Last updated: 2026-10-29
 | N6.2 DPLL RUN-safe | ✅ | `DPLL_ROLE`/`DPLL_TUNE` 在线；四板 `DPLL:ROLE? 0,0,3,3,0` |
 | N6.3 TDMA 在线 | ✅ | seat 原子字 + load mask；20/22 返回 `NOT_ONLINE_SAFE`；四板 seat 读回 `3,1,...` |
 | N6.3 VDC | ✅ | 四板 `FUNC_VDC_RECONFIG,14,14` `COMPLETED/ack=14`；timing 读回 `12000,16000,6000` |
-| N6.4 T2 | ✅（域停配置） | 四板 `FUNC_T2_RECONFIG,14,14` `COMPLETED/ack=14`（cached STOP 快照）；START/MOUNT 仍边界 |
+| N6.4 T2 | ✅（域停配置 + 在线 MOUNT） | 四板 `FUNC_T2_RECONFIG,14,14` `COMPLETED/ack=14`（cached STOP 快照）；在线 MOUNT 见 N8.5 |
 | N6.5 HIL/P3 | ✅（历史凭证） | P3 `20261026173427` / `20261026174849` / `20261026180937` / `20261026181952` / `20261027014444` |
 | N7.1 function 表生成器 | ✅ | 6 个 function；host 查表/切片 |
 | N7.2 执行器 | ✅ | 单 in-flight、串行 step、`ABORT_REMAINING`、`RUN_STATE_DENIED` 3×100 ms 重试 |
@@ -46,7 +45,7 @@ Last updated: 2026-10-29
 
 | 类别 | 路径 |
 |---|---|
-| 当前 P3 凭证 | `config/hardware_acceptance/p3_acceptance_receipt.json`（build `20261028154542`，QUICK/DPLL scope，1609 files） |
+| 当前 P3 凭证 | `config/hardware_acceptance/p3_acceptance_receipt.json`（build `20261029012332`，QUICK/DPLL scope，1609 files，`strict_gates_passed=false`） |
 | N8 基线 | `out/n8/baseline.json`（四板在线、同 build、host 4 套件） |
 | 历史 P3 凭证 | build `20261027014444`（N6.3.2/T2/VDC 四板正向） |
 | 四板 TDMA/DPLL function | `out/n7/four_board_hil/function_hil_localslot.txt`、`continuity.txt` |
