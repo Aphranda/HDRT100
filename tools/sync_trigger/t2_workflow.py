@@ -1236,6 +1236,28 @@ def t2_field(fields, name):
     return fields[index] if len(fields) > index else "?"
 
 
+def field_at(fields, index):
+    """Positional field from a page (the sampling loop keeps a local alias)."""
+    return fields[index] if len(fields) > index else "?"
+
+
+def query_page(ctx, board, command, min_fields=5, tries=3, delay_s=0.05):
+    """Bounded retry for a status page; a CDC timeout answers '<timeout>'.
+
+    The sampling loop queries every board once per tick, so a single slow board
+    (observed on the GATEWAY) can drop one reply and turn a whole page into '?'.
+    """
+    last = ""
+    for attempt in range(max(1, tries)):
+        last = ctx.send(board, command)
+        if "<timeout>" not in last and len(last.split(",")) >= min_fields:
+            return last
+        if attempt + 1 < tries:
+            time.sleep(delay_s)
+    ctx._query_retries = getattr(ctx, "_query_retries", 0) + 1
+    return last
+
+
 # TRIGger:REServation:T2:CURSor? (scpi_trigger_t2_runtime_commands.inc,
 # scpi_cmd_trigger_t2_cursor_q): ok, last_error, configured, valid, grid_epoch,
 # grid_generation, session, sample_seq, carrier_sequence, identity_crc32 (legacy,
@@ -1444,10 +1466,58 @@ def step(number):
     return register
 
 
+GENERATION_MARKER = os.path.join("out", "tdma_t2", "last_generation.json")
+
+
+def load_last_generation(path=None):
+    """Last generation this tool wrote, or None when no marker exists."""
+    path = path or GENERATION_MARKER
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = int(json.load(handle).get("last_generation", 0))
+    except (OSError, ValueError, TypeError):
+        return None
+    return value if value > 0 else None
+
+
+def save_last_generation(generation, path=None):
+    path = path or GENERATION_MARKER
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"last_generation": int(generation)}, handle)
+    except OSError:
+        pass
+
+
+def reuses_recorded_generation(selection):
+    """True when the range cannot write a new grid epoch and must reuse one."""
+    steps = set(selection or [])
+    return bool(steps) and not ({8, 9} & steps)
+
+
+def generation_for_selection(selection, requested=None, marker=None):
+    """Pick the generation a run must use.
+
+    Steps 8/9 write the grid epoch and bind T2 to it, so a fresh generation
+    every invocation makes a later subset (e.g. '--steps 11-20') impossible to
+    reconcile with the grid already on the boards.  Ranges that cannot re-write
+    the grid/T2 binding reuse the recorded generation instead; a range that does
+    contain those steps starts a new one.
+    """
+    if requested is not None:
+        return int(requested) & 0xFFFFFFFF
+    if reuses_recorded_generation(selection):
+        reused = load_last_generation(marker)
+        if reused:
+            return reused
+    return int(time.time()) & 0xFFFFFFFF
+
+
 class StepContext:
     """Shared state for one step run."""
 
-    def __init__(self, board_ids, generation=None):
+    def __init__(self, board_ids, generation=None, reuse_generation=False):
         self.ns = SimpleNamespace(board_ids=list(board_ids), baud=115200, timeout=8.0,
                                   read_timeout=0.02, settle=0.02, keep_open=True,
                                   short_open=False,
@@ -1481,12 +1551,8 @@ class StepContext:
         # SESSion? reports the ACTIVE session (0 after a teardown), while the firmware
         # compares against its internal last-accepted value, which is not exposed. Keep
         # our own high-water mark so a new run always asks for a larger number.
-        marker = os.path.join("out", "tdma_t2", "last_generation.json")
-        try:
-            with open(marker, encoding="utf-8") as handle:
-                last_accepted = int(json.load(handle).get("last_generation", 0))
-        except (OSError, ValueError, TypeError):
-            last_accepted = 0
+        marker = GENERATION_MARKER
+        last_accepted = load_last_generation(marker) or 0
         for uid, _s, _i, _o, _f in ROWS:
             member = self.boards.get(f"{uid:016X}")
             if member is None:
@@ -1495,16 +1561,13 @@ class StepContext:
             if page.strip().isdigit():
                 last_accepted = max(last_accepted, int(page.strip()))
         requested = generation & 0xFFFFFFFF if generation else int(time.time()) & 0xFFFFFFFF
-        if requested <= last_accepted:
+        if requested <= last_accepted and not reuse_generation:
             print(f"  note: generation {requested} is not above the last accepted "
                   f"session {last_accepted}; using {last_accepted + 1}", flush=True)
             requested = last_accepted + 1
         self.dep_gen = requested
-        try:
-            with open(marker, "w", encoding="utf-8") as handle:
-                json.dump({"last_generation": self.dep_gen}, handle)
-        except OSError:
-            pass
+        save_last_generation(self.dep_gen, marker)
+        self._epoch_mismatch_reported = False
         self.dep_crc = deployment_crc(self.dep_gen, ROWS)
         self.payload = ",".join(f"{uid},{slot},{imask},{omask},{fb}"
                                 for uid, slot, imask, omask, fb in ROWS)
@@ -2241,6 +2304,19 @@ def step_15_priority(ctx, slot, board, uid):
 @step(16)
 def step_16_ring_start(ctx, slot, board, uid):
     """Ring data path: BURSt 0, ARM the peers then the reference, TRAIN, START."""
+    seq_mode = os.environ.get("T2_SEQ_MODE", "")
+    if seq_mode in ("0", "1", "2"):
+        # The position model must be selected while the board is stopped and
+        # after T2 is configured: switching it later rewrote the ring/epoch
+        # prerequisites and ORIGin:TRIAL was refused (EPOCH_SUPERSEDED).
+        for uid_r, slot_r, _i, _o, _f in ROWS:
+            member = ctx.boards.get(f"{uid_r:016X}")
+            if member is None:
+                continue
+            reply = ctx.send(
+                member, f"TRIGger:REServation:T2:SEQ:MODE {seq_mode}")
+            print(f"  slot {slot_r} SEQ:MODE {seq_mode} (before ring) -> "
+                  f"{reply[:24]}", flush=True)
     src = ctx.src
     if src is not None:
         ctx.send(src, "SYSTem:TDMA:RING:BURSt 0")
@@ -2830,6 +2906,13 @@ def step_18_preflight_source_trial(ctx, slot, board, uid):
                   f" session {session} seq {seq} ring {'ok' if ring_ok else 'NOT UP'}",
                   flush=True)
             break
+        if err == "0" and valid == "1" and epoch != str(ctx.dep_gen) \
+                and not ctx._epoch_mismatch_reported:
+            ctx._epoch_mismatch_reported = True
+            print(f"  epoch mismatch: T2 cursor epoch {epoch} != this run dep_gen "
+                  f"{ctx.dep_gen}; the grid/T2 on the boards were bound by an "
+                  f"earlier invocation. Rerun steps 8-12 in this invocation or "
+                  f"use --steps 1-21.", flush=True)
         # Identity reconciliation. err 7 with seq frozen is a sticky IDENTITY fault, which
         # the firmware can only set after one successful bind (trigger_time_cursor.c
         # 241/257/265: sticky == s_binding.bound); the probes in steps 16/17 bracket when.
@@ -2847,8 +2930,10 @@ def step_18_preflight_source_trial(ctx, slot, board, uid):
     ctx.reference_ready = reference_ready
     if not reference_ready:
         ctx.failures.append(f"Step 18 reference cursor never became valid within 24 s"
-                            f" (last err {err} valid {valid} seq {seq}); without a valid"
-                            f" cursor Core0 saves no preview and nothing is published")
+                            f" (last err {err} valid {valid} epoch {epoch} vs dep_gen"
+                            f" {ctx.dep_gen}); rerun steps 8-12 in this invocation or"
+                            f" use --steps 1-21 so grid/T2 and the session share one"
+                            f" generation")
         print(f"  reference cursor NOT READY: err {err} valid {valid} epoch {epoch}"
               f" session {session} seq {seq}", flush=True)
 
@@ -3013,11 +3098,21 @@ def step_20_sampling(ctx, slot, board, uid):
             member = ctx.boards.get(f"{uid_r:016X}")
             if member is None:
                 continue
+            _base_state = query_page(ctx, member, "TRIGger:REServation:T2?").split(",")
+            _base_scan = query_page(ctx, member, "TRIGger:REServation:T2:SCAN?",
+                                    10).split(",")
             _base[slot_r] = {
                 "why": ctx.send(member, "TRIGger:REServation:T2:ACTion:WHY?"),
                 "diag": ctx.send(member, "TRIGger:REServation:T2:ACTion:DIAG?"),
                 "gwdiag": ctx.send(member, "TRIGger:REServation:T2:ACTion:GWDIAG?"),
+                "freeze_mismatch": t2_field(_base_state, "freeze_mismatch"),
+                "freeze_fallback": t2_field(_base_state, "freeze_fallback"),
+                "scan_overwrote": field_at(_base_scan, 8),
             }
+        ctx._steploss_baseline = {
+            slot_r: (values.get("freeze_mismatch"), values.get("freeze_fallback"),
+                     values.get("scan_overwrote"))
+            for slot_r, values in _base.items()}
         _base_path = pathlib.Path("out/sync_trigger/sequence_baseline.json")
         _base_path.parent.mkdir(parents=True, exist_ok=True)
         _base_path.write_text(_json_b.dumps(_base, indent=1), encoding="utf-8")
@@ -3036,13 +3131,13 @@ def step_20_sampling(ctx, slot, board, uid):
                 # overwrite, no legacy/window announcement mismatch, and the derived
                 # geometry. Printed once per run.
                 ctx._t2_scan_diag_read = True
-                print(f"T2SCAN {ctx.send(member, 'TRIGger:REServation:T2:SCAN?')}",
-                      flush=True)
+                scan_text = query_page(ctx, member, "TRIGger:REServation:T2:SCAN?", 10)
+                print(f"T2SCAN {scan_text}", flush=True)
                 # Keep the reading for the end-of-sampling criterion (A.3.38).
-                _scan_fields = ctx.send(member, 'TRIGger:REServation:T2:SCAN?').split(",")
+                _scan_fields = scan_text.split(",")
                 if len(_scan_fields) >= 10:
                     ctx._t2_scan_last = [f.strip() for f in _scan_fields[:15]]
-            state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
+            state = query_page(ctx, member, "TRIGger:REServation:T2?").split(",")
             position = ctx.send(member, "SYSTem:REFMEM:SYNC:FLIGHT:POSition?")
             # Keep every board's position-transport page for the end-of-sampling
             # distribution verdict below (the per-tick print is slot 0 only).
@@ -3691,6 +3786,71 @@ def step_20_sampling(ctx, slot, board, uid):
               f" desc_reject {t2_field(page, 'descriptor_reject')}"
               f" trans_reject {t2_field(page, 'transport_reject')}"
               f" last_error {t2_field(page, 'last_error')}", flush=True)
+    if getattr(ctx, "_query_retries", 0):
+        print(f"  query retries used: {ctx._query_retries}", flush=True)
+
+
+def step_loss_verdict(ctx):
+    """Per-role window verdict: no lost step once the pulse flow has stopped.
+
+    A frozen plan that is neither executed nor abandoned after the flow stops is
+    a lost step.  ``slotpack inflight`` is the only legitimate reason for a
+    pending plan, so pending must not exceed it; freeze mismatch/fallback must be
+    zero.  Read before UNMOUNT so the counters are still live.
+    """
+    tail_fields = int(os.environ.get("T2_ACTION_TAIL_FIELDS", "26"))
+    verdicts = []
+    time.sleep(2.0)
+    for uid_r, slot_r, _i, _o, _f in ROWS:
+        member = ctx.boards.get(f"{uid_r:016X}")
+        if member is None:
+            continue
+        role = ROLES[slot_r] if slot_r < len(ROLES) else f"slot{slot_r}"
+        state = query_page(ctx, member, "TRIGger:REServation:T2?").split(",")
+        action = query_page(ctx, member, "TRIGger:REServation:T2:ACTion?", 20).split(",")
+        tail = ([f.strip() for f in action[-tail_fields:]]
+                if len(action) >= tail_fields else ["?"] * tail_fields)
+
+        def as_int(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        entered, announced, frozen, executed, abandoned = (
+            as_int(tail[index]) for index in range(5))
+        base = (getattr(ctx, "_steploss_baseline", {}) or {}).get(
+            slot_r, (None, None, None))
+        scan = query_page(ctx, member, "TRIGger:REServation:T2:SCAN?", 10).split(",")
+
+        def delta(now, before):
+            now_value, before_value = as_int(now), as_int(before)
+            if now_value is None or before_value is None:
+                return None
+            return now_value - before_value
+
+        mismatch = delta(t2_field(state, "freeze_mismatch"), base[0])
+        fallback = delta(t2_field(state, "freeze_fallback"), base[1])
+        overwrote = delta(field_at(scan, 8), base[2])
+        pending = (max(0, frozen - executed - abandoned)
+                   if None not in (frozen, executed, abandoned) else None)
+        # A lost step is a frozen plan that never executed/abandoned, or a window
+        # overwrite before announcement. FREEZE version mismatches that fell back
+        # are reported as WARN: the position still executed.
+        pending_ok = True if slot_r == 0 else pending == 0
+        overwrite_ok = overwrote in (0, None)
+        ok = pending_ok and overwrite_ok
+        verdicts.append((role, ok))
+        warn = " WARN freeze mismatch/fallback" if (mismatch or fallback) else ""
+        print(f"  STEPLOSS slot {slot_r} {role}: {'PASS' if ok else 'FAIL'}"
+              f" entered {entered} announced {announced} frozen {frozen}"
+              f" executed {executed} abandoned {abandoned} pending {pending}"
+              f" overwrote +{overwrote} mismatch +{mismatch} fallback +{fallback}"
+              f"{warn}", flush=True)
+    if verdicts and not all(ok for _role, ok in verdicts):
+        ctx.failures.append("Step 21 step-loss verdict failed: "
+                            + ", ".join(role for role, ok in verdicts if not ok))
+    return verdicts
 
 
 @step(21)
@@ -3700,6 +3860,10 @@ def step_21_teardown(ctx, slot, board, uid):
     if src is not None:
         ctx.send(src, "MODEl:TURNtable:STOP")
         ctx.send(src, "TRIGger:REServation:SOURce:STOP")
+    try:
+        step_loss_verdict(ctx)
+    except Exception as exc:  # never fail the teardown because of a verdict read
+        print(f"  step-loss verdict skipped: {type(exc).__name__}: {exc}", flush=True)
     for uid_r, _s, _i, _o, _f in ROWS:
         member = ctx.boards.get(f"{uid_r:016X}")
         if member is None:
@@ -3786,7 +3950,9 @@ def run_steps(board_ids, selection, interactive=False, teardown=None,
     if missing_impl:
         print(f"steps without an implementation: {missing_impl}", flush=True)
         return 2
-    ctx = StepContext(board_ids, generation)
+    ctx = StepContext(board_ids,
+                      generation_for_selection(selection, generation),
+                      reuses_recorded_generation(selection) and generation is None)
     if pre_lock_mask:
         ctx.pre_lock_mask = pre_lock_mask
         print(f"pre-lock mask experiment enabled: {pre_lock_mask}", flush=True)
