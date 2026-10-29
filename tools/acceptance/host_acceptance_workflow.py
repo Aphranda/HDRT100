@@ -71,7 +71,9 @@ def selected_paths(profile: str, explicit: list[str] | None) -> list[str]:
         return sorted(p.relative_to(ROOT).as_posix()
                       for p in (ROOT / "tests" / "python").glob("test_*.py"))
     staged = host_acceptance.staged_test_paths()
-    return staged or list(host_acceptance.DEFAULT_PATHS)
+    # Always include the default host guards so a change that only stages a
+    # subset of tests still exercises the RefMem C-runner wrapper.
+    return sorted(set(staged) | set(host_acceptance.DEFAULT_PATHS))
 
 
 def execute(paths: list[str]) -> dict:

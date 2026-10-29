@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "run":
-            paths = args.paths or staged_test_paths() or list(DEFAULT_PATHS)
+            paths = args.paths or sorted(set(staged_test_paths()) | set(DEFAULT_PATHS))
             receipt = run(paths)
             print(f"{'PASS' if receipt['passed'] else 'FAIL'} host acceptance "
                   f"files={receipt['file_count']} {receipt.get('summary_line')}")
