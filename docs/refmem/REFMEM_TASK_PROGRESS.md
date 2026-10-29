@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：REFTMEM-TASK-20261029-027。T2 分次运行 generation 复用已修并验证（1-10→11-20 全过）；N11.2/11.3 待做。
+- 最新条目：REFTMEM-TASK-20261029-028。T2：21/21，STEPLOSS 全 PASS（SWITCH_A/GATEWAY/SWITCH_B 有 freeze fallback WARN）；工具改动待 P3 提交。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,21 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-028 — N11.2/N11.3：GATEWAY 读回重试与丢步判据
+
+- N11.2：新增 `query_page()` 有界重试（3 次、50 ms）；抽样循环的 `TRIGger:REServation:T2?` 与 `T2:SCAN?` 走该路径，超时/短页不再把整页变成 `?`；step 20 末尾打印累计重试次数。
+  - 验证：`steps-20261029-163841.log` 中 `RUNTIME slot 2 GATEWAY ... received 7 ... last_error 0`（上一轮同位置是 `? / last_error 1`）；本轮重试计数 0。
+- N11.3：step 21 新增 `STEPLOSS` 判据（基线扣减）：
+  - 基线在 step 19 采样前记录 `freeze_mismatch`/`freeze_fallback`/`SCAN overwrote`；
+  - 失败条件：非 COUNTER 角色存在未执行/未放弃的计划（`pending != 0`），或窗口 `overwrote` 增量 > 0；
+  - `freeze mismatch/fallback` 增量 > 0 记 **WARN**（FREEZE 版本不匹配走了 fallback，位置仍执行）。
+- 结果（`--steps 1-21`，build `20261029072712`，READY=0）：
+  - **21/21，failed steps: none**；
+  - `COUNTER PASS`、`SWITCH_A PASS`（WARN +3/+3）、`GATEWAY PASS`（WARN +4/+4）、`SWITCH_B PASS`（WARN +4/+4）；`overwrote +0`、`pending 0`。
+- 结论：**按判据无丢步**（无未执行计划、无窗口覆盖）；SWITCH/GATEWAY 存在 FREEZE fallback 告警，属质量项、非丢步。
+- 记录：`steps-20261029-163841.log`、`out/n11/t2_full_e.log`。
+- 待办：工具与 host 用例提交需 P3；WARN 是否可接受需在 N11.4 复跑确认稳定性。
 
 ### REFMEM-TASK-20261029-027 — N11.1：T2 workflow 分次运行自愈（generation 复用）
 
