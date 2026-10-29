@@ -1705,6 +1705,19 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 
 代价与重开判据：`REFMEM-CTRL-01` 的“接入点无关”条款由此**未满足**，契约保持 `pending`；若产品要求非协调者远端发起，按紧凑 intent delta 重做，且先补 TLV/参数池同步与 256 B 容量证据，再改本节与登记表，不直接翻条款。
 
+### REFMEM-ENTRY-01 统一控制面入口语义（2026-10-29；C11-02 = PASS_WITH_CHANGES，待整改）
+
+把原“接入点无关”拆成可判定的两条，避免把产品收敛误读成能力缺失：
+
+1. **同目录、同语义、可本地控制（满足）**：每块板拥有相同的命令目录与 function 表（条目数以 `config/refmem/command_catalog.yaml` / `function_catalog.yaml` 为准）、相同 SCPI 语义与 `COMMand:STATus?/TARget?` 只读视图；本板维护与本地控制不受影响（`REFTMEM-LOCAL-01`/CP9）。
+2. **跨节点发号单入口（产品级收敛）**：远端 `REFTMEM_CMD` 的唯一发号者是 `control_owner_slot`（`SlotClaimMap` 最低已 claim 插槽）；非协调者远端命令一律 fail-closed（12），不中继、不排队、不建 relay 状态。原“Entry B → Coordinator A → Target C”腿为显式非目标。
+
+**单串口拓扑（2026-10-29 用户约束；当前为产品约束、证据未机器化）**：最终应用只连接一个串口。该口落在协调者板上时，四域在线配置、`SYSTem:CTRL:FUNCtion:RUN`、`T2_MOUNT`、只读聚合均由这一个口完成，远端目标经 `REFTMEM_CMD` 投递并向源口回 ACK；不需要第二串口或逐板直连。若该口落在非协调者板，只保留本地控制（上面的第 2 条）。
+
+**重开判据**：产品要求“任一节点发起远端命令”时，按紧凑 intent delta 重做，先补 TLV/参数池同步与 256 B 容量证据，再改本节与 `REFMEM-ENTRY-01` 的登记行；在此之前不直接翻条款。
+
+**证据**：N5.5 决策记录；四板 `CTRL:EXECute 31,14,14,1,0,0` `ACKED/ack=14`（仅 COM5 一口）；`SYSTem:COMMand:STATus?` 单板/四板读数。
+
 **原子域配置命令（15 条，`command_type` 见 `refmem_command.h`）**
 
 | id | name | owner | 应用语义 |
