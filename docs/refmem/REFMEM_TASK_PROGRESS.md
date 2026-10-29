@@ -27,6 +27,8 @@ Last updated: 2026-10-29
 - 关键修正：统一命令的 dispatch 在**同一个 refmem 服务任务**里执行，原 request/done 握手会等待自身 → reason 7 超时。改为在 reset API 内**同上下文直接清 TX/pending**（单写者），T2 start 期间生产者自然停发；不再需要跨任务握手。
 - 前置：`t2_workflow --steps 1-10 --leave-running` 配 T2 → `trn03 --stage process-image --no-t2 --leave-running` 起环 → `CTRL:EXECute 30,14,14,...` 经 cached STOP 快照 ACK → 再 MOUNT。
 - 连续性：MOUNT 前后环保持 `enabled=1`、`up/down=1`，COM5 `up_tx` 4340→7310→9028、COM4/3/6 TX/RX 同步推进；函数后四板 `RING:STOP`。
+- 单串口约束（用户 2026-10-29）：全部统一命令只在 COM5 一口下发，远程目标走 `REFTMEM_CMD`；四板 `ack=14` 即单口拓扑证据，N5.5 产品级入口收敛成立。
+- 提交：`f07fb2b6`（代码，P3 `20261029012332` / `af6fbe0f`）、`b50f6c30`（文档）。
 - 证据：`out/n8/n85_mount_four_board.json`、`out/n8/four_board_hil/trn03_n85j/`、`out/n8/n85_mount_local_ok.json`。
 
 ### REFMEM-TASK-20261029-011 — N8.5 running-safe 代码落地；正向 HIL 待复跑
