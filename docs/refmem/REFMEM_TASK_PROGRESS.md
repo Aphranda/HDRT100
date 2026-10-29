@@ -25,7 +25,7 @@ Last updated: 2026-10-29
 
 - 用带轮询的 `out/n8/capture_single_port_full.py` 在 COM5 一口完成：`FUNC_TDMA_ONLINE` → `FUNC_TDMA_CLOCK_ONLINE` → `FUNC_VDC_RECONFIG` → `T2_CONFIGURE(30)` → `T2_MOUNT(31)`；每步等 `CTRL:STATus?` 终态后再发下一条。
 - 结果：全部 `QUEUED` 并到终态；MOUNT `state=4/ack=14`；`COMMand:STATus?` `acked=1`；环 `up_tx` 4771→6540 连续。
-- 观察：`VDC:OUTPut:TIMing?` 读回 `24000,32000,16000`（请求 `12000/16000/6000`），与上一轮 p3 读回不同，需单独归因；**不作为通过证据**。
+- 观察（待归因）：`VDC:OUTPut:TIMing?` 读回 `24000,32000,16000`（请求 `12000/16000/6000`）；随后直接 `CTRL:EXECute 29,14,14,1,0,12000,16000,6000` 在环停/VDC 非 idle 下停留 `TAKEN`（未回 ACK/NACK），但**不阻塞**后续 `41`（`ACKED`）。疑为 VDC/TDMA 域 handler 未返回或应用未完成；**不作为通过证据**。
 - 证据：`out/n8/single_port_full.json`；台架四板 build `20261029031043`、环停。
 
 ### REFMEM-TASK-20261029-018 — host 门禁覆盖 RefMem C runner（残余闭合）
