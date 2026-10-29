@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261029-030`。GATEWAY 停摆=backend UNCERTAIN（armed 4/completed 0）；下一轮 READY=1 对照。
+- 最新条目：`REFTMEM-TASK-20261029-031`。READY=1 使 GATEWAY 更差（1/361）；ARMBranch 显示 gateway 走 legacy 路径、pilot 未启用。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,20 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-031 — N11.4a：READY=1 对照与 gateway 路径判定
+
+- READY=1 对照（`--positions 361 --sample-ticks 70 --ready-required 1`）：
+  - `SWITCH_A/SWITCH_B` 仍 `361/361`（5776 executed）；
+  - **GATEWAY 退化为 1/361**（executed 2），说明 READY=1 更早停摆，不是修复方向。
+- READY=0（前一轮）：GATEWAY 14/361，`ACTION armed 4/completed 0`，`GW state 4 = UNCERTAIN`。
+- 路径判定（`TRIGger:REServation:T2:ACTion:ARMBranch?`）：
+  - GATEWAY `1,0,514` → `0x202`：branch=2、kind=2（GATEWAY）、**pilot_switch/pilot_position 位均为 0**；
+  - SWITCH_A `1,0,258` → `0x102`：branch=2、kind=1、pilot 位同样为 0。
+  - 结论：**gateway 走的是 legacy gateway deadline 路径（pilot 序列模型未启用）**；无 analyzer READY 时该路径在若干次 retire 后进入 `UNCERTAIN`，已 arm 槽无法完成 → 停摆。
+- 含义：361 判据要覆盖 GATEWAY，需要让序列模型接管 backend（pilot position mode），或明确把 GATEWAY 从 361 验收口径中排除并书面说明。
+- 证据：`out/n11/seq_361_ready1.log`、`ARMBranch?` 读数、`out/sync_trigger/sequence_flow.json`。
+- 下一步（N11.4b）：查 `trigger_sequence_pilot_position_mode` 的启用方式（sequence configure 未开启该位）或确认 gateway 是否本就应走 legacy + analyzer。
 
 ### REFMEM-TASK-20261029-030 — N11.4：GATEWAY 14/361 停摆定位（backend UNCERTAIN）
 
