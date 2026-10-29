@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261029-036`。模型 MODE=2 + 组数 8/2/2：GATEWAY executed 359/361；SWITCH 仍停 4（下一步查 switch 模型 stage 拒绝）。
+- 最新条目：`REFTMEM-TASK-20261029-037`。混合模式成功：GATEWAY 模型 360/361、SWITCH_A/B legacy 361/361；下一步复跑稳定性并收掉 gateway 的 1 个 abandoned。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,23 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-037 — N12.2：逐板模式混合成功（gateway 模型 360/361，switch legacy 361/361）
+
+- 代码结论：统一模型的“位置服务”（`trigger_sequence_pilot_position_service`）只实现 gateway 路径（固定走 `gateway_fire/ready`），switch 在 MODE≥2 会被带进该路径并卡死；因此 switch 保持 legacy、gateway 用模型。
+- 配置（reboot 后配置前）：COM3（2BD5…，GATEWAY）`T2:SEQ:MODE 2`；COM5/COM4/COM6 `MODE 0`；`T2_READY_REQUIRED=0`、`T2_SAMPLE_TICKS=70`、`T2_SEQ_GROUPS=1,8,2,2`。
+- 结果（`steps-20261029-204135.log`，21/21，failed steps: none）：
+
+| 角色 | entered | frozen | executed | abandoned | groups exec/count | 期望 |
+|---|---|---|---|---|---|---|
+| SWITCH_A | 361 | 361 | **361** | 0 | 2888/8 | 8×361=2888 ✓ |
+| SWITCH_B | 361 | 361 | **361** | 0 | 722/2 | 2×361=722 ✓ |
+| **GATEWAY** | 361 | 361 | **360** | 1 | 720/2 | 2×361=722（差 2：1 abandoned + 1 in-flight） |
+| COUNTER | 361 | 361 | 0 | 358 | — | 无动作角色，PASS |
+
+- 结论：**逐板混合模式（gateway 模型 + switch legacy）可行**——switch 已 361/361 全过，gateway 到 360/361（仅 1 个 abandoned），不再是最多 14 的死停。
+- 证据：`out/n12/t2_hybrid.log`、`out/tdma_t2/steps-20261029-204135.log`。
+- 下一步：复跑确认稳定性，并尝试把 gateway 的 1 个 abandoned 收掉（加长窗口/重试）；随后用 sequence_workflow 口径固化混合流程（需 per-board mode 支持或文档化操作），再决定是否撤销 N11 的 gateway 例外。
 
 ### REFMEM-TASK-20261029-036 — N12.1：MODE=2 + 模型口径组数（GATEWAY 已执行 359/361，SWITCH 仍停 4）
 
