@@ -658,8 +658,9 @@ bool distributed_refmem_reset_position_stopped(void)
 }
 
 /* N8.5: TX-side clear only.  RX mailboxes/fragments are owned by this same
- * service context and are not rewritten here; the producer is parked by
- * s_position_reset_request until the caller resumes it. */
+ * service context and are not rewritten here.  The caller runs inside the
+ * refmem service (unified-command dispatch), so no other task can prepare
+ * position TX while this clear executes. */
 static void distributed_refmem_position_clear_running_tx(void)
 {
     memset(s_position_pending, 0, sizeof(s_position_pending));
@@ -687,8 +688,9 @@ refmem_position_reset_result_t distributed_refmem_reset_position_running(void)
     tdma_ring_runtime_snapshot_t ring;
     if (owner == NULL ||
         !tdma_ring_runtime_get_snapshot(&owner->ring_runtime, &ring) ||
-        ring.enabled == 0u || ring.adapter_started == 0u ||
-        ring.config_seq != ring.applied_config_seq) {
+        !refmem_position_reset_admits(ring.enabled, ring.adapter_started,
+                                      ring.config_seq,
+                                      ring.applied_config_seq)) {
         return REFMEM_POS_RESET_UNSAFE;
     }
     /* The unified-command dispatch path runs inside the sole Core0 refmem

@@ -206,9 +206,10 @@ static bool t2_mount_handler(const uint32_t *params, uint32_t param_words,
     if (params == NULL || param_words != 3u) {
         return reject(reason);
     }
-    /* N8.5: park position publications, let the refmem service clear the TX
-     * state, start T2 while the producer stays parked, then resume.  Any
-     * failure keeps the previous NOT_ONLINE_SAFE behaviour. */
+    /* N8.5: clear the position TX/pending state from the same refmem service
+     * context that prepares it (single writer), then start T2 before returning
+     * to the service loop.  Any failure keeps the previous NOT_ONLINE_SAFE
+     * behaviour. */
     const refmem_position_reset_result_t reset =
         distributed_refmem_reset_position_running();
     if (reset != REFMEM_POS_RESET_OK) {
