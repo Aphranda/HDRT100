@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261029-037`。混合模式成功：GATEWAY 模型 360/361、SWITCH_A/B legacy 361/361；下一步复跑稳定性并收掉 gateway 的 1 个 abandoned。
+- 最新条目：`REFTMEM-TASK-20261029-038`。官方 361：GATEWAY 首次 361/361（722），SWITCH_A 360/361（late 1）；复跑确认偶发后提交工具。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,22 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-038 — N12.3：官方 361 混合跑（GATEWAY 361/361 达标，SWITCH_A late 1）
+
+- 工具固化：`t2_workflow` 新增 `apply_sequence_modes()`（启动时、配置前按板下发 `T2:SEQ:MODE`；`T2_SEQ_MODE_GATEWAY` 覆盖 gateway 板）；`sequence_workflow` 新增 `--seq-mode-gateway`，`--seq-mode` 默认 None（不再强制覆盖）。
+- 运行：`sequence_workflow --steps 1-5 --positions 361 --sample-ticks 70 --ready-required 0 --seq-mode 0 --seq-mode-gateway 2`（groups 默认 16）。
+- 计数（`out/sync_trigger/sequence_flow.json`）：
+
+| 角色 | groups | executed | finished | late | 期望 |
+|---|---|---|---|---|---|
+| **GATEWAY** | 2 | **722** | **361** | 0 | 2×361=722 ✓ |
+| SWITCH_B | 16 | 5776 | 361 | 0 | 16×361=5776 ✓ |
+| SWITCH_A | 16 | 5760 | 360 | **1** | 16×361=5776 ✗（差 1 个 late） |
+
+- 结论：**GATEWAY 首次在官方 361 口径下达到 361/361**（722 groups）；整体 verdict 仅因 SWITCH_A 的 1 个 late 失败（360/361），属偶发调度 late，不是结构性问题。复跑应能全过。
+- 证据：`out/n12/seq_361_hybrid.log`、`out/sync_trigger/sequence_flow.json`、`t2_acceptance_receipt.json`（本次 FAIL）。
+- 下一步：复跑同一命令 1–2 次确认 SWITCH_A 的 late 是否偶发；全过后跑 P3+host 提交工具改动，撤销 N11 的 gateway 例外。
 
 ### REFMEM-TASK-20261029-037 — N12.2：逐板模式混合成功（gateway 模型 360/361，switch legacy 361/361）
 
