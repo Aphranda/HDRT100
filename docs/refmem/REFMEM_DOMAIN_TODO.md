@@ -867,7 +867,7 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 - 实时路径：允许改动（含 T2 running-safe 位置复位）；实时路径改动必须给相位/预算核算与四板 HIL，缺证据按未验证处理。
 - N5.5：由 AI 按 HAOFV 架构自决。
 
-**N5.5 预置决策（按 HAOFV，2026-10-29）**：选**产品级入口收敛**——非协调者入口仅本地，远端 `REFMEM_CMD` 由非协调者发起一律 fail-closed（reason 12），CP1 记为显式例外。理由：HAOFV 要求单一 writer、单一事实、最小机制；该选项不新增 payload class、不改 wire、不加第二命令槽/第二 ACK、不新增 relay 状态。代价："任一切入点同语义"降级为有界承诺（须写入契约边界）。重开判据：产品要求非协调者远端发起时，按紧凑 intent delta 重做，且先补 TLV/参数池同步与 256 B 容量证据。
+**N5.5 预置决策（按 HAOFV，2026-10-29）**：选**产品级入口收敛**——非协调者入口仅本地，远端 `REFMEM_CMD` 由非协调者发起时，入口侧返回 `NOT_CONTROL_OWNER`（文本执行错误、不落 reason），目标侧授权拒绝为 reason 12；CP1 记为显式例外。理由：HAOFV 要求单一 writer、单一事实、最小机制；该选项不新增 payload class、不改 wire、不加第二命令槽/第二 ACK、不新增 relay 状态。代价："任一切入点同语义"降级为有界承诺（须写入契约边界）。重开判据：产品要求非协调者远端发起时，按紧凑 intent delta 重做，且先补 TLV/参数池同步与 256 B 容量证据。
 
 | ID | 内容 | 退出判据 | 证据 | 类别 |
 |---|---|---|---|---|

@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261029-016`。
+- 最新条目：`REFMEM-TASK-20261029-017`。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,15 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-017 — N9.3：ENTRY-01 转 active（C11-05 整改闭环）
+
+- 状态：**`REFMEM-ENTRY-01` pending → active（2026-10-29）**；`REFMEM-CTRL-01` 保持 `pending`（C3 租约/C6 fence 未实现）。
+- C11-05（`docs/check/submissions/REFMEM_C11_REVIEW_05.md`）= `PASS_WITH_CHANGES`，要求 2 项文本整改，均已落：
+  1. `DOCS_REGISTRY.md:29` 删除"条款拆分…待下一次登记"，"原字面仍不满足"改为"已由 `REFMEM-ENTRY-01` 重新定义"；同文件 `Last updated` 改 2026-10-29；
+  2. `REFMEM_DOMAIN_TODO.md` 的 N5.5 决策与 `REFMEM_DOMAIN_ARCHITECTURE.md` 的入口边界改为"入口侧 `NOT_CONTROL_OWNER`（不落 reason）/目标侧 reason 12"。
+- 已知残余：两个新 C host runner 未入 `run_host_unit_tests.ps1` 总门禁（已在 ENTRY-01 check 注明）。
+- 下一步：N9.5 最终 §8 报告。
 
 ### REFMEM-TASK-20261029-016 — N9.2/N9.4：C11-04 复核与收口快照重写
 

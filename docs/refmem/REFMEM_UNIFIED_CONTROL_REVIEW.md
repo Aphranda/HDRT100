@@ -12,7 +12,7 @@ Last updated: 2026-10-29
 
 - N8.5（T2 running-safe MOUNT）已实现并四板通过；**证据等级按用户 2026-10-29 选择 B**：QUICK P3 + 四板 HIL，`strict_gates_passed=false`，**不冒充 full**。
 - `--full-bench` 卡在 TRN-03 SCK re-arm 预算，已另立台架任务（`REFTMEM-TASK-20261029-014`），不阻塞本次收尾。
-- 契约：`REFMEM-CTRL-01` 保持 `pending`（C3 租约 / C6 fence 未实现）；`REFMEM-ENTRY-01` 保持 `pending`（C11-04 条件未清）；两者均未转 active。
+- 契约：`REFMEM-CTRL-01` 保持 `pending`（C3 租约 / C6 fence 未实现）；`REFMEM-ENTRY-01` 按 C11-05 整改闭环转 `active`（2026-10-29）。
 
 ## 2. 子项总表
 
@@ -41,6 +41,7 @@ Last updated: 2026-10-29
 | N9.0 基线冻结 | ✅ | `out/n9/baseline.json` |
 | N9.1 证据等级接受 | ✅ | 快照/架构/登记表三处一致 |
 | N9.2 C11-04 | ✅（结论 `PASS_WITH_CHANGES`） | `docs/check/submissions/REFMEM_C11_REVIEW_04.md` |
+| N9.3 契约状态落地 | ✅ | `REFMEM-ENTRY-01` → `active`（C11-05 整改闭环）；`REFMEM-CTRL-01` 保持 `pending` |
 
 ## 3. 证据索引
 
@@ -60,7 +61,7 @@ Last updated: 2026-10-29
 | 开放项 | 归属门 | 触发条件 | 影响面 | 复验判据 | 闭环里程碑 |
 |---|---|---|---|---|---|
 | `REFMEM-CTRL-01` pending | ⑤ | 任何"统一面完成"表述 | 契约不可标完成 | C3 租约 / C6 fence 实现 + C11 | 后续 |
-| `REFMEM-ENTRY-01` pending | ⑤ | 同上 | 入口语义未转正 | C11-04 三项条件闭合 + 复审 | N9.3 后续 |
+| `REFMEM-ENTRY-01` active | ⑤ | 任何"未转正"表述 | 已转正但 host 总门禁未含新 runner | C11-05 整改闭环；host 门禁补 runner 另列 | 已转正（C11-05） |
 | N8.5 证据等级 | ⑥ | 宣称 full 验收 | 不得冒充 full | 已按 B 接受；TRN-03 预算另立台架任务 | 已接受（非 full） |
 | TRN-03 re-arm 预算 | ⑥ | `--full-bench` step 21 | 无法产 FULL 凭证 | 台架时序专项后重跑 | 台架任务 |
 | host 门禁不完整 | ⑥ | 两个新 C runner 不在 `run_host_unit_tests.ps1` 清单 | 仅 pytest 门禁覆盖 | 入总门禁或书面接受 | 后续 |
@@ -78,7 +79,7 @@ Last updated: 2026-10-29
 
 ## 6. N9 剩余与外部项
 
-1. N9.3：`REFMEM-ENTRY-01` 按 C11-04 结论保持 `pending`（三项条件：clause 第 3 条收窄、12 语义、快照回正——本轮已改，待 C11-05 复审）。
+1. N9.3 ✅：`REFMEM-ENTRY-01` 转 `active`（2026-10-29，C11-05 整改闭环）；`REFMEM-CTRL-01` 保持 `pending`（C3 租约/C6 fence）。
 2. N9.5：最终 §8 报告（本文与进度日志为准）。
 3. 外部：C11-05 复审、TRN-03 预算台架任务、EXE-SEAT-01 签字、host 总门禁补 runner。
 
@@ -103,7 +104,7 @@ Last updated: 2026-10-29
 ### 7.2 契约状态
 
 - `REFMEM-CTRL-01`：`pending`（C11-01/03/04 = `PASS_WITH_CHANGES`；C3 租约 / C6 fence 未实现）。
-- `REFMEM-ENTRY-01`：`pending`（C11-02/03/04 = `PASS_WITH_CHANGES`；三项条件已改，待 C11-05）。
+- `REFMEM-ENTRY-01`：`active`（2026-10-29，C11-05 整改闭环；host 总门禁未含新 runner 作为已知残余）。
 - `REFMEM-TRANSPORT-01`/`SESSION-01`/`ACTION-01`/`LOCAL-01`：`pending`。
 
 ### 7.3 提交清单（截至 2026-10-29 12:20）

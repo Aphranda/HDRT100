@@ -1695,7 +1695,7 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 - TDMA 是四板互通的数据面和控制承载，**配置期间不得停环**；任何要求 `ring.enabled == 0` 的路径都不能作为运行时配置入口。
 - DPLL/VDC/T2 允许在各自域内 STOP/START；TDMA 控制通道继续运行，命令与 ACK 仍走 `REFTMEM_CMD`。域停窗口内执行的配置 ACK 表示 `APPLIED`，不是 `STAGED`。
 - TDMA 自身只允许在线安全配置：seat rotation（`p/f/s` 打包为单个原子字，core1 每机会读取一致快照）与 load mask（现有原子 exchange）；ring topology/period 属部署期，运行时返回 `NOT_ONLINE_SAFE`，不做“停环换配置”。
-- 入口仍固定为协调者板（最低 claimed slot）；非协调者远端命令 fail-closed，不排队死 intent。
+- 入口仍固定为协调者板（最低 claimed slot）；非协调者远端命令入口侧返回 `NOT_CONTROL_OWNER`（不落 reason）、目标侧 reason 12，不排队死 intent。
 
 **入口无关边界（N5.5，2026-10-29 按 HAOFV 冻结）**
 
