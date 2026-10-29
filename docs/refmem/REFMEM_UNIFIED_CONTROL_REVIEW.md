@@ -1,113 +1,111 @@
-# REFMEM 统一控制面收口快照（范围闭环，整体未收口）
+# REFMEM 统一控制面收口快照（2026-10-29 日间收口）
 
 Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_UNIFIED_CONTROL_REVIEW.md`
-Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`
+Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/check/submissions/REFMEM_C11_REVIEW_04.md`
 Last updated: 2026-10-29
 
 ## 1. 结论
 
-**N6/N7 与 N8 目标范围已闭环；契约 `pending`（C11 独立复核为 `PASS_WITH_CHANGES`），整体不可标记完成。**
+**N6–N8 目标范围闭环；契约仍 `pending`，不得称"统一面完成/产品化"。**
 
-- 已闭环：N6.0–N6.5、N7.1–N7.5——四板 TDMA/DPLL/T2/VDC 正向、单条 `CTRL:FUNCtion:RUN` 功能封装、host 用例均有证据。
-- 未收口：
-  - `REFMEM-CTRL-01` 仍 `pending`：C11 复核（`docs/check/submissions/REFMEM_C11_REVIEW_01.md`）判定 5 满足 / 2 部分（协调者租约、fence 聚合）/ 1 未满足（接入点无关），**不能转 active**。
-  - N5.5 已按 HAOFV 决策为**产品级入口收敛**：非协调者远端命令 fail-closed，属有界承诺，不是"任一切入点同语义"。
-  - IF-012/IF-013 Trigger 统一命令仍在接口域推进（`docs/interface/SCPI_HOST_TODO.md` 记 `IN PROGRESS`）。
-  - 相位预算待 EXE-SEAT-01 签字，不得由实现单方重签。
-- N8.5 状态：四板 `CTRL:EXECute 31,14,14,1,0,0` → `ACKED/ack=14`、环连续（2026-10-29，单串口 COM5）。**证据等级（用户 2026-10-29 选择 B）**：N8.5 以"QUICK P3 + 四板 HIL"为验收证据；P3 为 QUICK/DPLL、`strict_gates_passed=false`，**不作为 full 使用**；`--full-bench` 卡在 TRN-03 SCK re-arm 预算，另立台架任务（`REFTMEM-TASK-20261029-014`）。
-- **N8 夜间进展（2026-10-29）**：
-  - 失败路径 NACK 可见性已修并上板（`4dc41dfe`）：被拒命令从 `POSTED` 变为 `NACKED+reason`；P3 QUICK 凭证 build `20261028171345`、1609 files、`1fc53c7d…`。
-  - N5.7 只读聚合已上板并实机读回（`4f7a94f0`）：合法 41 后 `acked=1`、非法 41 后 `nacked=1/reason=13`；P3 QUICK 凭证 build `20261028180729`、1609 files、`2f667e55…`。
-  - N8.6 四板 function HIL 复跑通过：`FUNC_TDMA_ONLINE`(2/2)、`FUNC_TDMA_CLOCK_ONLINE`(4/4)、`FUNC_VDC_RECONFIG`(4/4) 均 `COMPLETED`、`ack=14`；VDC timing 四板 `12000,16000,6000`。
-  - N8.5（T2 running-safe）已实现并四板通过：`CTRL:EXECute 31,14,14,1,0,0` → `ACKED/ack=14`（见 §4 残余中的证据等级说明）。
+- N8.5（T2 running-safe MOUNT）已实现并四板通过；**证据等级按用户 2026-10-29 选择 B**：QUICK P3 + 四板 HIL，`strict_gates_passed=false`，**不冒充 full**。
+- `--full-bench` 卡在 TRN-03 SCK re-arm 预算，已另立台架任务（`REFTMEM-TASK-20261029-014`），不阻塞本次收尾。
+- 契约：`REFMEM-CTRL-01` 保持 `pending`（C3 租约 / C6 fence 未实现）；`REFMEM-ENTRY-01` 保持 `pending`（C11-04 条件未清）；两者均未转 active。
 
 ## 2. 子项总表
 
 | 里程碑 | 状态 | 证据 / 说明 |
 |---|---|---|
-| N6.0 在线语义/命令/功能 schema | ✅ | `refmem_command.h` 20–34；`command_catalog.yaml` 当前 **36 行**（N6 的 20–34 + IF-012/013 的 35–49）；收口当时 21 行 |
+| N6.0 在线语义/schema | ✅ | 命令目录以 `config/refmem/command_catalog.yaml` 为准；function 表以 `function_catalog.yaml` 为准 |
 | N6.1 类型+目录+入口 | ✅ | 生成器 + 静态表；`SYSTem:CTRL:EXECute` 协调者入口 |
-| N6.2 DPLL RUN-safe | ✅ | `DPLL_ROLE`/`DPLL_TUNE` 在线；四板 `DPLL:ROLE? 0,0,3,3,0` |
-| N6.3 TDMA 在线 | ✅ | seat 原子字 + load mask；20/22 返回 `NOT_ONLINE_SAFE`；四板 seat 读回 `3,1,...` |
-| N6.3 VDC | ✅ | 四板 `FUNC_VDC_RECONFIG,14,14` `COMPLETED/ack=14`；timing 读回 `12000,16000,6000` |
-| N6.4 T2 | ✅（域停配置 + 在线 MOUNT） | 四板 `FUNC_T2_RECONFIG,14,14` `COMPLETED/ack=14`（cached STOP 快照）；在线 MOUNT 见 N8.5 |
-| N6.5 HIL/P3 | ✅（历史凭证） | P3 `20261026173427` / `20261026174849` / `20261026180937` / `20261026181952` / `20261027014444` |
-| N7.1 function 表生成器 | ✅ | 6 个 function；host 查表/切片 |
-| N7.2 执行器 | ✅ | 单 in-flight、串行 step、`ABORT_REMAINING`、`RUN_STATE_DENIED` 3×100 ms 重试 |
-| N7.3 单命令 SCPI | ✅ | `SYSTem:CTRL:FUNCtion:RUN/STATus?/CATalog?`；coordinator-only |
-| N7.4 host + 四板 | ✅ | `FUNC_TDMA_ONLINE` 2 步、`FUNC_TDMA_CLOCK_ONLINE` 4 步 `ack=14` |
-| N7.5 四板 HIL/P3 | ✅（历史凭证） | 四板 TDMA/DPLL/T2/VDC + 连续性通过；当前树复跑见 N8.6 |
-| N7.6 收口 | ⚠️ | 本文件已回正；契约未转正（pending/C11），不标完成 |
+| N6.2 DPLL RUN-safe | ✅ | 四板 `DPLL:ROLE? 0,0,3,3,0` |
+| N6.3 TDMA 在线 | ✅ | seat 原子字 + load mask；20/22 运行时 `NOT_ONLINE_SAFE` |
+| N6.3 VDC | ✅ | 四板 `FUNC_VDC_RECONFIG` `ack=14`；timing 读回 `12000,16000,6000` |
+| N6.4 T2 | ✅ | 四板 `FUNC_T2_RECONFIG` `ack=14`；在线 MOUNT 见 N8.5 |
+| N6.5 HIL/P3 | ✅ | 历史凭证见 §3 |
+| N7.1 function 表 | ✅ | 6 个 function（条目数以 catalog 为准） |
+| N7.2 执行器 | ✅ | 单 in-flight、串行 step、`ABORT_REMAINING`、有界重试 |
+| N7.3 单命令 SCPI | ✅ | `CTRL:FUNCtion:RUN/STATus?/CATalog?` |
+| N7.4 host + 四板 | ✅ | `ack=14` 读数 |
+| N7.5 HIL/P3 | ✅ | 历史凭证 + N8.6 复跑 |
+| N7.6 收口 | ⚠️ | 契约未转正（C11） |
+| N8.0 基线 | ✅ | `out/n8/baseline.json` |
+| N8.1 快照回正 | ✅ | `a01b8004` |
+| N8.2 N5.5 入口边界 | ✅ | 架构「入口无关边界」；`REFMEM-ENTRY-01` |
+| N8.3 NACK 可见性 | ✅ | `4dc41dfe`；P3 `20261028171345` |
+| N8.4 N5.7 聚合 | ✅ | `4f7a94f0`；P3 `20261028180729`；实机 `acked/nacked` 变化 |
+| N8.5 T2 running-safe | ✅（QUICK+HIL） | 四板 `31,14,14` `ACKED/ack=14`、环连续；证据等级见 §1/§4 |
+| N8.6 四板 FUNC HIL | ✅ | `out/n8/four_board_hil/n86_summary.json`；`ack=14` |
+| N9.0 基线冻结 | ✅ | `out/n9/baseline.json` |
+| N9.1 证据等级接受 | ✅ | 快照/架构/登记表三处一致 |
+| N9.2 C11-04 | ✅（结论 `PASS_WITH_CHANGES`） | `docs/check/submissions/REFMEM_C11_REVIEW_04.md` |
 
 ## 3. 证据索引
 
 | 类别 | 路径 |
 |---|---|
-| 当前 P3 凭证 | `config/hardware_acceptance/p3_acceptance_receipt.json`（build `20261029012332`，QUICK/DPLL scope，1609 files，`strict_gates_passed=false`） |
-| N8 基线 | `out/n8/baseline.json`（四板在线、同 build、host 4 套件） |
-| 历史 P3 凭证 | build `20261027014444`（N6.3.2/T2/VDC 四板正向） |
-| 四板 TDMA/DPLL function | `out/n7/four_board_hil/function_hil_localslot.txt`、`continuity.txt` |
-| 四板 T2 正向 | `out/n7/four_board_hil/t2_positive_cached.txt`、`trn03_cached_run1/` |
-| 四板 VDC 正向 | `out/n7/four_board_hil/vdc_positive_four_board.txt`、`trn03_vdc4_1/` |
-| IF-013 命令面负结果 | `out/n7/local_hil/if013_surface.txt`（7 条配置 `reason=13`，SWITCH ACK） |
-| T2 本地正向 | `out/n7/local_hil/t2_positive_try.txt`；`out/n7/t2_workflow_full.log`（21/21） |
-| 提交 | `871279c8`、`5e688260`、`970d231b`、`4c0be6fb`、`7afcbd47`、`a5e47834`、`dac41e0e`、`b16f7b0a`、`bafb8cdb` |
+| 当前 P3 凭证 | `config/hardware_acceptance/p3_acceptance_receipt.json`（build `20261029031043`、1613 files、`ae155f7d…`、QUICK/DPLL、`strict_gates_passed=false`） |
+| 四板在线 MOUNT | `out/n8/n85_mount_four_board.json`（`state=4`、`ack=14`、`nack=0`） |
+| 四板 function HIL | `out/n8/four_board_hil/n86_summary.json`（TDMA_ONLINE/CLOCK_ONLINE/VDC_RECONFIG `ack=14`） |
+| N5.7 实机聚合 | `out/n8/n57_aggregate_com5.json`（`acked=1` / `nacked=1/reason=13`） |
+| 单口机器捕获 | `out/n8/single_port_capture.json`（`port=COM5`、build 回读、`30/31` `ack=14`） |
+| C11 记录 | `docs/check/submissions/REFMEM_C11_REVIEW_01.md`…`_04.md` |
+| P3 全量尝试 | `out/n8/wf_full.log`、`wf_full2.log`、`wf_fullbench.log`（TRN-03 预算失败行） |
+| N9 基线 | `out/n9/baseline.json` |
 
 ## 4. 开放项与残余风险
 
 | 开放项 | 归属门 | 触发条件 | 影响面 | 复验判据 | 闭环里程碑 |
 |---|---|---|---|---|---|
-| `REFMEM-CTRL-01` pending / C11 未签 | ⑤ | 任何“统一面已完成”表述 | 契约面不可标完成 | 第三方独立复核签署 + 登记表转 active | N8.2（文本）/ 第三方 |
-| 非协调者入口（N5.5） | ③ | 从非协调者板发起远端命令 | “任一切入点同语义”不成立 | 已冻结为产品级入口收敛；重开需 intent delta + TLV 证据 | N5.5 / N8.2 |
-| IF-012/IF-013 Trigger 统一命令 | ⑥ | Trigger/角度经统一面下发 | 命令面可用、闭环未证 | 8 条配置 ACK + 角度 RUN + 四板 HIL | N8.3 |
-| T2 `START/MOUNT` | ⑥ | function 内启动 T2 | ✅ 已闭环（N8.5） | 四板 `CTRL:EXECute 31,14,14` `ACKED/ack=14`、环连续 | N8.5 |
-| 相位预算超支 | ② | 验收 DPLL 60 s 联合采集 | 全量验收可能再红 | EXE-SEAT-01 签字或临时分组计时，不得实现单方重签 | 非目标（用户） |
-| function 重试上限 | ② | 域停窗口 >3×100 ms | 超时仍 FAILED | 按域实测调整上限/预算 | N7.2 续 |
-| 四板 T2 逐板不可替代 | ③ | 非协调者本地 function 超时 `reason=11` | 不能拼凑四板证据 | 只认协调者单命令 `ack=14` | 已冻结 |
-| 台架 OTA 不稳 | ⑥ | 单板/并发 OTA 中途 | 新 build 上板 | 已用 `tools/picotool_flash`（BOOTSEL UF2）绕行；OTA 工具修复另列 | 已缓解 |
-| N8.5 running-safe 复位 | ⑤ | T2 `START/MOUNT` | ✅ 已闭环 | 四板 `CTRL:EXECute 31,14,14` `ack=14`、环连续 | N8.5 |
-| N8.5 证据等级 | ⑥ | 任何"full 验收通过"表述 | 不得冒充 full | 已按用户 2026-10-29 选 B 接受为 QUICK+HIL；TRN-03 预算另立台架任务 | 已接受（非 full） |
-
-已闭环项：VDC reference/timing（根因是参数非法，不是 retire 缺陷）、四板 T2 正向（cached STOP 快照读只用于统一控制 T2 configure）、N5.7 实机读回（`acked/nacked` 随命令变化）、四板 `FUNC_TDMA_ONLINE`/`FUNC_TDMA_CLOCK_ONLINE`/`FUNC_VDC_RECONFIG` HIL（2026-10-29）。
+| `REFMEM-CTRL-01` pending | ⑤ | 任何"统一面完成"表述 | 契约不可标完成 | C3 租约 / C6 fence 实现 + C11 | 后续 |
+| `REFMEM-ENTRY-01` pending | ⑤ | 同上 | 入口语义未转正 | C11-04 三项条件闭合 + 复审 | N9.3 后续 |
+| N8.5 证据等级 | ⑥ | 宣称 full 验收 | 不得冒充 full | 已按 B 接受；TRN-03 预算另立台架任务 | 已接受（非 full） |
+| TRN-03 re-arm 预算 | ⑥ | `--full-bench` step 21 | 无法产 FULL 凭证 | 台架时序专项后重跑 | 台架任务 |
+| host 门禁不完整 | ⑥ | 两个新 C runner 不在 `run_host_unit_tests.ps1` 清单 | 仅 pytest 门禁覆盖 | 入总门禁或书面接受 | 后续 |
+| IF-012/IF-013 | ⑥ | Trigger/角度统一命令 | 接口域 `IN PROGRESS` | 8 条 ACK + 角度 RUN | 接口域 |
+| EXE-SEAT-01 | ② | 相位预算 | 全量验收可能再红 | 用户签字 | 非目标 |
+| OTA 工具不稳 | ⑥ | 大包传输 | 例行 OTA 改用 picotool 绕行 | 工具修复 | 独立 |
 
 ## 5. 契约与边界
 
-- 仍为单一 command slot、单一 `REFTMEM_CMD` 维护流、单一 ACK seat；无新增总线/payload class/第二命令槽。
-- TDMA topology/period 运行时拒绝；seat/load 为在线原子配置。
-- T2/VDC 配置只在其域停窗口；T2 `START/MOUNT` 不在在线范围。
-- function 为静态表，无动态脚本；入口 coordinator-only。
-- **入口无关边界（N5.5，2026-10-29）**：非协调者板只保留本地控制面（`REFMEM-LOCAL-01`/CP9），远端命令一律 fail-closed（12），不中继、不排队、不建 relay 状态；C1 的“Entry B → Coordinator A → Target C”腿为显式非目标。
-- 四板逐板本地调用不能替代协调者单命令四板证据（已实测非协调者 `reason=11`）。
-- **单串口拓扑（2026-10-29 用户约束）**：最终产品只连接一个串口。所有统一命令（四域配置、`FUNC_*`、`T2_MOUNT`、聚合读回）均在 COM5 单口下发，远程目标经 `REFTMEM_CMD` 投递；四板 `ack=14` 的 MOUNT 即单口证据。非协调者入口由此确认不需要（N5.5 产品级入口收敛）。
+- 单一 command slot、单一 `REFTMEM_CMD` 维护流、单一 ACK seat；无新增总线/payload class/第二命令槽。
+- 入口语义（`REFMEM-ENTRY-01`）：非协调者远端在**入口侧**返回 `NOT_CONTROL_OWNER`（文本错误、不落 reason），**目标侧**授权拒绝落 reason 12；不中继、不排队、不建 relay。
+- T2 在线：`T2_MOUNT` 在 TDMA 不停环下可用（同上下文清 TX/pending 后启动 T2）；运行中配置仍走 cached STOP 快照。
+- 单串口：T2 配置/MOUNT/聚合已机器捕获；四域配置与 `FUNC_*` 的单口同批捕获未做（产品约束，未验证）。
+- 不提供远程裸写、跨板阻塞查询或绕过本地门禁的强制位。
 
-## 6. 下一步
+## 6. N9 剩余与外部项
 
-1. N8.5：T2 running-safe 位置复位——按 `out/n8/n8_5_running_safe_design.md` 落 quiesce+reset，并接线 `t2_mount_handler`。
-2. N8.6 已完成（TDMA/CLOCK/VDC 四板 `ack=14`）；T2 四板沿用 10-27 证据，待 N8.5 后补含 MOUNT 步的复跑。
-3. 全部完成后由 N8.7 重新评估本快照结论；在那之前本文件不代表"统一面完成"。
+1. N9.3：`REFMEM-ENTRY-01` 按 C11-04 结论保持 `pending`（三项条件：clause 第 3 条收窄、12 语义、快照回正——本轮已改，待 C11-05 复审）。
+2. N9.5：最终 §8 报告（本文与进度日志为准）。
+3. 外部：C11-05 复审、TRN-03 预算台架任务、EXE-SEAT-01 签字、host 总门禁补 runner。
 
-## 7. N8.7 收口结论（2026-10-29 夜）
+## 7. 收口结论（N9，2026-10-29）
 
-**结论（2026-10-29）：N8 目标范围（N8.0–N8.6）全部闭环，含 T2 在线 MOUNT（四板 `ack=14`）；契约 `REFMEM-CTRL-01` 仍 `pending`（C11 未签），不得称产品化完成。**
+**N6–N8 范围闭环；N8.5 以 QUICK P3 + 四板 HIL 为证据等级（B 方案）；契约 `REFMEM-CTRL-01`/`REFMEM-ENTRY-01` 均保持 `pending`，不得称"统一面完成/产品化"。**
 
-| 子项 | 状态 | 证据 |
+### 7.1 HAOFV 六门（统一面收口）
+
+| 门 | 判定 | 依据 |
 |---|---|---|
-| N8.0 基线/台架 | ✅ | `out/n8/baseline.json` |
-| N8.1 快照回正 | ✅ | 本文件；`a01b8004` |
-| N8.2 N5.5 入口边界 | ✅ | 架构「入口无关边界」；`a01b8004` |
-| N8.3 NACK 可见性 | ✅ | `4dc41dfe`；P3 `20261028171345` |
-| N8.4 N5.7 聚合 | ✅ | `4f7a94f0`；P3 `20261028180729`；实机 `acked/nacked` 变化 |
-| N8.5 T2 running-safe | ✅ 已闭环 | 四板 `31,14,14` `ack=14`；环连续；`out/n8/n85_mount_four_board.json` |
-| N8.6 四板 FUNC HIL | ✅ | `out/n8/four_board_hil/n86_summary.json`；`ack=14` |
+| ① 无新增总线/payload class/第二命令槽/第二 ACK | ✅ | 四个功能提交仅动 refmem/应用/SCPI；命令槽实例唯一 |
+| ② 不占 core1 硬实时窗口 | ⚠️ | N8.5 在 Core0；无相位预算重算，EXE-SEAT-01 未签 |
+| ③ 单写者/owner 边界 | ✅ | 状态实例 1；dispatch 与位置 TX 同属唯一 refmem 服务 |
+| ④ fail-closed + reason/计数/快照 | ✅ | NACK 镜像 + reason 13/14；入口侧文本错误不冒充 reason |
+| ⑤ 布局/版本/契约同步 | ⚠️ | wire/布局未变；契约未转正（C3/C6） |
+| ⑥ host + 四板可复跑 | ✅（限等级） | host 75 passed、P3 QUICK、四板 `ack=14`；非 full |
 
-**契约状态**：`REFMEM-CTRL-01` 保持 `pending`（入口无关条款未满足、C11 未签）；`REFMEM-TRANSPORT/SESSION/ACTION/LOCAL` 仍 pending。
+**C1 Flash/XIP**：✅ 未触碰 flash 写路径。
+**C2 时间事实**：✅ 未改 tick/时间差；N8.5 只动 position TX 状态。
 
-**残余风险**：
+### 7.2 契约状态
 
-1. N8.5 需要跨任务（scpi/refmem）quiesce position TX/RX 并重排 `trigger_t2_runtime_start` 的“RX producer parked”前提；现有代码没有该锁，贸然实现会引入竞态，必须先做专门设计与 HIL 窗口。
-2. T2 四板证据仍是 10-27（cached STOP 配置）；含 MOUNT 步的复跑依赖 N8.5。
-3. `EXE-SEAT-01` 相位预算、C11 第三方签署均未完成，不属本目标可自决范围。
+- `REFMEM-CTRL-01`：`pending`（C11-01/03/04 = `PASS_WITH_CHANGES`；C3 租约 / C6 fence 未实现）。
+- `REFMEM-ENTRY-01`：`pending`（C11-02/03/04 = `PASS_WITH_CHANGES`；三项条件已改，待 C11-05）。
+- `REFMEM-TRANSPORT-01`/`SESSION-01`/`ACTION-01`/`LOCAL-01`：`pending`。
 
-**提交清单**：`a01b8004`、`2811ce31`、`bf811775`、`4dc41dfe`、`0525beed`、`20d16eb9`、`4f7a94f0`、`e2081303`、`e1d426a9`、`ae5a257f`、`196cd464`、`5c7899f5`、`b50f6c30`、`f07fb2b6`。
+### 7.3 提交清单（截至 2026-10-29 12:20）
+
+`a01b8004`、`2811ce31`、`bf811775`、`4dc41dfe`、`0525beed`、`20d16eb9`、`4f7a94f0`、`e2081303`、`e1d426a9`、`ae5a257f`、`196cd464`、`5c7899f5`、`b50f6c30`、`f07fb2b6`、`8ac3669c`、`7ba2b7d1`、`3085963c`、`09ab9791`、`16907b54`、`5ece5f79`、`22f7121d`、`ecf9cddd`；本轮收尾提交见 `git log` 顶部。

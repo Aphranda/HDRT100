@@ -1699,7 +1699,7 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 
 **入口无关边界（N5.5，2026-10-29 按 HAOFV 冻结）**
 
-统一控制面当前不提供“任一板接口发起远端命令”的能力：非协调者板只保留本地控制面（`REFMEM-LOCAL-01`/CP9），其远端 `REFTMEM_CMD` 一律 fail-closed（12），不中继、不排队、不建 relay 状态；C1 的“Entry B → Coordinator A → Target C”转发腿为显式非目标。
+统一控制面当前不提供“任一板接口发起远端命令”的能力：非协调者板只保留本地控制面（`REFMEM-LOCAL-01`/CP9），其远端 `REFTMEM_CMD` 在入口侧返回 `NOT_CONTROL_OWNER`（文本执行错误、不落 reason）；目标侧授权拒绝才落 reason 12；两条路径都不中继、不排队、不建 relay 状态；C1 的“Entry B → Coordinator A → Target C”转发腿为显式非目标。
 
 理由：N5.5.0 spike 已证两条前置不成立——远端 node 命令块不在 REFMEM 同步范围（D2 ❌），硬件也没有伪造非 owner 发送者的注入点（D3 ❌）；可行路径只剩新增 intent payload/TLV 容量（触碰 payload/布局/256 B 上限）或产品级入口收敛。HAOFV 要求单一 writer、单一事实、最小机制，故取后者：不新增 payload class/wire/第二命令槽/第二 ACK，也不新增 relay 状态。
 
@@ -1712,7 +1712,7 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 1. **同目录、同语义、可本地控制（满足）**：每块板拥有相同的命令目录与 function 表（条目数以 `config/refmem/command_catalog.yaml` / `function_catalog.yaml` 为准）、相同 SCPI 语义与 `COMMand:STATus?/TARget?` 只读视图；本板维护与本地控制不受影响（`REFTMEM-LOCAL-01`/CP9）。
 2. **跨节点发号单入口（产品级收敛）**：远端 `REFTMEM_CMD` 的唯一发号者是 `control_owner_slot`（`SlotClaimMap` 最低已 claim 插槽）；非协调者远端命令在**入口侧**返回 `NOT_CONTROL_OWNER`（SCPI 文本执行错误，不落 reason），**目标侧**授权拒绝落 reason 12（`PERMISSION_DENIED`）；两条路径都不中继、不排队、不建 relay 状态。原“Entry B → Coordinator A → Target C”腿为显式非目标。
 
-**单串口拓扑（2026-10-29 用户约束；T2 配置/MOUNT/聚合已机器捕获）**：最终应用只连接一个串口。该口落在协调者板上时，四域在线配置、`SYSTem:CTRL:FUNCtion:RUN`、`T2_MOUNT`、只读聚合均由这一个口完成，远端目标经 `REFTMEM_CMD` 投递并向源口回 ACK；不需要第二串口或逐板直连。若该口落在非协调者板，只保留本地控制（上面的第 2 条）。**证据**：`out/n8/single_port_capture.json`（port=COM5、build `20261029031043`、`30/31,14,14` 均 `ACKED/ack=14`、`COMMand:STATus?` 可见）；四域配置与 `FUNC_*` 的单口同批捕获仍未做。
+**单串口拓扑（2026-10-29 用户约束；T2 配置/MOUNT/聚合已机器捕获）**：最终应用只连接一个串口。该口落在协调者板上时，四域在线配置、`SYSTem:CTRL:FUNCtion:RUN`、`T2_MOUNT`、只读聚合均由这一个口完成，远端目标经 `REFTMEM_CMD` 投递并向源口回 ACK；不需要第二串口或逐板直连。若该口落在非协调者板，只保留本地控制（上面的第 2 条）。**证据**：`out/n8/single_port_capture.json`（port=COM5、build `20261029031043`、`30/31,14,14` 均 `ACKED/ack=14`、`COMMand:STATus?` 可见）；四域配置与 `FUNC_*` 的单口同批捕获未做，属产品约束（未验证）。
 
 **重开判据**：产品要求“任一节点发起远端命令”时，按紧凑 intent delta 重做，先补 TLV/参数池同步与 256 B 容量证据，再改本节与 `REFMEM-ENTRY-01` 的登记行；在此之前不直接翻条款。
 
