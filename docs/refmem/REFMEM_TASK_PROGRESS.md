@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261029-032`。SEQ:MODE 1/2 对照均失败；已恢复 MODE=0；下一步工具加 `--seq-mode` 或写明 gateway 例外。
+- 最新条目：`REFTMEM-TASK-20261029-033`。361 口径定案：SWITCH_A/B PASS；GATEWAY FAIL（legacy 需 analyzer READY，pilot 行内不可用）。下一步 P3 提交 + N11.5。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,20 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-033 — N11.4c：行内 SEQ:MODE 不可用，gateway 结论定案
+
+- 干净复跑（先 reboot + 1-21 基线确认 21/21）后，用 `--seq-mode 2` 在 step 16 前下发：
+  - 四板 `TRIGger:REServation:T2:SEQ:MODE 2` 全部 `<timeout>`；
+  - step 17 FAIL：`sync input not admitted on [all four]`；
+  - step 18 FAIL：`err 7 valid 0`（identity fault），epoch 与 dep_gen 相同（1793269617），排除 epoch 问题；
+  - chain rc=1，verdict FAIL。
+- 结论：**在当前固件/命令语义下，行内切换 `T2:SEQ:MODE` 不可用**——命令无应答（阻塞/超时），且会破坏 SYNC 输入准入；pilot 序列模型要在停止态、配置前、以非阻塞 ACK 方式启用，属固件改动，超出 N11 范围。
+- **361 口径定案**：
+  - SWITCH_A / SWITCH_B：**PASS**（361/361、5776 executed、late/no_plan/backend 0）；
+  - GATEWAY：**FAIL**（legacy 路径需外部 analyzer READY；无 READY 时 `UNCERTAIN` 停摆在 14/361；pilot 模式不可用）→ 本台架显式例外，修法另立固件任务。
+- 证据：`out/n11/seq_361_mode2b.log`、`steps-20261029-182657.log`、`out/tdma_t2/steps-20261029-182213.log`（基线）。
+- 下一步：跑 P3 resume + host acceptance，提交工具改动（generation 自愈/重试/STEPLOSS/`--seq-mode`）与 host 用例；补 N11.5 §8 报告。
 
 ### REFMEM-TASK-20261029-032 — N11.4b：SEQ:MODE 1/2 对照（均不可用）
 
