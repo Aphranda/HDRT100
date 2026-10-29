@@ -16,7 +16,7 @@ Last updated: 2026-10-29
   - N5.5 已按 HAOFV 决策为**产品级入口收敛**：非协调者远端命令 fail-closed，属有界承诺，不是"任一切入点同语义"。
   - IF-012/IF-013 Trigger 统一命令仍在接口域推进（`docs/interface/SCPI_HOST_TODO.md` 记 `IN PROGRESS`）。
   - 相位预算待 EXE-SEAT-01 签字，不得由实现单方重签。
-- N8.5 状态：四板 `CTRL:EXECute 31,14,14,1,0,0` → `ACKED/ack=14`、环连续（2026-10-29，单串口 COM5）。**证据等级**：P3 为 QUICK/DPLL scope、`strict_gates_passed=false`，不覆盖 T2 在线 MOUNT 与位置复位路径；该功能按单板/四板 HIL 读数成立，契约验收仍需 full 或等价专项。
+- N8.5 状态：四板 `CTRL:EXECute 31,14,14,1,0,0` → `ACKED/ack=14`、环连续（2026-10-29，单串口 COM5）。**证据等级（用户 2026-10-29 选择 B）**：N8.5 以"QUICK P3 + 四板 HIL"为验收证据；P3 为 QUICK/DPLL、`strict_gates_passed=false`，**不作为 full 使用**；`--full-bench` 卡在 TRN-03 SCK re-arm 预算，另立台架任务（`REFTMEM-TASK-20261029-014`）。
 - **N8 夜间进展（2026-10-29）**：
   - 失败路径 NACK 可见性已修并上板（`4dc41dfe`）：被拒命令从 `POSTED` 变为 `NACKED+reason`；P3 QUICK 凭证 build `20261028171345`、1609 files、`1fc53c7d…`。
   - N5.7 只读聚合已上板并实机读回（`4f7a94f0`）：合法 41 后 `acked=1`、非法 41 后 `nacked=1/reason=13`；P3 QUICK 凭证 build `20261028180729`、1609 files、`2f667e55…`。
@@ -68,6 +68,7 @@ Last updated: 2026-10-29
 | 四板 T2 逐板不可替代 | ③ | 非协调者本地 function 超时 `reason=11` | 不能拼凑四板证据 | 只认协调者单命令 `ack=14` | 已冻结 |
 | 台架 OTA 不稳 | ⑥ | 单板/并发 OTA 中途 | 新 build 上板 | 已用 `tools/picotool_flash`（BOOTSEL UF2）绕行；OTA 工具修复另列 | 已缓解 |
 | N8.5 running-safe 复位 | ⑤ | T2 `START/MOUNT` | ✅ 已闭环 | 四板 `CTRL:EXECute 31,14,14` `ack=14`、环连续 | N8.5 |
+| N8.5 证据等级 | ⑥ | 任何"full 验收通过"表述 | 不得冒充 full | 已按用户 2026-10-29 选 B 接受为 QUICK+HIL；TRN-03 预算另立台架任务 | 已接受（非 full） |
 
 已闭环项：VDC reference/timing（根因是参数非法，不是 retire 缺陷）、四板 T2 正向（cached STOP 快照读只用于统一控制 T2 configure）、N5.7 实机读回（`acked/nacked` 随命令变化）、四板 `FUNC_TDMA_ONLINE`/`FUNC_TDMA_CLOCK_ONLINE`/`FUNC_VDC_RECONFIG` HIL（2026-10-29）。
 
