@@ -21,6 +21,14 @@ Last updated: 2026-10-29
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
 
+### REFMEM-TASK-20261029-018 — host 门禁覆盖 RefMem C runner（残余闭合）
+
+- 状态：**此前"两个新 C runner 未入总门禁"的残余已闭合。**
+- 改动：`tools/acceptance/host_acceptance.py` 与 `host_acceptance_workflow.py` 的选择器改为 `staged ∪ DEFAULT_PATHS`，两个 C runner 经 `tests/python/test_refmem_host_units.py` 进入每次 host 门禁。
+- 凭证：host `PASS 77 passed / 541 files`（`409ebf2b`）；P3 不适用（tools/acceptance 属宿主类）。
+- 文档：ENTRY-01 check、快照 §4/§7.2 同步；`REFMEM-ENTRY-01` 保持 `active`。
+- 下一项：四域/FUNC 单口同批捕获（台架，N9 残余）。
+
 ### REFMEM-TASK-20261029-017 — N9.3：ENTRY-01 转 active（C11-05 整改闭环）
 
 - 状态：**`REFMEM-ENTRY-01` pending → active（2026-10-29）**；`REFMEM-CTRL-01` 保持 `pending`（C3 租约/C6 fence 未实现）。

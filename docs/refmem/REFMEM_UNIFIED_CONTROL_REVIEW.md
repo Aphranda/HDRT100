@@ -64,7 +64,7 @@ Last updated: 2026-10-29
 | `REFMEM-ENTRY-01` active | ⑤ | 任何"未转正"表述 | 已转正但 host 总门禁未含新 runner | C11-05 整改闭环；host 门禁补 runner 另列 | 已转正（C11-05） |
 | N8.5 证据等级 | ⑥ | 宣称 full 验收 | 不得冒充 full | 已按 B 接受；TRN-03 预算另立台架任务 | 已接受（非 full） |
 | TRN-03 re-arm 预算 | ⑥ | `--full-bench` step 21 | 无法产 FULL 凭证 | 台架时序专项后重跑 | 台架任务 |
-| host 门禁不完整 | ⑥ | 两个新 C runner 不在 `run_host_unit_tests.ps1` 清单 | 仅 pytest 门禁覆盖 | 入总门禁或书面接受 | 后续 |
+| host 门禁覆盖 | ⑥ | 依赖总门禁跑新 runner | 已闭合 | `host_acceptance.py` 改为 staged∪DEFAULT_PATHS，两个 C runner 进入每次 host 门禁（77 passed） | 已闭合（`409ebf2b`） |
 | IF-012/IF-013 | ⑥ | Trigger/角度统一命令 | 接口域 `IN PROGRESS` | 8 条 ACK + 角度 RUN | 接口域 |
 | EXE-SEAT-01 | ② | 相位预算 | 全量验收可能再红 | 用户签字 | 非目标 |
 | OTA 工具不稳 | ⑥ | 大包传输 | 例行 OTA 改用 picotool 绕行 | 工具修复 | 独立 |
@@ -104,7 +104,7 @@ Last updated: 2026-10-29
 ### 7.2 契约状态
 
 - `REFMEM-CTRL-01`：`pending`（C11-01/03/04 = `PASS_WITH_CHANGES`；C3 租约 / C6 fence 未实现）。
-- `REFMEM-ENTRY-01`：`active`（2026-10-29，C11-05 整改闭环；host 总门禁未含新 runner 作为已知残余）。
+- `REFMEM-ENTRY-01`：`active`（2026-10-29，C11-05 整改闭环；host 门禁已于 `409ebf2b` 覆盖两个 C runner）。
 - `REFMEM-TRANSPORT-01`/`SESSION-01`/`ACTION-01`/`LOCAL-01`：`pending`。
 
 ### 7.3 提交清单（截至 2026-10-29 12:20）
