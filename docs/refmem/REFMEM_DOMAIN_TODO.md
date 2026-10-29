@@ -932,3 +932,22 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 | **N10.5** | 最终 §8 报告 | 子项表/六门/残余/契约/证据/提交齐全 | 回复 |
 
 **硬门禁**：①任何"已修复"必须有复现→修复→复测三段；②不能复现就写"无法复现"并给人话证据；③不改 C3/C6、不代签；④文档门禁全绿；⑤不碰他人未提交文件。
+
+## N11 - T2 workflow 修复与验证（2026-10-29 立项）
+
+**背景（已归因）**：
+- `t2_workflow.py --steps 1-10` 与 `--steps 11-20` 分两次调用时，第二次会重新生成 `dep_gen`（实测 `1793260820`），而 grid/T2 仍按上一轮的 `1793260668` 配置；step 18 要求 `cursor epoch == dep_gen`，两者永不相等 → 24 s 超时 → step 19 拒绝启动脉冲。**单次 `--steps 1-21` 通过 21/21**（epoch `1793261119` == session），证明是"分次调用导致的 generation 断链"，不是固件缺陷。
+- 其它待办：GATEWAY（slot 2）RUNTIME 页在部分采样返回 `?`/`last_error 1`；SWITCH_B（slot 3）`CUM mismatch 1 / fallback 1`；ACTion/TEMPlate INSTall 超时但回读 OK；"丢步"尚无判定式。
+
+**目标**：让 T2 workflow 可重复跑通并对 SWITCH/GATEWAY 给出"丢步=无"的可核对结论。
+
+| ID | 内容 | 退出判据 | 证据 |
+|---|---|---|---|
+| **N11.0** | 冻结失败分类与证据（分次 epoch 断链、GATEWAY 读回、CUM mismatch/fallback、install 超时） | 每类有日志行号 + 复现命令 | 分析记录 |
+| **N11.1** | 工具加固：跨调用持久化 `dep_gen`/epoch，或检测 epoch 不等于 grid/T2 时自动补跑 step 8/9/12 并给出明确错误（含期望/实际 epoch） | 分次调用不再出现 24 s 静默超时；有可读错误 | host 用例 + 台架 |
+| **N11.2** | GATEWAY 读回修复：定位超时查询、加重试/退避 | step 20/21 GATEWAY 页稳定可读 | HIL 日志 |
+| **N11.3** | 丢步判据：expected groups/positions vs `groups exec/count`、`CUM mismatch`、`fallback`、`entered vs announced` | 判据文档化；对 SWITCH/GATEWAY 给出 PASS/FAIL | 判据 + 数据 |
+| **N11.4** | 全链 HIL：单次 1-21（READY=0）21/21 + 计数证据 | 21/21；计数判据全绿 | 日志 + `t2_flow.json` |
+| **N11.5** | 文档/进度 +（若涉契约）C11 复核 | 文本与证据一致；C11 记录（如需） | 文档 |
+
+**硬门禁**：①任何"已修复"需复现→修复→复测；②不得把"分次跑"当成固件缺陷；③不改 T2 语义/相位常量；④文档门禁全绿；⑤不碰他人未提交文件。
