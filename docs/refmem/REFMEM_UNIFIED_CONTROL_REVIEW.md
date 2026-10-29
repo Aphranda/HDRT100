@@ -52,6 +52,7 @@ Last updated: 2026-10-29
 | 四板 function HIL | `out/n8/four_board_hil/n86_summary.json`（TDMA_ONLINE/CLOCK_ONLINE/VDC_RECONFIG `ack=14`） |
 | N5.7 实机聚合 | `out/n8/n57_aggregate_com5.json`（`acked=1` / `nacked=1/reason=13`） |
 | 单口机器捕获 | `out/n8/single_port_capture.json`（`port=COM5`、build 回读、`30/31` `ack=14`） |
+| 单口全功能捕获 | `out/n8/single_port_full.json`（COM5：`FUNC_TDMA_ONLINE`/`FUNC_TDMA_CLOCK_ONLINE`/`FUNC_VDC_RECONFIG` + `30/31` + 聚合） |
 | C11 记录 | `docs/check/submissions/REFMEM_C11_REVIEW_01.md`…`_04.md` |
 | P3 全量尝试 | `out/n8/wf_full.log`、`wf_full2.log`、`wf_fullbench.log`（TRN-03 预算失败行） |
 | N9 基线 | `out/n9/baseline.json` |
@@ -61,20 +62,21 @@ Last updated: 2026-10-29
 | 开放项 | 归属门 | 触发条件 | 影响面 | 复验判据 | 闭环里程碑 |
 |---|---|---|---|---|---|
 | `REFMEM-CTRL-01` pending | ⑤ | 任何"统一面完成"表述 | 契约不可标完成 | C3 租约 / C6 fence 实现 + C11 | 后续 |
-| `REFMEM-ENTRY-01` active | ⑤ | 任何"未转正"表述 | 已转正但 host 总门禁未含新 runner | C11-05 整改闭环；host 门禁补 runner 另列 | 已转正（C11-05） |
+| `REFMEM-ENTRY-01` active | ⑤ | 任何"未转正"表述 | 已转正；host 门禁已覆盖两个 C runner | C11-05 整改闭环 + `409ebf2b` | 已转正（C11-05） |
 | N8.5 证据等级 | ⑥ | 宣称 full 验收 | 不得冒充 full | 已按 B 接受；TRN-03 预算另立台架任务 | 已接受（非 full） |
 | TRN-03 re-arm 预算 | ⑥ | `--full-bench` step 21 | 无法产 FULL 凭证 | 台架时序专项后重跑 | 台架任务 |
 | host 门禁覆盖 | ⑥ | 依赖总门禁跑新 runner | 已闭合 | `host_acceptance.py` 改为 staged∪DEFAULT_PATHS，两个 C runner 进入每次 host 门禁（77 passed） | 已闭合（`409ebf2b`） |
 | IF-012/IF-013 | ⑥ | Trigger/角度统一命令 | 接口域 `IN PROGRESS` | 8 条 ACK + 角度 RUN | 接口域 |
 | EXE-SEAT-01 | ② | 相位预算 | 全量验收可能再红 | 用户签字 | 非目标 |
 | OTA 工具不稳 | ⑥ | 大包传输 | 例行 OTA 改用 picotool 绕行 | 工具修复 | 独立 |
+| VDC timing 读回异常 | ⑥ | 单口 capture 后读 `VDC:OUTPut:TIMing?` | 读回 `24000,32000,16000`（请求 `12000/16000/6000`） | 复跑并核对参数映射；不作为通过证据 | 待归因 |
 
 ## 5. 契约与边界
 
 - 单一 command slot、单一 `REFTMEM_CMD` 维护流、单一 ACK seat；无新增总线/payload class/第二命令槽。
 - 入口语义（`REFMEM-ENTRY-01`）：非协调者远端在**入口侧**返回 `NOT_CONTROL_OWNER`（文本错误、不落 reason），**目标侧**授权拒绝落 reason 12；不中继、不排队、不建 relay。
 - T2 在线：`T2_MOUNT` 在 TDMA 不停环下可用（同上下文清 TX/pending 后启动 T2）；运行中配置仍走 cached STOP 快照。
-- 单串口：T2 配置/MOUNT/聚合已机器捕获；四域配置与 `FUNC_*` 的单口同批捕获未做（产品约束，未验证）。
+- 单串口：T2 配置/MOUNT/聚合 + 四域/FUNC 已由同一 COM5 capture 机器捕获（`single_port_full.json`）；VDC timing 读回异常另记（§4）。
 - 不提供远程裸写、跨板阻塞查询或绕过本地门禁的强制位。
 
 ## 6. N9 剩余与外部项
