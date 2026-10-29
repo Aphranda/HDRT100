@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261029-035`。统一模型 MODE=2 配置前设置：GATEWAY entered 361（不再停 14）但动作全 abandoned；SWITCH 退化到 4。下一步按模型口径重配角色组数/脉宽。
+- 最新条目：`REFTMEM-TASK-20261029-036`。模型 MODE=2 + 组数 8/2/2：GATEWAY executed 359/361；SWITCH 仍停 4（下一步查 switch 模型 stage 拒绝）。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,19 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-036 — N12.1：MODE=2 + 模型口径组数（GATEWAY 已执行 359/361，SWITCH 仍停 4）
+
+- 配置：reboot 后置 `T2:SEQ:MODE 2`（配置前），`T2_READY_REQUIRED=0`、`T2_SAMPLE_TICKS=70`、`T2_SEQ_GROUPS=1,8,2,2`。
+- 采样结果（`steps-20261029-203114.log`，t+122s）：
+  - **GATEWAY（2 组）：`win 361/361/361/359/2` → entered 361、frozen 361、executed 359、abandoned 2**；`groups exec/count 718/2`；freeze mismatch +30。
+  - SWITCH_A（8 组）：entered 4、frozen 4、executed 0、pending 3；`groups exec/count 0/8`。
+  - SWITCH_B（2 组）：entered 4、executed 0、pending 3；`groups exec/count 0/2`。
+  - COUNTER：entered 361、abandoned 358、pending 3（无动作角色）。
+- 判读：**模型口径下 gateway 的动作链已跑通（359/361）**；switch 仍在第 4 个位置后停摆（动作未执行、pending 3），说明 switch 的模型配置/窗口口径仍不对（不是 gateway 问题了）。
+- 本次运行在 t+124s 后中断（无 step 21 汇总），后续需重跑取 STEPLOSS 终值。
+- 证据：`out/tdma_t2/steps-20261029-203114.log`、`out/n12/t2_model_groups.log`。
+- 下一步：查 switch 在模型下的 stage 拒绝（`trigger_sequence_pilot` 的 `s_step_detail`、`TRIGger:SEQuence:...` diag），并按 8/2 组与窗口（`SYNC_IO_SEQUENCE_PLAN_MAX_GROUPS`）校配置。
 
 ### REFMEM-TASK-20261029-035 — 统一模型（sync_io_sequence）激活实验：gateway 不再停摆但动作被放弃
 
