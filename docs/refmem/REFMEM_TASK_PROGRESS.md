@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：REFTMEM-TASK-20261029-021。N10：非 owner 目标命令停留 POSTED 并堵死单槽（已复现，待修）；TRN-03 台架时序；C3/C6 与 EXE-SEAT-01 另立。
+- 最新条目：REFTMEM-TASK-20261029-022。N10.2 已修（环停远端命令 fail-closed，5bb742fb）；残余：EXECute 错误回包静默、TRN-03 台架、C3/C6。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,19 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-022 — N10.2：环停远端命令 fail-closed 修复（已提交）
+
+- 根因更正：不是"非 owner 目标"，而是**环停时远端 `REFTMEM_CMD` 仍被受理**——提交阻塞在维护流，源记录停留 `POSTED`，后续命令无法再 post（需 reboot）。
+- 修复（`5bb742fb`）：
+  1. core0 refmem 服务每 tick 刷新 `s_ring_transport_ready_cache`（原子），SCPI/submit 只做无锁读，避免命令上下文取 TDMA 锁；
+  2. `distributed_refmem_control_submit` 与 `SYSTem:CTRL:EXECute` 在 target 含远端且 transport 未就绪时直接拒绝（`REJECTED` / `NOT_ONLINE_SAFE`），不再产生记录；
+  3. host 用例补 `refmem_ring_transport_admits` 四组矩阵。
+- HIL（build `20261029052659`）：
+  - 环停：`EXECute 30/28,14,14` 不再 post（`CTRL:STATus?` 保持上一终态），`41` 仍 `ACKED` → 单槽不被堵死；
+  - 环起：`30,14,14` `ACKED/ack=14/applied=3`、`31,14,14` `ACKED/ack=14/applied=2`，回归通过。
+- 凭证：P3 `20261029052659` / 1613 / `e144e97a`；host 77 passed / 541 files。
+- 新残余：该 handler 的显式错误（`BAD_ARGUMENT`/`NOT_ONLINE_SAFE`）**无 SCPI 文本回包**（本地坏参数同样静默），属既有错误回包问题，另立。
 
 ### REFMEM-TASK-20261029-021 — N10.1：VDC/非 owner 目标命令挂起复现（POSTED 不终结）
 

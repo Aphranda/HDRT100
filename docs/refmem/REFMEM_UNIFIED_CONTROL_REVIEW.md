@@ -69,7 +69,8 @@ Last updated: 2026-10-29
 | IF-012/IF-013 | ⑥ | Trigger/角度统一命令 | 接口域 `IN PROGRESS` | 8 条 ACK + 角度 RUN | 接口域 |
 | EXE-SEAT-01 | ② | 相位预算 | 全量验收可能再红 | 用户签字 | 非目标 |
 | OTA 工具不稳 | ⑥ | 大包传输 | 例行 OTA 改用 picotool 绕行 | 工具修复 | 独立 |
-| 非 owner 目标命令挂起 | ⑤ | `target=14` 指向非 VDC owner 的 28/29 | 记录停留 `POSTED`（`ack=0/nack=0`），堵死单槽直到 reboot | 目标侧非 owner 必须回 NACK（reason 12/13）或发号前拒绝 | 待修（N10.2） |
+| 环停远端命令挂起 | ⑤ | `EXECute` 目标含远端且环未运行 | ✅ 已修：不再 post 记录，单槽不被堵死（`5bb742fb`） | 环停拒绝 + 环起 `ack=14` 双路径 HIL | N10.2 已闭 |
+| EXECute 错误回包静默 | ⑥ | `BAD_ARGUMENT`/`NOT_ONLINE_SAFE` 等拒绝 | 命令不执行，但串口无错误文本 | 修复 `scpi_port_push_exec_error` 输出路径 | 待修（另立） |
 
 ## 5. 契约与边界
 
