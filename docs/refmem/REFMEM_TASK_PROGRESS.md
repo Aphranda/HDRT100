@@ -21,6 +21,18 @@ Last updated: 2026-10-29
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
 
+### REFMEM-TASK-20261029-030 — N11.4：GATEWAY 14/361 停摆定位（backend UNCERTAIN）
+
+- 数据（`steps-20261029-172113.log`，361 全程）：
+  - `WIN slot 2 GATEWAY: entered 17 / announced 17 / frozen 17 / executed 14`，`pending 3`；
+  - `ACTION slot 2 GATEWAY: armed 4 / completed 0 / failed 0 / uncertain 0`，槽 `[2] seq 29 deadline ... backend 65 width 9`；
+  - `GW ... state 4`（`SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN`，枚举 0=IDLE/1=ARMED/2=COMPLETE/3=CANCELLED/4=UNCERTAIN），`svc_wait 5019 / svc_done 255 / late 129`；
+  - 位置页 `hold 15472 / drain 15233 / drain_fail 17 / hold_drop 1089 / deliv 239`。
+- 对比：同一次运行 `SWITCH_A/SWITCH_B` 均 `361/361`、`5776` executed、`late/no_plan/backend` 全 0；COUNTER 无动作。
+- 初判：GATEWAY 的 deadline 后端进入 `UNCERTAIN`（READY 未满足/超时）后，`armed` 槽无法完成，后续位置被 BUSY 拒绝 → 停摆在 14–17 位置；与 READY 语义（`T2_READY_REQUIRED=0` 仅 retire 计数）强相关。
+- 下一实验（N11.4a）：同一 361 流程用 `--ready-required 1` 对照（若 gateway 能完成，说明 retire 语义不足；若仍 UNCERTAIN，则查 `sync_io_gateway` 的 arm/complete 路径）。
+- 证据：`out/n11/seq_361c.log`、`steps-20261029-172113.log`、`out/sync_trigger/sequence_flow.json`。
+
 ### REFMEM-TASK-20261029-029 — 361 位置验证：SWITCH_A/B 通过，GATEWAY 仅 14/361
 
 - 入口：`sequence_workflow.py --steps 1-5 --positions 361 --ready-required 0`（step 2 跑 `t2_workflow 0-20`）。
