@@ -951,3 +951,21 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 | **N11.5** ✅ | 文档/进度 +（若涉契约）C11 复核 | 文本与证据一致；C11 记录（如需） | 本节 + 进度日志；无契约变更（无需 C11） |
 
 **硬门禁**：①任何"已修复"需复现→修复→复测；②不得把"分次跑"当成固件缺陷；③不改 T2 语义/相位常量；④文档门禁全绿；⑤不碰他人未提交文件。
+
+## N12 - 统一模型（sync_io_sequence）路径与 361 达标（2026-10-29 立项）
+
+**背景（已实验）**：
+- legacy（MODE=0）：SWITCH_A/B 361/361；GATEWAY 14/361（`UNCERTAIN`）。
+- 统一模型（MODE=2，reboot 后配置前设置）：GATEWAY **entered 361**（不再停 14）但 **executed 0 / abandoned 361**；SWITCH_A/B 退化到 4 个位置。
+- 判读：模型路径是正确方向，差在**角色组数/脉宽/窗口**仍按 legacy 口径（`T2_SEQ_GROUPS=1,16,2,16`）。
+
+| ID | 内容 | 退出判据 | 证据 |
+|---|---|---|---|
+| **N12.0** | 冻结双路径现状（legacy vs MODE=2）与配置口径 | 数字与日志行号齐全 | `REFTMEM-TASK-20261029-035` |
+| **N12.1** | MODE=2 下按模型口径重配：SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2 组、脉宽与窗口 | 动作从 abandoned 转为 executed | 361 计数 |
+| **N12.2** | 若仍 abandoned：定位 `sync_io_sequence` stage 拒绝（NO_LEASE/BAD_PULSE/SCHEDULE/BUSY）与 pilot 配置映射 | 给出工具/配置修法；固件改动先出设计 | GWDIAG/SCAN/STAGE 读数 |
+| **N12.3** | 361 验证：三角色均 361/361，`executed == groups×positions`，late/no_plan/backend 0 | 判决 PASS | `sequence_flow.json` |
+| **N12.4** | 达标后撤销 N11 的 "GATEWAY 361 例外"；工具改动走 P3+host | 文档与凭证一致 | 文档/提交 |
+| **N12.5** | §8 收口报告 | 子项/六门/残余齐全 | 回复 |
+
+**硬门禁**：①不改 REFMEM 核心语义/相位常量；②不直接改固件（先设计）；③GATEWAY PASS 前不得撤销例外；④P3+host 凭证齐全才提交；⑤文档门禁全绿。
