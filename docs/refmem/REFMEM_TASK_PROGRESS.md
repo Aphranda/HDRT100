@@ -21,6 +21,20 @@ Last updated: 2026-10-29
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
 
+### REFMEM-TASK-20261029-027 — N11.1：T2 workflow 分次运行自愈（generation 复用）
+
+- 根因：每次调用生成新 `dep_gen`，而 grid/T2 绑定在旧 epoch；step 18 判据 `epoch == dep_gen` 永不成立。
+- 修复（`tools/sync_trigger/t2_workflow.py`，待 P3 提交）：
+  1. `out/tdma_t2/last_generation.json` 作为跨调用记录；不含 step 8/9 的区间（如 `11-20`）复用该 generation；
+  2. 复用路径**不再**做 `<= last_accepted` 递增（此前把它 +1，仍对不上）；
+  3. step 18 发现 `err 0 valid 1` 但 epoch 不等时，打印明确诊断（期望/实际 + 建议重跑 8-12 或 1-21）；失败信息带 epoch 对照。
+- 台架验证（build `20261029072712`，READY=0）：
+  - `--steps 1-21 --leave-running` → **21/21**，failed steps none；
+  - `--steps 1-10` → `--steps 11-20` → **failed steps: none**（step 18 `12.4s` OK、step 19/20 OK），generation 复用生效。
+- host：`tests/python/test_t2_workflow_generation.py` 4 passed（复用/新 epoch/显式覆盖/缺失 marker）。
+- 记录：`out/n11/t2_full_a.log`、`out/n11/t2_split_f.log`、`out/n11/t2_split_g.log`。
+- 下一项：N11.2 GATEWAY 读回重试；N11.3 丢步判据；工具改动提交需 P3。
+
 ### REFMEM-TASK-20261029-026 — N11.0：T2 workflow 失败归因（分次 epoch 断链）
 
 - 现象：`--steps 1-10` 后接 `--steps 11-20`，step 18 报 `reference cursor never became valid within 24 s`，step 19 拒绝启动脉冲。
