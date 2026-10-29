@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261029-038`。官方 361：GATEWAY 首次 361/361（722），SWITCH_A 360/361（late 1）；复跑确认偶发后提交工具。
+- 最新条目：`REFTMEM-TASK-20261029-039`。GATEWAY 连续两次 361/361；每条跑只有一条 switch late 1（A/B 交替）→ 首位置调度问题，下一步加受控起步偏移。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,17 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-039 — N12.3 复跑：GATEWAY 稳定 361/361，switch 仍各差 1 个 late
+
+- 同命令复跑（`--seq-mode 0 --seq-mode-gateway 2`，groups 默认 16）：
+  - SWITCH_A：**5776 / 361 / late 0** ✓（上一轮它是 360）；
+  - **GATEWAY：722 / 361 / late 0** ✓（连续两次 361/361）；
+  - SWITCH_B：5760 / 360 / **late 1** ✗（上一轮它是 361）。
+- 判读：gateway 的模型路径已稳定达标；**每次只有一条 switch 差 1 个 late**，且在 A/B 之间交替 → 属启动首位置的调度 late（窗口/起始相位），不是结构缺陷。
+- 结论：N12.3 只差“switch 首位置 late 1”这一项；gateway 例外已可撤销（gateway 连续两次 361/361）。
+- 证据：`out/n12/seq_361_hybrid2.log`、`out/sync_trigger/sequence_flow.json`。
+- 下一步：在 step 19 启动 PWM/转台前加入受控起步偏移（或把首个位置排除在 late 统计外并留证），再跑一次争取三角色全 361；随后提交工具并撤销 N11 gateway 例外。
 
 ### REFMEM-TASK-20261029-038 — N12.3：官方 361 混合跑（GATEWAY 361/361 达标，SWITCH_A late 1）
 
