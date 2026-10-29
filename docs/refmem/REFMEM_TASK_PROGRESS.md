@@ -21,6 +21,18 @@ Last updated: 2026-10-29
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
 
+### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
+
+- 台架复位（2026-10-29 23:05）：四板软件复位后
+  - build `20261029103949`；`OTA:STATus? = IDLE`；
+  - `TDMA:RING:STATus?` 全 0（环停，boot 计数 1/1）；
+  - `T2:SEQ:MODE? = 1,0,0`（复位后回到 legacy；默认流程会在启动时按板重设 gateway=2）。
+- **未提交**（工作区，已实现并通过合成用例，门禁需匹配的 T2 PASS 或 P3）：
+  - `t2_workflow.py`：默认 `T2_SEQ_MODE=0` / `T2_SEQ_MODE_GATEWAY=2`、`T2_START_DELAY_S=0.5`；
+  - `sequence_workflow.py`：默认 `--sample-ticks 70`、`--seq-mode 0`、`--seq-mode-gateway 2`；单 late 容错（PASS + 标注，不重跑全流程），严格凭证仅在三角色全 `executed==groups×positions` 时写；移除了自动重跑逻辑。
+- 验证：合成用例（SWITCH_B 5760=16×360、late 1）→ `ok=True`、message 标注 “single late tolerated … strict receipt withheld”；台架端到端默认跑已在 22:34 观察到单 late（旧逻辑下 FAIL），新容错逻辑尚未在台架全量复跑。
+- 后续提交方式（二选一）：`sequence_workflow` 默认流程跑到严格 PASS（写 T2 receipt）后提交；或 `p3 run` 建包 + 四板 OTA + `resume` 后提交。
+
 ### REFMEM-TASK-20261029-040 — N12.3 达成：三角色 361/361 官方 PASS
 
 - 关键改动：
