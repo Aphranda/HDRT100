@@ -355,6 +355,18 @@ void distributed_refmem_request_position_cancel(void);
  * while discarding T2, then reset only private position mailboxes/fragments.
  * No nested owner lock and no shared RX admission-epoch change. */
 bool distributed_refmem_reset_position_stopped(void);
+
+/* N8.5 running-safe position reset: parks new position publications, has the
+ * refmem service (same context as the TX prepare) clear the TX/pending state,
+ * and keeps the producer parked until distributed_refmem_position_resume().
+ * Safe while the TDMA ring runs; returns TIMEOUT/UNSAFE fail-closed. */
+typedef enum {
+    REFMEM_POS_RESET_OK = 0,
+    REFMEM_POS_RESET_UNSAFE,
+    REFMEM_POS_RESET_TIMEOUT,
+} refmem_position_reset_result_t;
+refmem_position_reset_result_t distributed_refmem_reset_position_running(void);
+void distributed_refmem_position_resume(void);
 /* Core1 consumes one complete Core0-published descriptor. */
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor);

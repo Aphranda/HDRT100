@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app.h"
+#include "distributed_refmem.h"
 #include "refmem_command.h"
 #include "refmem_domain_config.h"
 #include "sync_io_sequence.h"
@@ -202,13 +203,23 @@ static bool t2_configure_handler(const uint32_t *params, uint32_t param_words,
 static bool t2_mount_handler(const uint32_t *params, uint32_t param_words,
                              uint32_t *reason)
 {
-    (void)params;
-    (void)param_words;
-    /* TDMA is the non-stop bearer, so the STOP-only position reset that
-     * precedes the local T2 MOUNT cannot run here.  T2 start stays a local
-     * action until a running-safe position-reset path is proven; the unified
-     * plane only stops and configures T2. */
-    return reject_not_online(reason);
+    if (params == NULL || param_words != 3u) {
+        return reject(reason);
+    }
+    /* N8.5: park position publications, let the refmem service clear the TX
+     * state, start T2 while the producer stays parked, then resume.  Any
+     * failure keeps the previous NOT_ONLINE_SAFE behaviour. */
+    if (distributed_refmem_reset_position_running() != REFMEM_POS_RESET_OK) {
+        distributed_refmem_position_resume();
+        return reject_not_online(reason);
+    }
+    const uint64_t origin = ((uint64_t)params[2] << 32u) | (uint64_t)params[1];
+    const bool started = trigger_t2_runtime_start(params[0], origin);
+    distributed_refmem_position_resume();
+    if (!started) {
+        return reject(reason);
+    }
+    return true;
 }
 
 static bool t2_unmount_handler(const uint32_t *params, uint32_t param_words,
