@@ -887,7 +887,7 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 - N8.0 ✅ 基线 + 台架探测；N8.1 ✅ 快照回正；N8.2 ✅ N5.5 入口边界冻结。
 - N8.3 ✅ 失败路径 NACK 可见性（`4dc41dfe`，P3 `20261028171345`）；IF-013 的 7 条配置命令 ACK、`47` 需有效 plan、`35` 会话策略 fail-closed。
 - N8.4 ✅ 聚合视图代码 + 实机读回 + P3 `20261028180729`（`4f7a94f0`）。
-- N8.5 ⏳ 设计包 `out/n8/n8_5_running_safe_design.md`；未落码。
+- N8.5 ⚠️ **代码已落**（用户选 B）：reset_request/done 握手 + `reset_position_running()` + `t2_mount_handler` 接线；环停 fail-closed 实机通过；正向 MOUNT HIL 待复跑。设计包 `out/n8/n8_5_running_safe_design.md`。
 - N8.6 ✅ 凭证（P3 QUICK）+ 四板 `FUNC_TDMA_ONLINE`/`FUNC_TDMA_CLOCK_ONLINE`/`FUNC_VDC_RECONFIG` HIL（`ack=14`，`out/n8/four_board_hil/n86_summary.json`）。
 
 **硬门禁**：①不新增总线/payload class/第二命令槽/第二 ACK；②实时路径改动须给相位预算核算，不得只断言；③单写者/owner/phase/模式边界不变；④新失败路径有 reason/计数/快照，F0–F3 成立；⑤布局/版本/契约同步（wire 不变也要登记文本同步）；⑥凭证 scope 覆盖改动路径，host/四板/构建按需给齐。C1/C2 不触碰；N8.5 若触碰实时预算，先出核算再落代码。

@@ -8,14 +8,14 @@ Last updated: 2026-10-29
 
 ## 1. 结论
 
-**N6/N7 目标范围已闭环；统一控制面整体未收口，不可标记完成。**
+**N6/N7 目标范围已闭环；T2 START/MOUNT 的 running-safe（N8.5）进行中；契约 `pending`，整体不可标记完成。**
 
 - 已闭环：N6.0–N6.5、N7.1–N7.5——四板 TDMA/DPLL/T2/VDC 正向、单条 `CTRL:FUNCtion:RUN` 功能封装、host 用例均有证据。
 - 未收口：
   - `REFMEM-CTRL-01` 仍 `pending`，C11 未由第三方签署（`REFMEM_HAOFV_REVIEW_01` §6 自述不构成最终签署）。
   - N5.5 已按 HAOFV 决策为**产品级入口收敛**：非协调者远端命令 fail-closed，属有界承诺，不是“任一切入点同语义”。
   - IF-012/IF-013 Trigger 统一命令仍在接口域推进（`docs/interface/SCPI_HOST_TODO.md` 记 `IN PROGRESS`）。
-  - T2 `START/MOUNT` 仍 `NOT_ONLINE_SAFE`（需 running-safe 位置复位）。
+  - T2 `START/MOUNT` 仍 `NOT_ONLINE_SAFE`；N8.5（running-safe 复位）**进行中**（用户 2026-10-29 选 B，继续实现）。
   - 相位预算待 EXE-SEAT-01 签字，不得由实现单方重签。
 - 保留边界：T2 域停配置（`UNMOUNT→CONFIGURE`）已通；在线启动不在本快照承诺内。
 - **N8 夜间进展（2026-10-29）**：
@@ -63,12 +63,12 @@ Last updated: 2026-10-29
 | `REFMEM-CTRL-01` pending / C11 未签 | ⑤ | 任何“统一面已完成”表述 | 契约面不可标完成 | 第三方独立复核签署 + 登记表转 active | N8.2（文本）/ 第三方 |
 | 非协调者入口（N5.5） | ③ | 从非协调者板发起远端命令 | “任一切入点同语义”不成立 | 已冻结为产品级入口收敛；重开需 intent delta + TLV 证据 | N5.5 / N8.2 |
 | IF-012/IF-013 Trigger 统一命令 | ⑥ | Trigger/角度经统一面下发 | 命令面可用、闭环未证 | 8 条配置 ACK + 角度 RUN + 四板 HIL | N8.3 |
-| T2 `START/MOUNT` | ⑥ | function 内启动 T2 | 功能面只能停+配置 | running-safe 位置复位 + 四板 `ack=14` | N8.5 |
+| T2 `START/MOUNT` | ⑥ | function 内启动 T2 | 功能面只能停+配置 | **N8.5 进行中**：quiesce + 复位 + 含 MOUNT 步四板 `ack=14` | N8.5 |
 | 相位预算超支 | ② | 验收 DPLL 60 s 联合采集 | 全量验收可能再红 | EXE-SEAT-01 签字或临时分组计时，不得实现单方重签 | 非目标（用户） |
 | function 重试上限 | ② | 域停窗口 >3×100 ms | 超时仍 FAILED | 按域实测调整上限/预算 | N7.2 续 |
 | 四板 T2 逐板不可替代 | ③ | 非协调者本地 function 超时 `reason=11` | 不能拼凑四板证据 | 只认协调者单命令 `ack=14` | 已冻结 |
 | 台架 OTA 不稳 | ⑥ | 单板/并发 OTA 中途 | 新 build 上板 | 已用 `tools/picotool_flash`（BOOTSEL UF2）绕行；OTA 工具修复另列 | 已缓解 |
-| N8.5 running-safe 复位 | ⑤ | T2 `START/MOUNT` | 功能面只能停+配置 | 四板 `FUNC_T2_RECONFIG` 含 MOUNT 步 `ack=14` | N8.5 |
+| N8.5 running-safe 复位 | ⑤ | T2 `START/MOUNT` | 功能面只能停+配置 | quiesce + 复位 + 含 MOUNT 步四板 `ack=14` | N8.5（进行中） |
 
 已闭环项：VDC reference/timing（根因是参数非法，不是 retire 缺陷）、四板 T2 正向（cached STOP 快照读只用于统一控制 T2 configure）、N5.7 实机读回（`acked/nacked` 随命令变化）、四板 `FUNC_TDMA_ONLINE`/`FUNC_TDMA_CLOCK_ONLINE`/`FUNC_VDC_RECONFIG` HIL（2026-10-29）。
 
@@ -89,7 +89,7 @@ Last updated: 2026-10-29
 
 ## 7. N8.7 收口结论（2026-10-29 夜）
 
-**结论：统一控制面仍未完成，不能标记完成；N8.5（T2 running-safe）是唯一功能性缺口。**
+**结论（2026-10-29 用户选 B）：统一面整体未完成，N8.5（T2 running-safe）继续实施中；契约 `REFMEM-CTRL-01` 仍 `pending`。**
 
 | 子项 | 状态 | 证据 |
 |---|---|---|
@@ -98,7 +98,7 @@ Last updated: 2026-10-29
 | N8.2 N5.5 入口边界 | ✅ | 架构「入口无关边界」；`a01b8004` |
 | N8.3 NACK 可见性 | ✅ | `4dc41dfe`；P3 `20261028171345` |
 | N8.4 N5.7 聚合 | ✅ | `4f7a94f0`；P3 `20261028180729`；实机 `acked/nacked` 变化 |
-| N8.5 T2 running-safe | ⏳ 未实现 | 设计 `out/n8/n8_5_running_safe_design.md` |
+| N8.5 T2 running-safe | ⚠️ 代码已落，正向 HIL 待复跑 | reset_request/done 握手；环停 NACK 14；TRN/recorder 时序阻塞正向 |
 | N8.6 四板 FUNC HIL | ✅ | `out/n8/four_board_hil/n86_summary.json`；`ack=14` |
 
 **契约状态**：`REFMEM-CTRL-01` 保持 `pending`（入口无关条款未满足、C11 未签）；`REFMEM-TRANSPORT/SESSION/ACTION/LOCAL` 仍 pending。

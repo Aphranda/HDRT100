@@ -10,8 +10,8 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261029-009`。
-- N8：N8.0–N8.4、N8.6 ✅；N8.5 设计包 ✅ 未落码；**整体不可标完成**（N8.5 为唯一功能缺口）；四板 build `20261028180729`、环停。
+- 最新条目：`REFMEM-TASK-20261029-011`。
+- N8：N8.0–N8.4、N8.6 ✅；**N8.5 代码已落、fail-closed 实机通过，正向 MOUNT HIL 待复跑**；契约仍 pending（C11）。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -20,6 +20,26 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-011 — N8.5 running-safe 代码落地；正向 HIL 待复跑
+
+- 状态：**代码 ✅（构建 + host 回归）、fail-closed 实机 ✅、正向 MOUNT HIL ⏳。**
+- 实现：
+  - `distributed_refmem_position_state_t` 增加 `reset_request/reset_done` 握手；
+  - `distributed_refmem_position_tx_prepare()` 在 request 期间停发新位置；
+  - refmem 服务在**同一上下文**清 TX/pending 状态（`position_clear_running_tx`）后置 done——不做跨任务清状态；
+  - `distributed_refmem_reset_position_running()`（有界 50 ms，`UNSAFE/TIMEOUT/OK`）+ `distributed_refmem_position_resume()`；
+  - `t2_mount_handler` 接线：reset OK → `trigger_t2_runtime_start(epoch, origin)` → resume；失败回退 `NOT_ONLINE_SAFE`。
+- 验证：build `20261029003215`（四板已刷）；`run_refmem_all_host_tests.ps1` 仅剩既有 `realtime_tdma` 失败；环停时 `CTRL:EXECute 31,1,1,1,0,0` → `state=5 NACKED/reason=14`（fail-closed 保持）。
+- 未完成：环运行 + T2 configured 的正向 MOUNT。台架时序互相干扰——第二轮 TRN 的 recorder cancel 需要 reboot，而 reboot 会清掉 T2 配置；`RECord:SAVE` 只把 state 5→8，`CANCel` 不清 8。
+- 下一步：改用不依赖 TRN recorder 的起环路径（或给 recorder 增加 SAVE→IDLE 复位），再跑含 MOUNT 步的四板 HIL。
+
+### REFMEM-TASK-20261029-010 — 用户改选 B：N8.5 继续实施（撤回 A 边界）
+
+- 状态：用户 2026-10-29 先选择 A（接受边界）、随后**更正为 B**：继续实现 T2 running-safe。
+- 处置：A 的边界文本在提交前撤回（未提交、无历史包袱）；契约/架构/快照恢复为"N8.5 进行中，未通过前 `NOT_ONLINE_SAFE`"。
+- 计划：quiesce position TX/RX → 有界等待 → 清位置状态（generation 递增）→ `t2_mount_handler` 接线 → 含 MOUNT 步四板 HIL。
+- 设计包：`out/n8/n8_5_running_safe_design.md`。
 
 ### REFMEM-TASK-20261029-009 — N8.7 收口结论：统一面未完成，N8.5 为唯一功能缺口
 

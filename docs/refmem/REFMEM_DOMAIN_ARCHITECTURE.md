@@ -1727,6 +1727,8 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 
 命令仍走单一 `AckCommandRegion` 与 `REFTMEM_CMD`；`target_mask`/`required_mask` 显式，目标本地 owner 执行。`command_type` 是既有 u32 字段，新增类型不改变 wire 尺寸；`REFTMEM_CMD_MAX_PAYLOAD`、node slot 与向量表布局不变。
 
+**T2 启动边界（N8.5，进行中）**：`T2_MOUNT`/START 当前仍在统一控制面在线范围之外（返回 `NOT_ONLINE_SAFE`）。运行中启动 T2 需要跨 `scpi`/`refmem_sync` 两任务 quiesce position TX/RX，并满足 `trigger_t2_runtime_start` 的“RX producer parked”前提；N8.5 按 quiesce + 有界等待 + generation 递增实现，接线后再以含 MOUNT 步的四板 HIL 判据转正。
+
 **应用功能层：一条指令控制一个功能**
 
 ```text
