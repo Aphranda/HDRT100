@@ -71,7 +71,7 @@ Last updated: 2026-10-29
 | EXE-SEAT-01 | ② | 相位预算 | 全量验收可能再红 | 用户签字 | 非目标 |
 | OTA 工具不稳 | ⑥ | 大包传输 | 例行 OTA 改用 picotool 绕行 | 工具修复 | 独立 |
 | 环停远端命令挂起 | ⑤ | `EXECute` 目标含远端且环未运行 | ✅ 已修：不落记录、单槽不堵（`5bb742fb`）；C11-06 = PASS_WITH_CHANGES，必改 1–3 已落（`REFTMEM-TASK-20261029-023`） | 环停拒绝（含 build/ring 行）+ 环起 `ack=14` | N10.2 已闭 |
-| EXECute 错误回包静默 | ⑥ | `BAD_ARGUMENT`/`NOT_ONLINE_SAFE` 等拒绝 | 命令不执行，但串口无错误文本 | 修复 `scpi_port_push_exec_error` 输出路径 | 待修（另立） |
+| EXECute 错误回包静默 | ⑥ | `BAD_ARGUMENT`/`NOT_ONLINE_SAFE` 等拒绝 | ✅ 已修：输出 `-200,"<info>"`（`b8b87e32`） | 环停/坏参数/成功三路径 HIL | 已闭（N10.4） |
 
 ## 5. 契约与边界
 
