@@ -24,6 +24,12 @@ int main(void)
     /* running and applied. */
     failed += expect("running", refmem_position_reset_admits(1u, 1u, 7u, 7u), 1);
 
+    /* ring transport admission mirrors the same condition. */
+    failed += expect("transport stopped", refmem_ring_transport_admits(0u, 0u, 7u, 7u), 0);
+    failed += expect("transport adapter down", refmem_ring_transport_admits(1u, 0u, 7u, 7u), 0);
+    failed += expect("transport config pending", refmem_ring_transport_admits(1u, 1u, 8u, 7u), 0);
+    failed += expect("transport running", refmem_ring_transport_admits(1u, 1u, 7u, 7u), 1);
+
     if (failed != 0) {
         return 1;
     }

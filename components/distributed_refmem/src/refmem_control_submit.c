@@ -1,4 +1,4 @@
-﻿#include "distributed_refmem.h"
+#include "distributed_refmem.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -66,6 +66,13 @@ bool distributed_refmem_control_submit(uint16_t command_id,
 
     const uint32_t local_bit = 1u << distributed_refmem_local_slot();
     if ((target_mask & ~local_bit) != 0u) {
+        /* Remote targets need the TDMA maintenance transport.  Posting them
+         * while the ring is down would leave the source record POSTED forever
+         * (no reply can ever arrive) and block the single command slot until
+         * reboot, so refuse instead of hanging. */
+        if (!distributed_refmem_ring_transport_ready()) {
+            return false;
+        }
         if (!refmem_cmd_load_submit_fragments(&snapshot, payload)) {
             return false;
         }

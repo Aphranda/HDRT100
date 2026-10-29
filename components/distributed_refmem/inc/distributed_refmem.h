@@ -374,6 +374,15 @@ bool refmem_position_reset_admits(uint32_t ring_enabled,
                                   uint32_t adapter_started,
                                   uint32_t config_seq,
                                   uint32_t applied_config_seq);
+
+/* TDMA ring can carry REFMEM_CMD right now (enabled, adapter started, applied
+ * configuration equal).  Remote-target commands must fail closed when false:
+ * without transport the source record would stay POSTED forever. */
+bool refmem_ring_transport_admits(uint32_t ring_enabled,
+                                  uint32_t adapter_started,
+                                  uint32_t config_seq,
+                                  uint32_t applied_config_seq);
+bool distributed_refmem_ring_transport_ready(void);
 /* Core1 consumes one complete Core0-published descriptor. */
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor);

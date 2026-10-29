@@ -8,6 +8,15 @@ bool refmem_position_reset_admits(uint32_t ring_enabled,
                                   uint32_t config_seq,
                                   uint32_t applied_config_seq)
 {
+    return refmem_ring_transport_admits(ring_enabled, adapter_started,
+                                        config_seq, applied_config_seq);
+}
+
+bool refmem_ring_transport_admits(uint32_t ring_enabled,
+                                  uint32_t adapter_started,
+                                  uint32_t config_seq,
+                                  uint32_t applied_config_seq)
+{
     return ring_enabled != 0u && adapter_started != 0u &&
            config_seq == applied_config_seq;
 }

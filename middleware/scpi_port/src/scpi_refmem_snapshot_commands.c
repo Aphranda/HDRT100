@@ -938,6 +938,15 @@ scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
      * can never be delivered. */
     const uint32_t local_bit = 1u << distributed_refmem_local_slot();
     if ((target_mask & ~local_bit) != 0u) {
+        /* Remote targets need the TDMA maintenance transport.  Refuse while
+         * the ring is down; otherwise the record would stay POSTED with no
+         * possible reply and block the single command slot until reboot.
+         * Checked before the owner/model lookup so a stopped ring cannot block
+         * inside the model path. */
+        if (!distributed_refmem_ring_transport_ready()) {
+            scpi_port_push_exec_error(context, "NOT_ONLINE_SAFE");
+            return SCPI_RES_ERR;
+        }
         uint32_t control_owner = 0u;
         const bool owner_valid =
             refmem_application_model_control_owner_slot(&control_owner);

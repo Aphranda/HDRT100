@@ -702,10 +702,22 @@ refmem_position_reset_result_t distributed_refmem_reset_position_running(void)
     return REFMEM_POS_RESET_OK;
 }
 
+/* Updated by the core0 refmem service only; read lock-free by submit/SCPI. */
+static volatile uint32_t s_ring_transport_ready_cache;
+
+bool distributed_refmem_ring_transport_ready(void)
+{
+    /* Cached by the core0 refmem service from the ring snapshot: the SCPI /
+     * submit path must not take the TDMA runtime lock (it can be held by a
+     * parked ring service while the ring is stopped). */
+    return __atomic_load_n(&s_ring_transport_ready_cache, __ATOMIC_ACQUIRE) != 0u;
+}
+
 void distributed_refmem_tdma_flight_sync_service(void)
 {
     distributed_refmem_position_cancel_service();
     if (board_identity_get_no() == 5u || s_tdma_flight_sync.enabled == 0u) {
+        __atomic_store_n(&s_ring_transport_ready_cache, 0u, __ATOMIC_RELEASE);
         return;
     }
     tdma_service_service_t *owner = tdma_runtime_owner_get();
@@ -716,9 +728,16 @@ void distributed_refmem_tdma_flight_sync_service(void)
     if (owner == NULL) return;
     tdma_ring_runtime_snapshot_t ring;
     if (!tdma_ring_runtime_get_snapshot(&owner->ring_runtime, &ring)) {
+        __atomic_store_n(&s_ring_transport_ready_cache, 0u, __ATOMIC_RELEASE);
         s_tdma_flight_sync.last_error = 1u;
         return;
     }
+    __atomic_store_n(
+        &s_ring_transport_ready_cache,
+        refmem_ring_transport_admits(ring.enabled, ring.adapter_started,
+                                     ring.config_seq, ring.applied_config_seq)
+            ? 1u : 0u,
+        __ATOMIC_RELEASE);
     action_observe(&ring);
     if (ring.enabled == 0u) return;
     distributed_refmem_tdma_flight_sync_update_ring(&ring);
