@@ -247,6 +247,19 @@ static bool scpi_port_trigger_is_armed(void)
 
 void scpi_port_push_exec_error(scpi_t *context, const char *info)
 {
+    /* The parser's error callback only logs, so an execution error used to be
+     * invisible on the wire (host tools saw a timeout).  Emit the standard
+     * SCPI error line here, then keep the error queue semantics unchanged. */
+    char line[160];
+    const int n = snprintf(line, sizeof(line), "%ld,\"%s\"\n",
+                           (long)SCPI_ERROR_EXECUTION_ERROR,
+                           info != NULL ? info : "");
+    if (n > 0) {
+        const size_t len = (size_t)n < sizeof(line) ? (size_t)n
+                                                    : sizeof(line) - 1u;
+        (void)scpi_port_write(context, line, len);
+        scpi_port_flush_output();
+    }
     SCPI_ErrorPushEx(context,
                      SCPI_ERROR_EXECUTION_ERROR,
                      (char *)info,
