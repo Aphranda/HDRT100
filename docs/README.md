@@ -170,6 +170,7 @@ docs/
 | `docs/check/submissions/REFMEM_HAOFV_REVIEW_01.md` | RefMem 四条款 HAOFV 偏差 R1：预算符号、config-control subtype、session writer、ActionDispatcher 归属、本地/协调者边界、实时性已修。 |
 | `docs/check/submissions/REFMEM_C11_REVIEW_01.md` | `REFMEM-CTRL-01` 独立交叉复核（C11）：5 满足/2 部分/1 未满足（接入点无关），N8.5 功能成立但证据不可复跑；结论 `PASS_WITH_CHANGES`，阻断 pending→active。 |
 | `docs/check/submissions/REFMEM_C11_REVIEW_02.md` | `REFMEM-ENTRY-01` 拆分复核（C11 第二轮）：拆分方向忠实但 CTRL-01 旧入口子句未移交，形成同语义双源；单口/命令 id 证据仅作者自注；结论 `PASS_WITH_CHANGES`，ENTRY-01 不得转 active。 |
+| `docs/check/submissions/REFMEM_C11_REVIEW_03.md` | `REFMEM-ENTRY-01` 整改复审（C11 第三轮）：5 项必改 2 闭环/3 部分，clause 与 check 仍不等价（入口 `NOT_CONTROL_OWNER` vs reason 12、四域/`FUNC_*` 单口证据缺项）；结论 `PASS_WITH_CHANGES`，ENTRY-01 不得转 active，CTRL-01 保持 pending。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 首次层间核验：硬件/构建/实现/域文档一致性与当前 v1 偏差。 |
 | `docs/check/submissions/VDC_CROSS_REVIEW_01.md` | VDC 服务边界频率命令的 wire、owner、实际应用 ACK 及取消规则 C11 核验。 |
 | `docs/check/submissions/VDC_CROSS_REVIEW_02.md` | VDC 同命令原有效期内有界重复运输、ACK 退休与至多一次应用 C11 核验。 |
