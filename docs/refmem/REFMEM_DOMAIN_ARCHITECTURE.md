@@ -1711,6 +1711,7 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 
 1. **同目录、同语义、可本地控制（满足）**：每块板拥有相同的命令目录与 function 表（条目数以 `config/refmem/command_catalog.yaml` / `function_catalog.yaml` 为准）、相同 SCPI 语义与 `COMMand:STATus?/TARget?` 只读视图；本板维护与本地控制不受影响（`REFTMEM-LOCAL-01`/CP9）。
 2. **跨节点发号单入口（产品级收敛）**：远端 `REFTMEM_CMD` 的唯一发号者是 `control_owner_slot`（`SlotClaimMap` 最低已 claim 插槽）；非协调者远端命令在**入口侧**返回 `NOT_CONTROL_OWNER`（SCPI 文本执行错误，不落 reason），**目标侧**授权拒绝落 reason 12（`PERMISSION_DENIED`）；两条路径都不中继、不排队、不建 relay 状态。原“Entry B → Coordinator A → Target C”腿为显式非目标。
+3. **传输未就绪（环停）拒绝（2026-10-29）**：`target` 含远端且 TDMA 环未运行时，入口直接返回 `NOT_ONLINE_SAFE` 且**不产生命令记录**（否则记录停留 `POSTED`、单槽堵死）；该判定优先于 `NOT_CONTROL_OWNER`，并与部署期 `NOT_ONLINE_SAFE`（运行时配置命令拒绝）区分。
 
 **单串口拓扑（2026-10-29 用户约束；T2 配置/MOUNT/聚合已机器捕获）**：最终应用只连接一个串口。该口落在协调者板上时，四域在线配置、`SYSTem:CTRL:FUNCtion:RUN`、`T2_MOUNT`、只读聚合均由这一个口完成，远端目标经 `REFTMEM_CMD` 投递并向源口回 ACK；不需要第二串口或逐板直连。若该口落在非协调者板，只保留本地控制（上面的第 2 条）。**证据**：`out/n8/single_port_capture.json`（port=COM5、build `20261029031043`、`30/31,14,14` 均 `ACKED/ack=14`、`COMMand:STATus?` 可见）；四域配置与 `FUNC_*` 的单口同批捕获未做，属产品约束（未验证）。
 

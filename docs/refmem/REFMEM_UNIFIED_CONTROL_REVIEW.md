@@ -56,6 +56,7 @@ Last updated: 2026-10-29
 | C11 记录 | `docs/check/submissions/REFMEM_C11_REVIEW_01.md`…`_04.md` |
 | P3 全量尝试 | `out/n8/wf_full.log`、`wf_full2.log`、`wf_fullbench.log`（TRN-03 预算失败行） |
 | N9 基线 | `out/n9/baseline.json` |
+| N10 失败闭环证据 | `out/n10/n10_failclosed_v2.json`（环停：无新记录、function FAILED、41 ACKED）、`out/n10/n10_positive_v2.json`（环起：`30/31 ack=14`） |
 
 ## 4. 开放项与残余风险
 
@@ -69,7 +70,7 @@ Last updated: 2026-10-29
 | IF-012/IF-013 | ⑥ | Trigger/角度统一命令 | 接口域 `IN PROGRESS` | 8 条 ACK + 角度 RUN | 接口域 |
 | EXE-SEAT-01 | ② | 相位预算 | 全量验收可能再红 | 用户签字 | 非目标 |
 | OTA 工具不稳 | ⑥ | 大包传输 | 例行 OTA 改用 picotool 绕行 | 工具修复 | 独立 |
-| 环停远端命令挂起 | ⑤ | `EXECute` 目标含远端且环未运行 | ✅ 已修：不再 post 记录，单槽不被堵死（`5bb742fb`） | 环停拒绝 + 环起 `ack=14` 双路径 HIL | N10.2 已闭 |
+| 环停远端命令挂起 | ⑤ | `EXECute` 目标含远端且环未运行 | ✅ 已修：不落记录、单槽不堵（`5bb742fb`）；C11-06 = PASS_WITH_CHANGES，必改 1–3 已落（`REFTMEM-TASK-20261029-023`） | 环停拒绝（含 build/ring 行）+ 环起 `ack=14` | N10.2 已闭 |
 | EXECute 错误回包静默 | ⑥ | `BAD_ARGUMENT`/`NOT_ONLINE_SAFE` 等拒绝 | 命令不执行，但串口无错误文本 | 修复 `scpi_port_push_exec_error` 输出路径 | 待修（另立） |
 
 ## 5. 契约与边界

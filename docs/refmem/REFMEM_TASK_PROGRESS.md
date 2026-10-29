@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：REFTMEM-TASK-20261029-022。N10.2 已修（环停远端命令 fail-closed，5bb742fb）；残余：EXECute 错误回包静默、TRN-03 台架、C3/C6。
+- 最新条目：REFTMEM-TASK-20261029-023。N10.2 修复闭环（C11-06 必改已落）；残余：EXECute 错误回包静默、TRN-03 台架、C3/C6、EXE-SEAT-01。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -21,6 +21,17 @@ Last updated: 2026-10-29
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
 
+### REFMEM-TASK-20261029-023 — N10.3：C11-06 必改落地（文本/证据/第二层）
+
+- C11-06 = `PASS_WITH_CHANGES`：修复成立；三项必改（状态文本、HIL 证据口径、第二层覆盖/可观测）本轮落地。
+- **HIL 补证**（含 build 与 ring 行）：
+  - 环停 `out/n10/n10_failclosed_v2.json`：build `20261029052659`、`RING:STATus?` enabled=0；`EXECute 30,14,14` 无回包且 `CTRL:STATus?` 保持上一条终态（无新记录）；`FUNC_TDMA_ONLINE,14,14` `QUEUED 720616` → `FUNCtion:STATus?` = `state=3(FAILED), step=1/2, last_reason=13`；`41` 仍 `ACKED`。
+  - 环起 `out/n10/n10_positive_v2.json`：build 同上、ring `enabled=1/node_count=4/up=1/down=1`；`30,14,14` `ACKED/ack=14`、`31,14,14` `ACKED/ack=14`。
+- **口径更正**：`CTRL:STATus?` 第 12 字段是 `last_reason_slot` 而非 `applied`；ACK 判据只用 `state/ack_flags/nack`。
+- **可观测性（明文接受）**：拒绝走 `scpi_port_push_exec_error` 但串口无文本回包（与既有 `BAD_ARGUMENT` 同类）；判读判据＝拒绝后记录号不变、下一条 `41` 仍 `QUEUED`。公共 SCPI 错误回包修复另立（影响面大，需 P3+四板）。
+- **已知限制**：OTA 期间 link 服务早退会冻结 cache（OTA 中停环可绕过一次）；环停到 cache 归零 ≤1 tick 竞态——提交前仍二次校验，不足以产生 POSTED，记录待观。
+- 契约：`REFMEM-ENTRY-01` clause/check 补"环未运行且 target 含远端 → 入口 `NOT_ONLINE_SAFE`、不落记录"，优先级高于 `NOT_CONTROL_OWNER`，并与部署期 `NOT_ONLINE_SAFE` 区分。
+
 ### REFMEM-TASK-20261029-022 — N10.2：环停远端命令 fail-closed 修复（已提交）
 
 - 根因更正：不是"非 owner 目标"，而是**环停时远端 `REFTMEM_CMD` 仍被受理**——提交阻塞在维护流，源记录停留 `POSTED`，后续命令无法再 post（需 reboot）。
@@ -30,7 +41,7 @@ Last updated: 2026-10-29
   3. host 用例补 `refmem_ring_transport_admits` 四组矩阵。
 - HIL（build `20261029052659`）：
   - 环停：`EXECute 30/28,14,14` 不再 post（`CTRL:STATus?` 保持上一终态），`41` 仍 `ACKED` → 单槽不被堵死；
-  - 环起：`30,14,14` `ACKED/ack=14/applied=3`、`31,14,14` `ACKED/ack=14/applied=2`，回归通过。
+  - 环起：`30,14,14` `ACKED/ack=14`（第 12 字段是 `last_reason_slot`，不是 applied）、`31,14,14` `ACKED/ack=14`，回归通过。
 - 凭证：P3 `20261029052659` / 1613 / `e144e97a`；host 77 passed / 541 files。
 - 新残余：该 handler 的显式错误（`BAD_ARGUMENT`/`NOT_ONLINE_SAFE`）**无 SCPI 文本回包**（本地坏参数同样静默），属既有错误回包问题，另立。
 
