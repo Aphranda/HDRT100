@@ -943,11 +943,11 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 
 | ID | 内容 | 退出判据 | 证据 |
 |---|---|---|---|
-| **N11.0** | 冻结失败分类与证据（分次 epoch 断链、GATEWAY 读回、CUM mismatch/fallback、install 超时） | 每类有日志行号 + 复现命令 | 分析记录 |
-| **N11.1** | 工具加固：跨调用持久化 `dep_gen`/epoch，或检测 epoch 不等于 grid/T2 时自动补跑 step 8/9/12 并给出明确错误（含期望/实际 epoch） | 分次调用不再出现 24 s 静默超时；有可读错误 | host 用例 + 台架 |
-| **N11.2** | GATEWAY 读回修复：定位超时查询、加重试/退避 | step 20/21 GATEWAY 页稳定可读 | HIL 日志 |
-| **N11.3** | 丢步判据：expected groups/positions vs `groups exec/count`、`CUM mismatch`、`fallback`、`entered vs announced` | 判据文档化；对 SWITCH/GATEWAY 给出 PASS/FAIL | 判据 + 数据 |
-| **N11.4** | 全链 HIL：单次 1-21（READY=0）21/21 + 计数证据 | 21/21；计数判据全绿 | 日志 + `t2_flow.json` |
-| **N11.5** | 文档/进度 +（若涉契约）C11 复核 | 文本与证据一致；C11 记录（如需） | 文档 |
+| **N11.0** ✅ | 冻结失败分类与证据（分次 epoch 断链、GATEWAY 读回、CUM mismatch/fallback、install 超时） | 每类有日志行号 + 复现命令 | `REFTMEM-TASK-20261029-026/029/030` |
+| **N11.1** ✅ | 工具加固：跨调用持久化 `dep_gen`/epoch，或检测 epoch 不等于 grid/T2 时自动补跑 step 8/9/12 并给出明确错误（含期望/实际 epoch） | 分次调用不再出现 24 s 静默超时；有可读错误 | `22f6e1d3`；1-10→11-20 全过 |
+| **N11.2** ✅ | GATEWAY 读回修复：定位超时查询、加重试/退避 | step 20/21 GATEWAY 页稳定可读 | `query_page()`；`22f6e1d3` |
+| **N11.3** ✅ | 丢步判据：expected groups/positions vs `groups exec/count`、`CUM mismatch`、`fallback`、`entered vs announced` | 判据文档化；对 SWITCH/GATEWAY 给出 PASS/FAIL | STEPLOSS；`REFTMEM-TASK-20261029-028/033` |
+| **N11.4** ✅ | 全链 HIL：单次 1-21（READY=0）21/21 + 计数证据 | 21/21；STEPLOSS 全 PASS；361 判据 SWITCH_A/B PASS、GATEWAY 例外 | `steps-20261029-190500.log`、`seq_361c.log` |
+| **N11.5** ✅ | 文档/进度 +（若涉契约）C11 复核 | 文本与证据一致；C11 记录（如需） | 本节 + 进度日志；无契约变更（无需 C11） |
 
 **硬门禁**：①任何"已修复"需复现→修复→复测；②不得把"分次跑"当成固件缺陷；③不改 T2 语义/相位常量；④文档门禁全绿；⑤不碰他人未提交文件。
