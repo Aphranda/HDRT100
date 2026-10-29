@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261029-039`。GATEWAY 连续两次 361/361；每条跑只有一条 switch late 1（A/B 交替）→ 首位置调度问题，下一步加受控起步偏移。
+- 最新条目：`REFTMEM-TASK-20261029-040`。**361 全 PASS**：SWITCH_A/B 5776(16×361)、GATEWAY 722(2×361)，late/no_plan/backend 0；工具 `78cca54f`；N11 gateway 例外已撤销。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,24 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-040 — N12.3 达成：三角色 361/361 官方 PASS
+
+- 关键改动：
+  1. 逐板模式：`apply_sequence_modes()` 在启动时、配置前下发 `T2:SEQ:MODE`（`T2_SEQ_MODE` 全板、`T2_SEQ_MODE_GATEWAY` 仅 gateway 板）；
+  2. `T2_START_DELAY_S=0.5` 受控起步偏移，消除 switch 首位置的偶发 late。
+- 结果（`sequence_workflow --positions 361 --sample-ticks 70 --seq-mode 0 --seq-mode-gateway 2`，21:34:34）：**verdict OK**：
+
+| 角色 | groups | executed | finished | late | 期望 |
+|---|---|---|---|---|---|
+| SWITCH_A | 16 | 5776 | 361 | 0 | 16×361=5776 ✓ |
+| SWITCH_B | 16 | 5776 | 361 | 0 | 16×361=5776 ✓ |
+| **GATEWAY** | 2 | **722** | **361** | 0 | 2×361=722 ✓ |
+
+`no_plan/late/backend` 全 0；`T2 acceptance receipt` PASS。
+- 提交：`78cca54f`（工具 + T2 PASS 凭证；firmware 类经 T2 sequence receipt 放行）。
+- N11 的 “GATEWAY 361 例外” **已撤销**（快照 §4 行改为已闭；TODO N12 全 ✅）。
+- 证据：`out/n12/seq_361_delay05.log`、`out/sync_trigger/sequence_flow.json`、`config/hardware_acceptance/t2_acceptance_receipt.json`。
 
 ### REFMEM-TASK-20261029-039 — N12.3 复跑：GATEWAY 稳定 361/361，switch 仍各差 1 个 late
 

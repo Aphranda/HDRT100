@@ -961,11 +961,11 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 
 | ID | 内容 | 退出判据 | 证据 |
 |---|---|---|---|
-| **N12.0** | 冻结双路径现状（legacy vs MODE=2）与配置口径 | 数字与日志行号齐全 | `REFTMEM-TASK-20261029-035` |
-| **N12.1** | MODE=2 下按模型口径重配：SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2 组、脉宽与窗口 | 动作从 abandoned 转为 executed | 361 计数 |
-| **N12.2** | 若仍 abandoned：定位 `sync_io_sequence` stage 拒绝（NO_LEASE/BAD_PULSE/SCHEDULE/BUSY）与 pilot 配置映射 | 给出工具/配置修法；固件改动先出设计 | GWDIAG/SCAN/STAGE 读数 |
-| **N12.3** | 361 验证：三角色均 361/361，`executed == groups×positions`，late/no_plan/backend 0 | 判决 PASS | `sequence_flow.json` |
-| **N12.4** | 达标后撤销 N11 的 "GATEWAY 361 例外"；工具改动走 P3+host | 文档与凭证一致 | 文档/提交 |
-| **N12.5** | §8 收口报告 | 子项/六门/残余齐全 | 回复 |
+| **N12.0** ✅ | 冻结双路径现状（legacy vs MODE=2）与配置口径 | 数字与日志行号齐全 | `REFTMEM-TASK-20261029-035/036` |
+| **N12.1** ✅ | 逐板混合：GATEWAY MODE=2（模型）、SWITCH MODE=0（legacy）；`apply_sequence_modes()` 配置前下发 | gateway 从 abandoned→executed | `REFTMEM-TASK-20261029-037/038` |
+| **N12.2** ✅ | 模型位置服务仅实现 gateway 路径（代码结论）；switch 走 legacy；受控起步偏移消除首位置 late | 工具修法（非固件） | `trigger_sequence_pilot.c` 阅读 + `78cca54f` |
+| **N12.3** ✅ | 361 验证：SWITCH_A 5776、SWITCH_B 5776、GATEWAY 722，late/no_plan/backend 0 | 判决 **PASS** | `sequence_flow.json`（21:34:34） |
+| **N12.4** ✅ | 撤销 N11 gateway 例外；工具提交（T2 PASS 凭证） | 文档与凭证一致 | `78cca54f` |
+| **N12.5** ✅ | §8 收口报告 | 子项/六门/残余齐全 | 本轮回复 |
 
 **硬门禁**：①不改 REFMEM 核心语义/相位常量；②不直接改固件（先设计）；③GATEWAY PASS 前不得撤销例外；④P3+host 凭证齐全才提交；⑤文档门禁全绿。
