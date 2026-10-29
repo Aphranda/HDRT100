@@ -10,8 +10,8 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261029-011`。
-- N8：N8.0–N8.4、N8.6 ✅；**N8.5 代码已落、fail-closed 实机通过，正向 MOUNT HIL 待复跑**；契约仍 pending（C11）。
+- 最新条目：`REFMEM-TASK-20261029-012`。
+- N8：N8.0–N8.6 ✅（含 **N8.5 四板 MOUNT `ack=14`**）；契约仍 pending（C11）。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -20,6 +20,14 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-012 — N8.5 四板 T2 MOUNT 正向通过
+
+- 状态：**N8.5 ✅**：`CTRL:EXECute 31,14,14,1,0,0` → `state=4 ACKED`、`ack_flags=14`、`nack=0`、`applied=3`。
+- 关键修正：统一命令的 dispatch 在**同一个 refmem 服务任务**里执行，原 request/done 握手会等待自身 → reason 7 超时。改为在 reset API 内**同上下文直接清 TX/pending**（单写者），T2 start 期间生产者自然停发；不再需要跨任务握手。
+- 前置：`t2_workflow --steps 1-10 --leave-running` 配 T2 → `trn03 --stage process-image --no-t2 --leave-running` 起环 → `CTRL:EXECute 30,14,14,...` 经 cached STOP 快照 ACK → 再 MOUNT。
+- 连续性：MOUNT 前后环保持 `enabled=1`、`up/down=1`，COM5 `up_tx` 4340→7310→9028、COM4/3/6 TX/RX 同步推进；函数后四板 `RING:STOP`。
+- 证据：`out/n8/n85_mount_four_board.json`、`out/n8/four_board_hil/trn03_n85j/`、`out/n8/n85_mount_local_ok.json`。
 
 ### REFMEM-TASK-20261029-011 — N8.5 running-safe 代码落地；正向 HIL 待复跑
 

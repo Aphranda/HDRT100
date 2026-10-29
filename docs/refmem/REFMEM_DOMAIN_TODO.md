@@ -876,7 +876,7 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 | **N8.2** | N5.5 决策冻结：产品级入口收敛写入架构/契约边界；非协调者远端 fail-closed；不写转发代码 | `REFMEM-CTRL-01` 文本回写 N6/N7+IF+N5.5 边界；锚点真实；门禁绿 | 决策记录 + 登记表 | docs |
 | **N8.3** | IF-013 后端收口：`TRIGger:MODE` 与 7 条配置命令的后端策略/接线；负测保留 fail-closed | host 全绿 + 四板 8 条 ACK；P3 绑定 staged | `out/n8/if013_*` | feature |
 | **N8.4** | N5.7 只读聚合：`SYSTem:COMMand:STATus?`/`TARget?` 从既有 node 记录派生，不建第二事实 | host + SCPI smoke；无新 wire/状态 | `out/n8/n57_*` | feature |
-| **N8.5** | T2 running-safe 位置复位：TDMA 不停环下安全复位位置；单写者/owner 不变；相位预算核算 | 四板 `T2_MOUNT/START` 在线 `ack=14`；环连续 | `out/n8/t2_running_safe/*` | feature(refactor 级证据) |
+| **N8.5** | T2 running-safe 位置复位：TDMA 不停环下安全复位位置；单写者/owner 不变；相位预算核算 | ✅ 2026-10-29：四板 `CTRL:EXECute 31,14,14,1,0,0` `ACKED/ack=14`、环连续 | `out/n8/n85_mount_four_board.json` | feature |
 | **N8.6** | 当前树四板 HIL 复跑：`FUNC_TDMA_ONLINE`/`FUNC_TDMA_CLOCK_ONLINE`/`FUNC_T2_RECONFIG`/`FUNC_VDC_RECONFIG` + continuity | 四板逐目标 `ack=14`；P3 QUICK 凭证 | `out/n8/four_board/` + receipt | — |
 | **N8.7** | 收口：§8 总表/六门/残余/契约状态/证据索引/提交清单；进度日志 C14/C15 | 文档门禁绿；目标完成判定 | 全部 | docs |
 
@@ -887,7 +887,7 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 - N8.0 ✅ 基线 + 台架探测；N8.1 ✅ 快照回正；N8.2 ✅ N5.5 入口边界冻结。
 - N8.3 ✅ 失败路径 NACK 可见性（`4dc41dfe`，P3 `20261028171345`）；IF-013 的 7 条配置命令 ACK、`47` 需有效 plan、`35` 会话策略 fail-closed。
 - N8.4 ✅ 聚合视图代码 + 实机读回 + P3 `20261028180729`（`4f7a94f0`）。
-- N8.5 ⚠️ **代码已落**（用户选 B）：reset_request/done 握手 + `reset_position_running()` + `t2_mount_handler` 接线；环停 fail-closed 实机通过；正向 MOUNT HIL 待复跑。设计包 `out/n8/n8_5_running_safe_design.md`。
+- N8.5 ✅ 2026-10-29：同上下文清 TX/pending（单写者）后 `trigger_t2_runtime_start`；四板 `31,14,14` `ack=14`、环连续；不再用跨任务握手（会自等超时）。
 - N8.6 ✅ 凭证（P3 QUICK）+ 四板 `FUNC_TDMA_ONLINE`/`FUNC_TDMA_CLOCK_ONLINE`/`FUNC_VDC_RECONFIG` HIL（`ack=14`，`out/n8/four_board_hil/n86_summary.json`）。
 
 **硬门禁**：①不新增总线/payload class/第二命令槽/第二 ACK；②实时路径改动须给相位预算核算，不得只断言；③单写者/owner/phase/模式边界不变；④新失败路径有 reason/计数/快照，F0–F3 成立；⑤布局/版本/契约同步（wire 不变也要登记文本同步）；⑥凭证 scope 覆盖改动路径，host/四板/构建按需给齐。C1/C2 不触碰；N8.5 若触碰实时预算，先出核算再落代码。
