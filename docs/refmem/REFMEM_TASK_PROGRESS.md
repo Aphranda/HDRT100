@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261029-031`。READY=1 使 GATEWAY 更差（1/361）；ARMBranch 显示 gateway 走 legacy 路径、pilot 未启用。
+- 最新条目：`REFTMEM-TASK-20261029-032`。SEQ:MODE 1/2 对照均失败；已恢复 MODE=0；下一步工具加 `--seq-mode` 或写明 gateway 例外。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +20,15 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261029-032 — N11.4b：SEQ:MODE 1/2 对照（均不可用）
+
+- 背景：`TRIGger:REServation:T2:SEQ:MODE <0|1|2>`（默认 0=legacy）可让序列模型接管位置 backend。
+- MODE=1（4 板设置后跑 `--steps 11-20`）：step 17/19 FAIL（`sync input not admitted`、计数器 `0/0/0` 不前进），GATEWAY `entered 0`、`groups exec/count 0/1`。
+- MODE=2（显式交还 legacy 引脚）：step 16–19 FAIL；`ORIGin:TRIAL` 被拒 `CAL_ORIGIN_TRIAL_REJECTED`，`cause UNAUTHORIZED`、`EPOCH_SUPERSEDED`（trial 192982 vs now 192984），ring `en 0`。
+- 已恢复 MODE=0（四板回读 `1,0,0`）。
+- 结论：**pilot 模式不能在“先 1-10 再 11-20”的时点启用**——它会改写 ring/epoch 前提，导致 origin trial 被拒；要么在 T2 配置后、ring 启动前由工具内设置（需要 `t2_workflow` 新增 `--seq-mode` 选项），要么继续 legacy。
+- 下一步（N11.4c）：给 `t2_workflow` 加 `--seq-mode`（在 step 12 之后、step 16 之前下发），单次 1-20 验证 gateway 是否 361/361；否则把 “gateway 需 analyzer READY” 写为 361 口径显式例外。
 
 ### REFMEM-TASK-20261029-031 — N11.4a：READY=1 对照与 gateway 路径判定
 
