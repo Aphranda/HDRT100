@@ -21,6 +21,14 @@ Last updated: 2026-10-29
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
 
+### REFMEM-TASK-20261029-025 — T2 workflow：禁用 READY 后 10 步全过
+
+- 背景：此前 `t2_workflow.py --steps 1-10` 在混合 build / READY 要求下多处失败（step 3/4/6/8/9/10）。
+- 处置：`T2_READY_REQUIRED=0`（禁用 READY）后重跑一次：
+  - `t2_workflow.py --steps 1-10 --leave-running` → **failed steps: none**，10/10 OK。
+- 证据：`out/n10/t2_workflow_readyoff.log`、`out/tdma_t2/steps-20261029-155748.log`。
+- 说明：该开关只影响 gateway 对 `TRIGger:SEQUENCE:REAdy` 的处理，不改变 REFMEM 统一面代码；四板需同 build（当前 `20261029072712`）。
+
 ### REFMEM-TASK-20261029-024 — N10.4：SCPI 执行错误回包修复（拒绝不再静默）
 
 - 背景：C11-06 指出 `EXECute` 拒绝（`NOT_ONLINE_SAFE`/`BAD_ARGUMENT`）串口无文本，只有错误队列/日志；判读只能靠记录号不变。
