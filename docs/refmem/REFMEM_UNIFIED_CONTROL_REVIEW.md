@@ -64,7 +64,7 @@ Last updated: 2026-10-29
 | `REFMEM-CTRL-01` pending | ⑤ | 任何"统一面完成"表述 | 契约不可标完成 | C3 租约 / C6 fence 实现 + C11 | 后续 |
 | `REFMEM-ENTRY-01` active | ⑤ | 任何"未转正"表述 | 已转正；host 门禁已覆盖两个 C runner | C11-05 整改闭环 + `409ebf2b` | 已转正（C11-05） |
 | N8.5 证据等级 | ⑥ | 宣称 full 验收 | 不得冒充 full | 已按 B 接受；TRN-03 预算另立台架任务 | 已接受（非 full） |
-| TRN-03 re-arm 预算 | ⑥ | `--full-bench` step 21 | 无法产 FULL 凭证 | 台架时序专项后重跑 | 台架任务 |
+| TRN-03 re-arm 预算 | ⑥ | `--full-bench` step 21 | 无法产 FULL 凭证；4 候选行 margin 均 ≤ `-1 sample`（41 ns base / 10 MHz / 4 ns sample），unsafe follower 2–3 条 | 台架时序专项（改 link base/波特率或重标 SCK 行）后重跑 | 台架任务 |
 | host 门禁覆盖 | ⑥ | 依赖总门禁跑新 runner | 已闭合 | `host_acceptance.py` 改为 staged∪DEFAULT_PATHS，两个 C runner 进入每次 host 门禁（77 passed） | 已闭合（`409ebf2b`） |
 | IF-012/IF-013 | ⑥ | Trigger/角度统一命令 | 接口域 `IN PROGRESS` | 8 条 ACK + 角度 RUN | 接口域 |
 | EXE-SEAT-01 | ② | 相位预算 | 全量验收可能再红 | 用户签字 | 非目标 |
