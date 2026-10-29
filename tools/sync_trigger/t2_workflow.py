@@ -2304,19 +2304,6 @@ def step_15_priority(ctx, slot, board, uid):
 @step(16)
 def step_16_ring_start(ctx, slot, board, uid):
     """Ring data path: BURSt 0, ARM the peers then the reference, TRAIN, START."""
-    seq_mode = os.environ.get("T2_SEQ_MODE", "")
-    if seq_mode in ("0", "1", "2"):
-        # The position model must be selected while the board is stopped and
-        # after T2 is configured: switching it later rewrote the ring/epoch
-        # prerequisites and ORIGin:TRIAL was refused (EPOCH_SUPERSEDED).
-        for uid_r, slot_r, _i, _o, _f in ROWS:
-            member = ctx.boards.get(f"{uid_r:016X}")
-            if member is None:
-                continue
-            reply = ctx.send(
-                member, f"TRIGger:REServation:T2:SEQ:MODE {seq_mode}")
-            print(f"  slot {slot_r} SEQ:MODE {seq_mode} (before ring) -> "
-                  f"{reply[:24]}", flush=True)
     src = ctx.src
     if src is not None:
         ctx.send(src, "SYSTem:TDMA:RING:BURSt 0")
@@ -2982,6 +2969,13 @@ def step_19_trial_and_pulse_start(ctx, slot, board, uid):
         print(f"  counter {current} already past the first threshold {first}"
               f" before SOURce:STARt - pulse flow not started", flush=True)
         return
+    # Controlled start offset: the first position's deadline is solved from the first
+    # counter edge, so starting the source in the same instant as the ring arms can make
+    # that one position late. A short offset lets the runtime arm the first window first.
+    start_delay = float(os.environ.get("T2_START_DELAY_S", "0") or 0.0)
+    if start_delay > 0.0:
+        print(f"  start offset {start_delay:.2f}s before SOURce:STARt", flush=True)
+        time.sleep(start_delay)
     reply = ctx.send(src, "TRIGger:REServation:SOURce:STARt")
     print(f"  TRIGger:REServation:SOURce:STARt          -> {reply[:44]}", flush=True)
     # Second half of the step 16 split: does SOURce:STARt by itself stop the ring?
@@ -3935,6 +3929,32 @@ class StepTee:
                 pass
 
 
+def apply_sequence_modes(ctx):
+    """Per-board position-model selection, applied before configuration.
+
+    T2_SEQ_MODE applies to every board; T2_SEQ_MODE_GATEWAY overrides the
+    GATEWAY board (slot 2).  The model must be chosen while stopped and before
+    the grid/T2 configuration binds the ring epoch; switching it later was
+    measured to rewrite the ring/epoch prerequisites (ORIGin:TRIAL refused).
+    """
+    mode_all = os.environ.get("T2_SEQ_MODE", "")
+    mode_gateway = os.environ.get("T2_SEQ_MODE_GATEWAY", "")
+    valid = ("0", "1", "2")
+    if mode_all not in valid and mode_gateway not in valid:
+        return
+    for uid_r, slot_r, _i, _o, _f in ROWS:
+        member = ctx.boards.get(f"{uid_r:016X}")
+        if member is None:
+            continue
+        mode = (mode_gateway if (slot_r == 2 and mode_gateway in valid)
+                else mode_all)
+        if mode not in valid:
+            continue
+        reply = ctx.send(member, f"TRIGger:REServation:T2:SEQ:MODE {mode}")
+        print(f"  slot {slot_r} SEQ:MODE {mode} (pre-config) -> {reply[:24]}",
+              flush=True)
+
+
 def run_steps(board_ids, selection, interactive=False, teardown=None,
               generation=None, pre_lock_mask=None, release_quarantine=False) -> int:
     """Run the requested steps in order, reporting once per step.
@@ -3953,6 +3973,7 @@ def run_steps(board_ids, selection, interactive=False, teardown=None,
     ctx = StepContext(board_ids,
                       generation_for_selection(selection, generation),
                       reuses_recorded_generation(selection) and generation is None)
+    apply_sequence_modes(ctx)
     if pre_lock_mask:
         ctx.pre_lock_mask = pre_lock_mask
         print(f"pre-lock mask experiment enabled: {pre_lock_mask}", flush=True)

@@ -1,9 +1,9 @@
 {
  "schema": "HAOFV_T2_SEQUENCE_ACCEPTANCE_RECEIPT_V1",
  "passed": true,
- "source_tree_sha256": "667401d0c1dae2d37212b02044a2c4e7937a39ac40eebe25868baaf7195342b3",
- "source_file_count": 1832,
- "generated_at": "2026-10-21T21:55:47+08:00",
+ "source_tree_sha256": "300e7d8c2900b9b58759abe12228a1aeed92b1063fdb91daa323064bf632d199",
+ "source_file_count": 1613,
+ "generated_at": "2026-10-29T21:34:34+08:00",
  "groups": null,
  "roles": {
   "SWITCH_A": {

@@ -130,7 +130,10 @@ def step_chain(state, args):
     env["T2_SEQ_PERIOD_SLICES"] = str(args.group_slices)
     env["T2_SAMPLE_TICKS"] = str(args.sample_ticks)
     env["T2_READY_REQUIRED"] = str(args.ready_required)
-    env["T2_SEQ_MODE"] = str(args.seq_mode)
+    if args.seq_mode is not None:
+        env["T2_SEQ_MODE"] = str(args.seq_mode)
+    if args.seq_mode_gateway is not None:
+        env["T2_SEQ_MODE_GATEWAY"] = str(args.seq_mode_gateway)
     started = time.time()
     proc = subprocess.run(cmd, cwd=str(ROOT), env=env, capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
@@ -634,8 +637,12 @@ def main(argv=None):
     parser.add_argument("--period-ns", type=int, default=10000000)
     parser.add_argument("--subdivisions", type=int, default=32)
     parser.add_argument("--ready-required", type=int, default=0)
-    parser.add_argument("--seq-mode", type=int, default=0,
-                        help="T2:SEQ:MODE sent before the ring starts (0 legacy, 1/2 position model)")
+    parser.add_argument("--seq-mode", type=int, default=None,
+                        help="T2:SEQ:MODE for every board, sent before configuration "
+                             "(0 legacy, 1/2 position model)")
+    parser.add_argument("--seq-mode-gateway", type=int, default=None,
+                        help="T2:SEQ:MODE override for the GATEWAY board only "
+                             "(hybrid: gateway model, switches legacy)")
     parser.add_argument("--positions", type=int, default=0)
     parser.add_argument("--timing")
     parser.add_argument("--counts")
