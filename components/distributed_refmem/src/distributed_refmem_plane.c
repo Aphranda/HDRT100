@@ -691,32 +691,17 @@ refmem_position_reset_result_t distributed_refmem_reset_position_running(void)
         ring.config_seq != ring.applied_config_seq) {
         return REFMEM_POS_RESET_UNSAFE;
     }
-    __atomic_store_n(&s_position_reset_done, 0u, __ATOMIC_RELEASE);
-    __atomic_store_n(&s_position_reset_request, 1u, __ATOMIC_RELEASE);
-    for (uint32_t i = 0u; i < 50u; ++i) {
-        if (__atomic_load_n(&s_position_reset_done, __ATOMIC_ACQUIRE)) {
-            return REFMEM_POS_RESET_OK;
-        }
-        osal_task_delay_ms(1u);
-    }
-    __atomic_store_n(&s_position_reset_request, 0u, __ATOMIC_RELEASE);
-    return REFMEM_POS_RESET_TIMEOUT;
-}
-
-void distributed_refmem_position_resume(void)
-{
-    __atomic_store_n(&s_position_reset_request, 0u, __ATOMIC_RELEASE);
-    __atomic_store_n(&s_position_reset_done, 0u, __ATOMIC_RELEASE);
+    /* The unified-command dispatch path runs inside the sole Core0 refmem
+     * service, i.e. the same context that prepares position TX.  Clearing the
+     * TX/pending state here is therefore single-writer; no cross-task
+     * handshake is required, and the producer stays parked until the caller
+     * returns to the service loop. */
+    distributed_refmem_position_clear_running_tx();
+    return REFMEM_POS_RESET_OK;
 }
 
 void distributed_refmem_tdma_flight_sync_service(void)
 {
-    if (__atomic_load_n(&s_position_reset_request, __ATOMIC_ACQUIRE) &&
-        !__atomic_load_n(&s_position_reset_done, __ATOMIC_ACQUIRE)) {
-        distributed_refmem_position_clear_running_tx();
-        __atomic_store_n(&s_position_reset_done, 1u, __ATOMIC_RELEASE);
-        return;
-    }
     distributed_refmem_position_cancel_service();
     if (board_identity_get_no() == 5u || s_tdma_flight_sync.enabled == 0u) {
         return;

@@ -1224,15 +1224,6 @@ void distributed_refmem_tdma_parse_position_fragment(
  * pass); false means "nothing to take right now", never "rejected". */
 bool distributed_refmem_position_tx_prepare(tdma_service_service_t *owner)
 {
-    /* N8.5: a running-safe reset parks new position publications until the
-     * service has cleared the TX state and T2 START finished its admission. */
-    if (__atomic_load_n(&s_position_reset_request, __ATOMIC_ACQUIRE)) {
-        s_tdma_flight_sync.position_tx_phase =
-            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE;
-        s_tdma_flight_sync.position_tx_wait_reason =
-            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
-        return false;
-    }
     if (__atomic_load_n(&s_tdma_flight_sync.position_tx_active, __ATOMIC_ACQUIRE))
         return false;
     /* Seat still holding the previous record: take nothing, leave the table untouched. */

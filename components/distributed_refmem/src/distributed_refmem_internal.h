@@ -197,11 +197,6 @@ typedef struct {
     trigger_position_mailbox_t rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];
     trigger_position_freeze_latch_t freeze_latches[DISTRIBUTED_REFMEM_NODE_COUNT];
     volatile uint32_t cancel_requested;
-    /* N8.5 running-safe reset handshake: the refmem service (same context as
-     * the position TX prepare) performs the clear when reset_request is set,
-     * then publishes reset_done.  No cross-task clear is performed. */
-    volatile uint32_t reset_request;
-    volatile uint32_t reset_done;
     uint32_t local_frozen;
     uint32_t freeze_ack[DISTRIBUTED_REFMEM_NODE_COUNT];
     uint32_t priority_owned;
@@ -242,8 +237,6 @@ void distributed_refmem_position_cancel_service(void);
 #define s_position_rx_mailboxes (distributed_refmem_position_state()->rx_mailboxes)
 #define s_position_freeze_latches (distributed_refmem_position_state()->freeze_latches)
 #define s_position_cancel_requested (distributed_refmem_position_state()->cancel_requested)
-#define s_position_reset_request (distributed_refmem_position_state()->reset_request)
-#define s_position_reset_done (distributed_refmem_position_state()->reset_done)
 #define s_position_local_frozen (distributed_refmem_position_state()->local_frozen)
 #define s_position_freeze_ack (distributed_refmem_position_state()->freeze_ack)
 #define s_position_priority_owned (distributed_refmem_position_state()->priority_owned)

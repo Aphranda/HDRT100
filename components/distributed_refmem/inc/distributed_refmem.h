@@ -366,7 +366,6 @@ typedef enum {
     REFMEM_POS_RESET_TIMEOUT,
 } refmem_position_reset_result_t;
 refmem_position_reset_result_t distributed_refmem_reset_position_running(void);
-void distributed_refmem_position_resume(void);
 /* Core1 consumes one complete Core0-published descriptor. */
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor);

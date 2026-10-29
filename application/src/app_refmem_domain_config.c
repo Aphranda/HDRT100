@@ -209,13 +209,13 @@ static bool t2_mount_handler(const uint32_t *params, uint32_t param_words,
     /* N8.5: park position publications, let the refmem service clear the TX
      * state, start T2 while the producer stays parked, then resume.  Any
      * failure keeps the previous NOT_ONLINE_SAFE behaviour. */
-    if (distributed_refmem_reset_position_running() != REFMEM_POS_RESET_OK) {
-        distributed_refmem_position_resume();
+    const refmem_position_reset_result_t reset =
+        distributed_refmem_reset_position_running();
+    if (reset != REFMEM_POS_RESET_OK) {
         return reject_not_online(reason);
     }
     const uint64_t origin = ((uint64_t)params[2] << 32u) | (uint64_t)params[1];
     const bool started = trigger_t2_runtime_start(params[0], origin);
-    distributed_refmem_position_resume();
     if (!started) {
         return reject(reason);
     }
