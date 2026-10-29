@@ -10,7 +10,7 @@ Last updated: 2026-10-29
 
 ## 当前 checkpoint
 
-- 最新条目：REFTMEM-TASK-20261029-024。SCPI 执行错误回包已修（8b87e32）；残余：TRN-03 台架、C3/C6、EXE-SEAT-01。
+- 最新条目：REFTMEM-TASK-20261029-025。T2 workflow 禁用 READY 后 10/10 OK；SCPI 错误回包已修（8b87e32）。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
