@@ -330,3 +330,31 @@ frame->payload/指针或诊断读取本身的缺陷）。host roundtrip 通过�
   再做 512 B 首块实测；`ABORT` 回传时延单独计一项验收。
 
 证据：`out/night/m2/result.json`、`out/night/m2/relay.log`、`out/night/m2_console.log`。
+
+### 9.8 M2 失败回传：第一次修复无效，根因已定位（2026-11-01 02:15，build `20261031180044`）
+
+**测量方法**：host 超时放宽到 120 s，让目标的 `NO_PROGRESS` 先发生；以 2 s 粒度同时记录目标 `SYST:OTA:STAT?`
+与 host 日志时间戳。
+
+| 事件 | 时刻 |
+|---|---|
+| 目标进入 `RECEIVING` | 4.1 s |
+| 目标 `FAILED / NO_PROGRESS`（40 s 首块预算耗尽） | 43.0 s |
+| host 收到错误 | 122.3 s（**自己的 120 s 超时**） |
+| 端到端时延 | **79.3 s**（修复前同法测得 77.1 s） |
+
+**第一次修复（已上板、无效）**：给源侧加"relay 会话失败"粘性标志并让 `SYST:OTA:STREAM:STAT?`
+在失败后返回 `FAILED`，host 的 `wait_relay_durable` 见到 `FAILED` 立即抛错
+（`ota_tdma_binding.c`、`scpi_ota_commands.c`、`ota_stream_send.py`）。
+
+**为什么没生效**：跑完后源板 `SYST:OTA:STREAM:STAT?` 仍是 `5,2,0,0,0`（TDMA / RECEIVING / durable 0），
+即**源的 relay 会话从未进入 FAILED**——目标根本没发过 ABORT。根因在目标侧：
+ABORT 只在 `ota_tdma_v2_bridge_app_release()` 里发（`ota_tdma_v2_bridge_app.c:106-130`），
+而它只由 AO 的 per-block 完成回调 `bridge_app_data_done` 触发（`:61-65`）。AO 因 `NO_PROGRESS`
+失败后不再有块完成 ⇒ 回调不再发生 ⇒ 永远不会发 ABORT。**失败路径缺少周期检测**。
+
+**下一轮（仍属 M2）**：在 binding 的周期服务里检测“bridge 曾活跃且 AO vector 已 FAILED”，
+主动发一次 ABORT（沿用既有 `ota_tdma_encode_abort`），复用本次已上板的源侧 FAILED 上报；
+复测判据仍是“目标失败 → host 可见 ≤5 s”。
+
+证据：`out/night/m2b/result.json`、`out/night/m2b_console2.log`。

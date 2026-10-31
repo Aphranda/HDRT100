@@ -23,6 +23,19 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-118 - M2 失败回传首修无效：时延 79.3 s；根因是目标只在块完成回调里发 ABORT
+
+- 测量（host 超时 120 s，2 s 粒度）：目标 4.1 s 进 `RECEIVING`、43.0 s `FAILED/NO_PROGRESS`，
+  host 122.3 s 才因自身超时报错 ⇒ 端到端 79.3 s（修复前 77.1 s）。
+- 首修（build `20261031180044`）：源侧加粘性 `relay_failed` 并让 `SYST:OTA:STREAM:STAT?` 返回 `FAILED`，
+  host 见到即抛错。实测无效：源板 STAT 仍是 `5,2,0,0,0`（RECEIVING）⇒ 源的 relay 会话从未失败
+  ⇒ **目标从未发送 ABORT**。
+- 根因：ABORT 只在 `ota_tdma_v2_bridge_app_release()` 发，而它只由 AO 的 per-block 完成回调触发；
+  AO `NO_PROGRESS` 失败后不再有块完成，回调不再发生 ⇒ 失败路径没有周期检测。
+- 下一步：在 binding 周期服务里检测 AO vector FAILED 并主动发一次 ABORT，复用已上板的源侧上报；
+  复测“目标失败 → host 可见 ≤5 s”。M2 仍未通过，不跨阶。
+- 台架：四板 build `20261031180044`、IDLE、环停；未提交代码包含上述首修（待 M5 P3 同批）。
+
 ### OTA-TDMA-PROGRESS-20261101-117 - M2：package 模式会话已通；瓶颈确认为“队列满丢弃风暴”，失败回传未达 ≤5 s
 
 - 关键发现：此前 relay 漏传 `--package`，目标按 raw 模式开会话 ⇒ `IMAGE_TOO_LARGE`。
