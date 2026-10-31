@@ -23,6 +23,22 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-104 - 根因假设：adapter 的 maintenance mailbox 被 SCPI 长帧路径**覆盖**，OTA runtime 队列无人取
+
+- 两处注册同一个 adapter mailbox：
+  - `components/tdma/src/tdma_maintenance_runtime.c:194-195`：runtime init 把 mailbox 设为
+    runtime 自己的 `maintenance_mailbox`（OTA/REFMEM 帧从 `s_tx_queue` 取）；
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c:220`（`tdma_long_frame_ensure_ready`）：
+    把 mailbox 设为 SCPI 的 `tdma_ring_maintenance_mailbox`（从长帧 FIFO 取）。
+  **后注册者覆盖前者**：若 SCPI 初始化晚于 runtime init，adapter 只会调用 SCPI 版本，
+  OTA runtime 队列（`tdma_maintenance_runtime_submit` 入队）**永远没人取**。
+- 与观测一致：`SYST:TDMA:LONGframe:STATus?` 打印的是 **runtime 计数器**（`get_counters`），
+  所以 `mailbox_calls=0` 并不代表“adapter 没调用 mailbox”，而代表“runtime 的 mailbox 没被用”；
+  同时 window_open 增长（维护服务在跑）。
+- 修复方向（最小改动，待验证）：mailbox 注册改为**首个注册者生效**（或让 SCPI 长帧路径与
+  OTA runtime 共用一个 provider，SCPI 路径改为向 runtime 队列投递）；随后以
+  `mailbox_calls>0` + 目标 `DIAG type=1` 为判据复跑。
+
 ### OTA-TDMA-PROGRESS-20261031-103 - 维护注入有两条路径（TX/RX）；trn03 静态环下两条都未触发
 
 - TX 侧（`tdma_pio_spi_ring_adapter_tx.c:927-948`）：需要
