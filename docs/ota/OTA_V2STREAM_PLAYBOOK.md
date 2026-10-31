@@ -581,3 +581,15 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 (b) 作为后续性能项单独立项。
 
 **需要你回复**：选 (a) 还是 (b)；若选 (a)，是否接受“OTA 期间环中断数秒”。
+
+### 9.20 方案 (c) 已证伪：加大 park 等待预算无效（2026-11-01 06:55，build `20261031204000`）
+
+把 `DRV_FLASH_LOCKOUT_DEFAULT_WAIT_LOOPS` 从 1 000 000（≈10 ms）临时提到 **50 000 000（≈500 ms）**，
+环跑 + relay 整包复测 120 s：目标仍在 512 B 后 `"FAILED",2,"FLASH_ERASE",4`，环侧 `tx==rx`、`bad=0`。
+
+- 结论：**不是预算太短，而是环服务期间 core1 根本不会走到 `drv_flash_core1_lockout_poll()`**
+  （`app_runtime.c` 的实时循环被 `app_realtime_run_once()` 占住）。
+- 因此只剩 (a) 停环 或 (b) 让 core1 在周期内让位；预算调整已回退为 1 000 000。
+- 台架当前仍跑诊断镜像 `20261031204000`（预算 50M），下一轮先统一刷回。
+
+证据：`out\night\m4c_console.log`。
