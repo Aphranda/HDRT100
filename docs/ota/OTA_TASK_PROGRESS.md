@@ -4,7 +4,7 @@ Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_TASK_PROGRESS.md`
 Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
-Last updated: 2026-10-31
+Last updated: 2026-11-01
 
 本文只记录 OTA HAOFV 主线的代码、测试、构建、HIL、失败、回退和下一 gate。稳定语义见 Architecture，任务状态见 TODO。
 
@@ -22,6 +22,20 @@ Last updated: 2026-10-31
 - 进行中：`OTA-HAOFV-011` 栈帧已收敛并按实测水位定在 1792 words（曾压到 1152 触发四板 OTA 全崩，已修复）；`OTA-HAOFV-014` 失败分类/CAP fail-closed/失败即 ABORT 已落，待四板窗口实测；`OTA-HAOFV-012` 无进展超时已实现并过 host 单测，待 HIL 证明 FAILED 后可再 `BEGIN`；`OTA-HAOFV-013` 顺序修复已落（行为级证明改为台架负向，host 不可复现）。
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
+
+### OTA-TDMA-PROGRESS-20261101-111 - 目标重定基线（P0-W）；吞吐瓶颈新假设：维护帧 chunk 级重启丢弃
+
+- 目标已按用户要求改为 v2 重定基线（`goal-4a29ca94` rev 8/9：maxRounds 50、phase active/armed），
+  当前唯一硬阻塞记为 **P0-W：维护流对 OTA 的有效吞吐 ≈0.07–0.2 帧/s**。
+- 代码分析（本轮新读）：`tdma_maintenance_stream_rx_chunk()`（`tdma_maintenance_stream.c:93-152`）
+  在“帧身份不一致”（chunk_count/frame_size/crc/stream_id/generation 任一变化）时**整体重启重组器**
+  并 `restart_count++`。若 OTA 帧的 chunk 与其它维护帧（REFTMEM/训练 ACK）交错到达，
+  每交错一次就整帧作废 ⇒ 表现为“目标 frames 计数很高、但 OTA DATA 极少完成”。
+- 与实测一致：源端 chunks=7656、目标 frames=953，而 bridge 只收到 2–3 个 DATA 帧；
+  目标 `rejects≈12216`。⇒ 不一定是“窗口不给时间”，可能是**同一维护流上的帧交错**导致 OTA 帧反复报废。
+- 下一轮验证（不改行为）：读源/目标维护计数（`restart_count`/`duplicate_count`/`chunks`/`frames`）
+  对比 OTA 发送帧数；若 restart 随 OTA 发送增长 ⇒ 确认交错假设，修法＝让一帧的 chunk 连续发送
+  （或运行时按 stream_id 多重组器），而不是全局重启。
 
 ### OTA-TDMA-PROGRESS-20261031-110 - P0/P1 修复落地：目标不再 10 s 早死（RECEIVING 存活、staging 增长到 192 B）；块仍收不满＝窗口吞吐
 
