@@ -23,6 +23,18 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-106 - mailbox 修复上板验证：源端 chunks=7656 / 目标 frames=953（此前恒 0），传输打通；块仍未收满
+
+- 修复后上板（四板重启 → trn03 环 up → relay 失败）读数：
+  - 源 COM5：`window_open=780, cycle=49889, mailbox_calls=19895, chunks=7656, frames=0, rejects=43433`；
+  - 目标 COM4：`window_open=854, cycle=54645, mailbox_calls=0, chunks=0, frames=953, rejects=12216`。
+  → **源端 mailbox_calls 由 0 变 19895、chunks 7656；目标 frames 953**：维护传输真正打通。
+- 但目标 OTA 仍 `FAILED/NO_PROGRESS`，`DIAG stage_len=128、last_off=64、vec=9`：
+  块只收到 2 帧就停（其余帧因 offset 不连续被丢弃或会话已失败后门控关闭）。
+- 结论：本轮解决的是“维护帧根本不发/不收”的传输层问题（101-105 链条闭环）；
+  剩下的是**块级收满/调度**问题（单窗口可承载的 chunk 数、AO 10 s 无进展窗口）。
+- 收口状态：目标未完成（N2 未闭环、N3 未开始、无 P3 凭证）；代码 32 文件未提交。
+
 ### OTA-TDMA-PROGRESS-20261031-105 - 修复 mailbox 覆盖：首个注册者生效（runtime 优先），host 49/49
 
 - 代码：`components/tdma/src/tdma_pio_spi_ring_adapter.c:847-869`
