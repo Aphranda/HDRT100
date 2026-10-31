@@ -23,6 +23,20 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-108 - P3 第二次尝试：Step 4 四板 OTA 全过（fresh factory flash 消除陈旧态）；Step 29 DPLL 采集仍失败
+
+- **Step 4 PASS**：四板先做 fresh factory flash（`picotool_flash.py`，COM3/COM6 首次失败、重试成功），
+  再跑 `--profile full`：四板 stream OTA 全部 `durable → READY → commit → applied`，`failed_count=0`。
+  ⇒ 上一轮 COM3/COM6 的 `DATA 512 timeout` 属**板端陈旧状态**（残留会话/BCB），不是确定性代码缺陷；
+  换新 factory 镜像后消失。
+- **Step 29 FAIL**（两次）：`vdc_priority_joint_capture` → `child_capture: Capture exited 2`
+  （`out/HardwareAcceptance/20261031/hawf-221207/dpll-short*.log`），60 s 联合采集未完成；
+  凭证因此未生成。
+- 附：`portable_ota_core_port.c` 的失败 token 增加“失败状态”编码
+  （`200 + 10*error + vector.state`，见 `s_flash_execute_stage`），便于区分 VALIDATE/ERASE_PROGRAM/VERIFY。
+- 下一轮：定位 `vdc_priority_joint_capture` 的 exit 2（子进程参数/板端 VDC 状态），或按 §2.7 用
+  `--method picotool` 变体；通过后即可按同指纹单批提交代码。
+
 ### OTA-TDMA-PROGRESS-20261031-107 - 架构 v2 收口进展：C11 复核落档、build id 每构建必变；P3 被既有 stream 路径阻塞
 
 - **HAOFV 架构对齐（已提交）**：
