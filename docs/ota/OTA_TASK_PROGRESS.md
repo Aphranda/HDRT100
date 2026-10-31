@@ -23,6 +23,26 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-107 - 架构 v2 收口进展：C11 复核落档、build id 每构建必变；P3 被既有 stream 路径阻塞
+
+- **HAOFV 架构对齐（已提交）**：
+  - `5f651246`：`ARCH_OTA_TDMA_STREAM_DESIGN.md` 升为 v2（REFMEM 控制面 + `0x4F` 数据面，
+    §13 决定/符合性/迁移/契约待办）；登记 `ARCH-OTASTREAM-02`（pending）。
+  - `28be2bfd`：C11 交叉复核落档（`docs/check/submissions/ARCH_OTA_CROSS_REVIEW_01.md`，
+    结论：有条件通过、保留 pending、01 暂不 superseded）；按复核意见修正条款
+    （限定 `0x4F`、改为“不再作主路径/按 V2-D 分期退役”、补过渡期 SCPI 入口与 §13.4 退出条件）、
+    `code_anchor` 改为 `ota_fb.c`、`docs/README.md` 索引口径同步。
+- **build id 修复（已实现并验证，未提交）**：`CMakeLists.txt` 改为每次构建重新生成
+  `project_build_info`（`BYPRODUCTS` + 四镜像 `add_dependencies`）；`gen_build_info.py`
+  修 Python 3.10 兼容。连续两次构建 id `20261031131629` / `20261031131946`（不同）。
+  修复后 `PROJECT_OTA_TDMA_V2_BRIDGE` 默认值切回 **0**（v2 作为 opt-in，V2-C 通过后再默认开）。
+- **P3 尝试（flag off，build `20261031132341`，run `hawf-212311`）**：
+  - Step 4（OTA 四板）**FAIL**：`COM3/COM6` 在 `ota_stream_send` 失败（COM4/COM5 通过）；
+  - Step 29（DPLL 60 s 联合采集）**FAIL**：`TDMA stopped handoff incomplete`，
+    `phase=TRN-03B, stage=process-image, explicit startup barrier timed out`；
+  - 凭证未生成（`not eligible`）。两次失败均指向**既有 stream OTA 路径**与**台架采集**，
+    与 v2 架构改动无直接关系（v2 bridge 已关闭）。
+
 ### OTA-TDMA-PROGRESS-20261031-106 - mailbox 修复上板验证：源端 chunks=7656 / 目标 frames=953（此前恒 0），传输打通；块仍未收满
 
 - 修复后上板（四板重启 → trn03 环 up → relay 失败）读数：
