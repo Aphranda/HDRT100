@@ -23,6 +23,18 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-119 - M2 收口：源侧停滞看门狗让 host 8.2 s 报错（原 122.6 s）
+
+- 目标侧 ABORT 不可靠已证（§9.8）：`ota_tdma_v2_adapter_abort()` 先拆 bridge，排队 ABORT 发不出去；
+  源板 `STREAM:STAT?` 恒为 `5,2,0,0,0`。
+- 改为源侧看门狗：pump 首次发 DATA 后武装，`durable` 5 s 未推进 ⇒ relay abort + 粘性失败 +
+  `STREAM:STAT?` 报 `FAILED`；host `wait_relay_durable` 立即抛错。
+- 实测 build `20261031183523`：目标 4.1 s `RECEIVING`；host **8.2 s** 报
+  `relay failed on the target (result=171)`；修复前同法 122.6 s。
+- 偏离：机制从“目标 ABORT”改为“源侧停滞检测”，已在 playbook §9.9 记录；残余：合法慢块 >5 s
+  会被误判，M4 需按实测调整 `OTA_TDMA_RELAY_STALL_MS`。
+- 台架：四板 build `20261031183523`、IDLE、环停；代码未提交（待 M5 P3 同批）。
+
 ### OTA-TDMA-PROGRESS-20261101-118 - M2 失败回传首修无效：时延 79.3 s；根因是目标只在块完成回调里发 ABORT
 
 - 测量（host 超时 120 s，2 s 粒度）：目标 4.1 s 进 `RECEIVING`、43.0 s `FAILED/NO_PROGRESS`，

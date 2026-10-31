@@ -358,3 +358,20 @@ ABORT 只在 `ota_tdma_v2_bridge_app_release()` 里发（`ota_tdma_v2_bridge_app
 复测判据仍是“目标失败 → host 可见 ≤5 s”。
 
 证据：`out/night/m2b/result.json`、`out/night/m2b_console2.log`。
+
+### 9.9 M2 收口：源侧停滞看门狗（2026-11-01 02:50，build `20261031183523`）
+
+**结论：M2 按其“host 不得挂在分钟级”的意图达成，但机制偏离了字面的“目标主动 ABORT”，已记录。**
+
+- 目标侧 ABORT 不可靠（§9.8）：`ota_tdma_v2_adapter_abort()` 会先拆掉 bridge 会话，
+  排队中的 ABORT 帧再也发不出去；实测源侧 `STREAM:STAT?` 始终 `5,2,0,0,0`。
+- 改为**源侧停滞看门狗**（`ota_tdma_binding.c`）：pump 首次发出 DATA 后才武装，
+  `durable` 连续 `OTA_TDMA_RELAY_STALL_MS=5000` 未推进 ⇒ `ota_tdma_relay_abort()` +
+  粘性 `relay_failed` + `s_last_result=0xAB`；`SYST:OTA:STREAM:STAT?` 报 `FAILED`，
+  host 的 `wait_relay_durable` 立即抛错。
+- 实测（build `20261031183523`）：目标 4.1 s `RECEIVING` → **host 8.2 s** 报
+  `relay failed on the target (result=171, durable=0)`；对比修复前 122.6 s（自身超时）。
+- **偏离与风险**：不再依赖目标 ABORT；代价是“合法但缓慢”的块若 >5 s 无 durable 推进会被判失败，
+  M4（1.14 MB 包、块级 stop-and-wait）需按实测调 `OTA_TDMA_RELAY_STALL_MS`，不得沿用 5 s 断言。
+
+证据：`out/night/m2b_console6.log`。
