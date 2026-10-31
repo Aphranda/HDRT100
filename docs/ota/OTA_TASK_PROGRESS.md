@@ -37,8 +37,10 @@ Last updated: 2026-10-31
   在 `portable_ota_port_stream_open` 前 ensure（`ota_metadata_load` 成功则 stream_init，否则 factory
   metadata 兜底）；`force_reset` 必须走 strict（挂 journal sink），degraded 无 sink 会被 `DURABLE_ACK`
   拒绝为 `CHECKPOINT(9)`。
-- **仍阻塞**：coordinator 侧 `relay durable offset 512 not reached before timeout`，目标 durable=0；
-  即 OPEN 已通、数据/ACK 通路未推进（候选：relay pump 启动时序、窗口释放、ACK 回程 mask）。
+- **仍阻塞**：coordinator 侧 `relay durable offset 512 not reached before timeout`，目标 durable=0。
+  进一步定位：目标 DIAG `entry.size=76 / b0=2 (DATA) / count 46→94` 证明 **DATA 帧已持续到达目标**，
+  且 phase 仍为 84（帧处理返回成功、未标记失败）；但目标 session `durable=0`、`TRANSaction?` 全 0
+  → 卡在目标侧“512 B 块写入/提交/ACK”这一段（ingress flush → port write → core 事务），不是 relay 或 OPEN。
 - 代码状态：ensure 修复在 `portable_ota_core_port.c`（未提交，指纹已变，需重跑 P3 才能提交）。
 
 ### OTA-TDMA-PROGRESS-20261031-081 - N2 上板：relay OPEN 已修复但目标 stream 平台恢复链仍有缺口
