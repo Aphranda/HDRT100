@@ -23,6 +23,21 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-095 - 源/目标双侧对照：源端确实发过 offset=0；目标收到 offset=0 但被 **ready 门控**丢弃
+
+- 新增源端可观测：pump 记录 `last_sent_offset / send_count / timeout_replays`，relay 暴露
+  `ota_tdma_relay_pump_diag()`；binding 在每次 relay tick 后把 **400000+last_sent_offset** 写入
+  OTA phase（host 工具退出后仍可读）。
+- 上板对照（同一次运行，读于 relay 退出后）：
+  - 源端 `WATCHdog:OTA:PHase? = 400064` → **源端最后一次成功提交的 DATA 是 offset=64**（说明 0 也发过、传输接受了）；
+  - 目标 `DIAG`：`last_type=2 / last_off=0 / last_len=64`，但 `stage_len=0 / received=0`
+    → **offset=0 的帧到达了目标，却没进 staging**。
+- 结论：`bridge_data()` 未被调用或未被接受，唯一在它之前的分支就是 **`ready` 门控**
+  （`vector.state == OTA_STATE_RECEIVING` 才放行）。即：帧到达时 vector 不是 RECEIVING
+  （擦除窗口或已 NO_PROGRESS），帧被“忽略但返回成功”(phase 82)，stage 永远为 0。
+- 下一步（已定）：把 **ready 门控 + vector state 暴露到 DIAG**，并在门控关闭时**暂存**该帧
+  （不丢首帧）而不是直接忽略；或把门控改成“核心是否可写”而不是 AO vector。
+
 ### OTA-TDMA-PROGRESS-20261031-094 - 帧级诊断：DATA 帧到达但**首帧 offset=0 缺失**（末帧 64/128），staging 恒为 0
 
 - 新增帧级可观测：adapter 记录 `last_type/last_offset/last_length`，binding 映射到
