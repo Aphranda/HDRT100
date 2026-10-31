@@ -18,7 +18,9 @@ Last updated: 2026-10-31
 
 范围：2 板（协调者 + 目标）的最小闭环，作为 G1 的设计输入。
 
-非目标：四板 cohort/滚动、单口产品形态、掉电续传矩阵、契约转正、与实时流量共存（DPLL/VDC 在升级期间不启动）。
+非目标：四板 cohort/滚动（四板只作传输证据，见 §13.3）、单口产品形态、掉电续传矩阵、与实时流量共存
+（DPLL/VDC 在升级期间不启动）。契约登记不属本文范围：`ARCH-OTASTREAM-02` 已按流程登记为
+`pending`，转 active 的前置条件见 §13.5。
 
 ## 2. 运行前提（用户 2026-10-29 裁定）
 
@@ -285,9 +287,16 @@ host            coordinator                 ring                     target
 
 ### 13.5 契约与待办
 
-- `ARCH-OTASTREAM-01`（pending）描述“所有传输共用 OtaStreamSession、ACK 只确认 durable offset”，
-  与 §13.1 冲突；拟新增 `ARCH-OTASTREAM-02` 取代它，**状态变更需 C11 交叉复核**，未复核前
-  两者并存、以本文 §13 为实现依据。
-- 待办：①维护流承载配额（训练下块收不齐）；②build id 每次构建必变；③32 个未提交文件的
-  P3 同指纹凭证。
-- 2026-10-31：新增 §13（v2 决定、符合性、迁移阶段、契约待办）；标题与状态更新为 v2 Active。
+- `ARCH-OTASTREAM-01`（pending）描述“所有传输共用 OtaStreamSession、ACK 只确认 durable offset”；
+  `ARCH-OTASTREAM-02` 已登记为 **pending**，只取代其 TDMA 承载与控制语义子句，其余五类本地
+  transport 与 durable 语义仍由 01 覆盖；**01 保持 pending、暂不 superseded**（避免“旧契约已废、
+  新契约未生效”空档）。
+- **C11 复核（2026-10-31）**：有条件通过，结论与逐项处置见
+  `docs/check/submissions/ARCH_OTA_CROSS_REVIEW_01.md`。转 active 的前置：
+  ①条款已限定 `0x4F`、改“不再作主路径、按 V2-D 分期退役”、补过渡期 SCPI 入口与 §13.4 退出条件；
+  ②`code_anchor` 改为真实落点（`ota_fb.c`）；③durable 递增 + 覆盖当前源码指纹的 P3；
+  ④`HAOFV_FLASH_ARCHITECTURE.md` §7.2/§7.4 与本表同步。
+- 待办：①维护流承载配额（训练下块收不齐）；②build id 每次构建必变（已实现，待 P3 提交）；
+  ③未提交源码（含 v2 桥、pump、port、TDMA 适配器）的 P3 同指纹凭证。
+- 2026-10-31：新增 §13（v2 决定、符合性、迁移阶段、契约待办）；标题与状态更新为 v2 Active；
+  登记 `ARCH-OTASTREAM-02`（pending）并完成 C11 复核落档。

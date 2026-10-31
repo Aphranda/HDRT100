@@ -94,7 +94,7 @@ docs/
 | ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向 Distributed Hard Real-Time Trigger System 的产品系统架构特化，服从 HAOFV 顶层约束。 |
 | ARCH/FUTURE | `arch/ARCH_FUTURE_APPLICATION_PLAN.md` | 当前产品完成后的应用场景、跨平台移植、版本分层和开源生态路线图。 |
 | ARCH/SYNCCORE | `arch/ARCH_SYNC_STANDARD_CORE_DESIGN.md` | 分布式同步核心规范第一版条款清单（甜区：通用 MCU 上 10-100 ns 级相位与触发同步）；草稿，未登记为契约。 |
-| ARCH/OTA-TDMA | `arch/ARCH_OTA_TDMA_STREAM_DESIGN.md` | OTA TDMA 流式升级设计说明（静态维护态 v1，`OTA-TDMA-001` 评审稿）：park 时序、帧草案、失败矩阵、C1/C2 判定；草稿，未登记为契约。 |
+| ARCH/OTA-TDMA | `arch/ARCH_OTA_TDMA_STREAM_DESIGN.md` | OTA TDMA 流式升级设计说明（v2，2026-10-31 起以 §13 为准）：REFMEM 控制面 + `0x4F` TDMA 数据面、目标复用既有 AB 流程、V2-A..D 迁移与六门符合性；契约 `ARCH-OTASTREAM-02`（pending，C11 有条件通过，见核验提交单）。 |
 | SYNC_IO | `sync/SYNC_IO_ARCHITECTURE.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TDMA | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件主域，定义上/下行 TDMA、payload registry、adapter、ring runtime、completion evidence 和 HAOFV system node 边界。 |
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | 状态机与底层实时资源域，定义 PIO SM、DMA/FIFO、上下行控制和资源仲裁边界。 |
@@ -159,6 +159,7 @@ docs/
 | `docs/check/submissions/TDMA_CROSS_REVIEW_05.md` | TDMA Core1 phase 预算归因：500 µs 目标下未达（实测 667–692 µs），缺口归因到 adapter RX 路径并建立优化队列；2026-09-14 判据修订（预算升至 850 µs）后改判 `MET`（有限窗口快照，非事实源；C11 pending）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_06.md` | TDMA 对 DPLL 的支撑能力核验：`PARTIAL_SUPPORT`——硬件 latch 8 ns/非 diagnostic/链路零误码已成立，同圈关联与生产准入未闭合；给出 P1–P5 优先任务（有限窗口快照，非事实源；C11 pending，2026-09-14）。 |
 | `docs/check/submissions/REFMEM_CROSS_REVIEW_01.md` | RefMem 静态缩容评审结论与 TODO 移交；独立方案复核及 `REFMEM-LAYOUT-01` pending 登记审核完成，实施与四板验收证据见 RefMem Task Progress。 |
+| `docs/check/submissions/ARCH_OTA_CROSS_REVIEW_01.md` | `ARCH-OTASTREAM-02`（OTA TDMA v2：REFMEM 控制面 + `0x4F` 数据面）C11 交叉复核：有条件通过，保留 pending，01 暂不 supersede（2026-10-31）。 |
 | `docs/check/submissions/EVENT_CROSS_REVIEW_01.md` | Event Plane 架构第二版与 RefMem 事件面微调的独立复评：B1–B3 已闭合，E0 前仍有 5 项阻塞；`PASS_WITH_CHANGES`，C11 最终签署待独立复核。 |
 | `docs/check/submissions/EVENT_CROSS_REVIEW_02.md` | Event Plane 架构第三版（命令面/EventPack/传输/失败恢复）复审：R-B1/B2/B4 部分通过，新增 B6 POSITION/EVR 重复接收；`PASS_WITH_CHANGES`。 |
 | `docs/check/submissions/EVENT_CROSS_REVIEW_03.md` | Event Plane 静态域重写复审：静态域约束基本落实；RefMem 仍列 `EVENT_INJECT/ABORT`、静态 owner 未命名、`VALidate?`/`CONFigure` 语义不清；`PASS_WITH_CHANGES`。 |
