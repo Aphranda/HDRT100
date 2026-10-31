@@ -23,6 +23,26 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-110 - P0/P1 修复落地：目标不再 10 s 早死（RECEIVING 存活、staging 增长到 192 B）；块仍收不满＝窗口吞吐
+
+- 已实现（host 49/49）：
+  - **P0-1** `ota_ao.c`：首块期（`RECEIVING && received_size==0`）用 `OTA_FIRST_BLOCK_TIMEOUT_MS=40000`
+    代替 10 s 无进展窗口；
+  - **P0-3** `ota_tdma_v2_adapter.c`：CHECK/ERASE 期间的 DATA 仍进 bridge staging（不再静默丢弃），
+    新增 `deferred_data` 计数；
+  - **P0-2** `ota_tdma_v2_bridge_app.c`：块消费后发现 AO=FAILED → 向源端发 `ABORT(error_code)` 并
+    `adapter_abort()`（bridge 回 IDLE，允许新 OPEN）；
+  - **P1** `CMakeLists.txt`：`PROJECT_OTA_TDMA_V2_BRIDGE` 成为 cache 选项（默认 OFF，`v2on` 用 `-D...=ON`），
+    并进 `target_compile_definitions`；`ota_tdma_binding.c` v2 分支按 bridge 会话取/放
+    `resource_arbiter_request_ota_admission()`。
+- 上板（v2-on build `20261031153032`，四板同 build，环 up）：
+  - 目标 `RECEIVING` 持续到约 45 s（不再 11 s 早死），`stage_len` 由 128 → **192**，`vec=3`、`ready=1`；
+  - 45 s 后仍 `NO_PROGRESS`（40 s 首块预算用尽），源端 relay 失败；
+  - ⇒ 首块 512 B 需 8 帧，实测 3 帧 / 45 s（≈0.07 帧/s），**维护窗口对 OTA 流的有效吞吐才是硬瓶颈**
+    （与 097/099/100 的窗口/训练竞争结论一致）。
+- 结论：P0/P1 把“早死 + 静默丢帧”修掉了，下一步必须做**窗口吞吐/配额**（或 OTA 期间暂停训练），
+  否则首块永远收不满。
+
 ### OTA-TDMA-PROGRESS-20261031-109 - P3 复跑仍卡 Step 4（2/4 板）：OTA 步骤可复现地“首次成功、二次失败”
 
 - 复跑（`--run hawf-221207`）：四板重启 → 重跑 Step 2-4；Step 4 再次 `failed_count=2`，四板仍停在
