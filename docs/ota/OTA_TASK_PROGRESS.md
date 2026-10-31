@@ -23,6 +23,21 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-116 - M1：23 字段上板；reject 归因指向 TX 队列满（+5057/12 s），非重组器
+
+- 夜间里程碑（`OTA_V2STREAM_PLAYBOOK.md` §9）第一轮。修掉构建阻塞：`v2on` 被默认 preset 重配成
+  `v1_compat` 导致 `region RAM overflowed by 4564 bytes`；改用
+  `cmake --preset pico2-v2-factory-candidate -DPROJECT_OTA_TDMA_V2_BRIDGE=ON` 后四镜像全部链接。
+- 四板统一刷 `20261031171732`（工厂 UF2，full-erase 需 `--flash-size`）；刷后 `BOARD:NO` 归 0，
+  重新排 1..4 后 trn03 起环通过。
+- `SYST:TDMA:LONGframe:STATus?` 追加 `rx_chunk_rejects/tx_retries/tx_fail/queue_full` 四个只读字段（23 字段），
+  上板可读。12 s relay 增量：收端 COM4 `rejects=+1296 == rx_chunk_rejects`（重组器健康，frames +204、
+  restarts +2、dups +1）；发端 COM5 `rejects=+7120`，其中 **queue_full=+5057**、rx_chunk_rejects=+2012、
+  tx_retries=+128、tx_fail=+52。
+- 结论：P0-W 的首要瓶颈是“生产者速度 vs 16 帧 TX 队列/窗口排空”，不是 chunk 损坏或交错重启；
+  判据按方向分别写（见 playbook §9.6）。下一步 M2（relay package 模式可通）。
+- 代码未提交（固件改动待 M5 P3 凭证同批提交）；台架已停环、四板 IDLE。
+
 ### OTA-TDMA-PROGRESS-20261101-115 - 四板统一 build `20261031162743` 并起环成功；19 字段归因实验顺延
 
 - 四板全部刷到 `20261031162743`（COM3/COM6 补齐），trn03 `--expected-build` 通过，环

@@ -246,7 +246,7 @@ frame->payload/指针或诊断读取本身的缺陷）。host roundtrip 通过�
 | 里程碑 | 入口判据 | 关键动作 | 退出判据（全部可测） | 证据路径 | 门禁/凭证 |
 |---|---|---|---|---|---|
 | **M0 台架基线复位**（每轮可重复） | 串口 COM3–COM6 存在 | `SYST:BOOT:RESET` 四板 → 等重枚举 → 校验 build/OTA/环状态 | 4/4 build 一致且等于目标 build；`SYST:OTA:STAT?`=IDLE；`RING:STATus?` `enabled=0` | `out/night/<ts>/m0.json` | 仅只读+复位，无凭证需求 |
-| **M1 维护流可观测性** | M0 通过 | `SYST:TDMA:LONGframe:STATus?` 追加只读字段 `rx_chunk_rejects`/`tx_retries`/`tx_fail`/`queue_full`（`tdma_maintenance_runtime_diag_t` 已有，不新增状态） | 23 字段可读；relay 12 s 增量自洽：`chunks ≥ rx_chunk_rejects`，`rejects ≈ tx_fail + rx_chunk_rejects + queue_full`（偏差 <5%）；host 单测同集全绿 | `out/night/<ts>/m1.json` | 固件改动，**提交前必须 P3**；夜间只做上板验证不提交 |
+| **M1 维护流可观测性** | M0 通过 | `SYST:TDMA:LONGframe:STATus?` 追加只读字段 `rx_chunk_rejects`/`tx_retries`/`tx_fail`/`queue_full`（`tdma_maintenance_runtime_diag_t` 已有，不新增状态） | 23 字段可读；增量自洽（按方向分别核，见 9.6）：收端 `rejects == rx_chunk_rejects`；发端 `rejects ≈ queue_full + tx_fail + rx_chunk_rejects + 其它submit失败`（偏差 <3%，两次读取之间的计数漂移）；host 单测同集全绿 | `out/night/m1/` | 固件改动，**提交前必须 P3**；夜间只做上板验证不提交 |
 | **M2 relay 会话可通（package 模式）** | M1 通过 | 让 relay 的 88 B OPEN 描述符携带 package_mode（§8 备注：raw 必挂 `SIGNATURE_INVALID`，`.pkg` 走 raw 必挂 `IMAGE_TOO_LARGE`） | 从 IDLE 发起 relay：目标 `SYST:OTA:STAT?` 进入 RECEIVING/WRITING（非 FAILED）；`stage_len>0`；host `consumed>0`；失败时 host 在 ≤5 s 内拿到 `ABORT`/错误码 | `out/night/<ts>/m2.json` | 固件改动，同 M1 |
 | **M3 吞吐归因与修复（P0-W 定论）** | M2 通过 | 用 M1 字段 + bridge `stage/vec/ready` 计数测 OTA DATA 帧/s；判定瓶颈属于“窗口配额 / 帧级 ACK 时延与重传 / AO 消费”；只改被证据指认的一处 | 512 B 首块在 ≤10 s 内收满并进入 AO（`stage_len` 达 512）；给出“增量→结论”归因表；修复后同条件复测不退化 | `out/night/<ts>/m3.json` | 固件改动，同 M1 |
 | **M4 四板 relay 端到端（V2-C）** | M3 通过 | NO.1→NO.2 relay 真实 `.pkg`（2 280 616 B） | 目标 `durable` 单调至 100% 且 `READY_TO_REBOOT`；环 `tx≈rx`、`ring_last_error=0`；协调者擦写计数 0；commit 后重启 build 变化 | `out/night/<ts>/m4.json` | 该指纹的 P3 前置证据 |
@@ -276,3 +276,35 @@ frame->payload/指针或诊断读取本身的缺陷）。host roundtrip 通过�
 - 线路级实测：维护流在 4 板上可稳定完成 ~15 帧/s（12 s `+201`、20 s `+302` 完成帧，
   `restarts` ≤4、`dups 0`），与历史“0.07–0.2 帧/s”相差两个数量级 ⇒ M3 的定论必须重新测量，
   不得沿用旧结论。
+
+### 9.6 M1 实测结果（2026-11-01 01:50，build `20261031171732` 四板统一）
+
+**构建阻塞（本轮已解，记录备查）**：`out/build/v2on` 曾被 `cmake_build_auto` 按默认 preset
+重配成 `v1_compat` + `FACTORY_MIGRATION=OFF`，链接直接 `region RAM overflowed by 4564 bytes`
+（`ota_tdma_binding.c` 的 `s_relay_storage` 2916 B + `s_ctx_storage` 772 B 是新增长点）。
+用 `cmake --preset pico2-v2-factory-candidate -DPROJECT_OTA_TDMA_V2_BRIDGE=ON` 重配后
+四镜像（app/B/BOOT/RECOVERY）全部链接成功。**教训：`v2on` 必须显式用 factory-candidate preset，
+不能交给 `cmake_build_auto` 的默认 preset。**
+
+**刷写**：工厂镜像 `DHRT100_V2_CANDIDATE_FACTORY.uf2`（full-erase 需 `--flash-size`，
+否则 `Cannot determine the flash size`）；刷后 `BOARD:NO` 归 0，需 `SYSTem:BOARD:NO 1..4` 重排，
+否则 trn03 报 `BOARD:NO values must be unique and contiguous`。
+
+**12 s relay 增量（源 COM5 / 目标 COM4，字段已含 T1 只读拆分）**：
+
+| 字段 | COM5（发端） | COM4（收端） |
+|---|---|---|
+| mailbox / chunks / frames | +2826 / +1522 / 0 | 0 / 0 / +204 |
+| rejects | +7120 | +1296 |
+| rx_chunk_rejects | +2012 | **+1296（= rejects，完全自洽）** |
+| tx_retries / tx_fail / queue_full | +128 / +52 / **+5057** | 0 / 0 / 0 |
+| restarts / dups | 0 / 0 | +2 / +1 |
+
+**结论（M1 目的达成）**：
+1. 收端 `rejects` 就是 chunk 拒绝（1296=1296），重组器健康（204 帧完成、restart 2、dup 1）。
+2. 发端 `rejects` 的 71% 是 **TX 队列满（+5057/12 s，≈421 次/s）**，不是 chunk 损坏；
+   `tx_fail` 只有 52。⇒ P0-W 的瓶颈首先在“生产者速度 vs 16 帧 TX 队列/窗口排空”，
+   不在重组器，也不在 CRC/物理丢失。M3 必须按这个方向归因。
+3. 两端的 reject 语义不同，判据必须按方向分别写（本表即修正后的判据）。
+
+证据：`out/night/m1/result.json`、`out/night/m1_console.log`、`out/night/flash2.py`、`out/night/set_board_no.py`。
