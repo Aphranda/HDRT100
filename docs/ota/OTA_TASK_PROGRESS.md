@@ -23,6 +23,22 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-092 - V2 质量加固：DATA 等 AB 就绪、relay 重试覆盖擦除窗口；目标仍 NO_PROGRESS
+
+- 质量项（本轮）：
+  - 适配器新增 **ready 回调**：仅当既有 AB 管线处于 `OTA_STATE_RECEIVING` 才接受 DATA，
+    擦除/权限阶段的数据帧被忽略（源端重传），避免 `INVALID_STATE` 直接判死会话；
+  - relay 重试从 3×100 ms 提升到 **150×200 ms**（≈30 s），覆盖 inactive slot 擦除窗口；
+  - binding host 测试编译时强制 `PROJECT_OTA_TDMA_V2_BRIDGE=0`（v2 代码由 app TU 覆盖）；
+  - FreeRTOS 堆二次下调（`97*1024-512`）以容纳 staging/适配器；package 2,281,656 B。
+- 上板（build `20261031101949`）：目标 `SYST:OTA:STAT?` 仍收敛到 **FAILED / NO_PROGRESS**，
+  `TDMA:DIAG? count=626`（大量 DATA 帧在场，pump 在重传），说明 **AB 会话没有在 10 s 窗口内
+  到达 RECEIVING**（或 vector 在擦除期间未推进），数据门控因此一直不放行。
+- 关键疑问（下一轮第一件事）：`portable_ota_port_core_begin` 之后 vector 状态序列
+  (`CHECK_PERMISSION→ERASE_SLOT→RECEIVING`) 是否真的在推进；需在 relay 期间**逐秒轮询**
+  `SYST:OTA:STAT?`，并检查 AO 的 tick 是否在驱动 core service。
+- host：**49/49** 绿（bridge 6 组、adapter 5 组含就绪门控）。
+
 ### OTA-TDMA-PROGRESS-20261031-091 - V2 上板首测：TDMA 帧已进既有 OTA 管线（BEGIN 被接受），块未收满 + NO_PROGRESS
 
 - 接线完成：`ota_tdma_v2_bridge_app`（application）+ binding `PROJECT_OTA_TDMA_V2_BRIDGE=1`
