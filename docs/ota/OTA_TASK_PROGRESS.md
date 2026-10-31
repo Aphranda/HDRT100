@@ -23,6 +23,16 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-113 - 下行恢复后：目标完成 297 个维护帧但 chunk reject +1682，bridge 仍只进 2 帧
+
+- 本轮起环后目标维护服务在跑（`window_open=270→452, cycle=17277→28872`），下行恢复；
+  relay 12 s 内：`frames 434→731（+297）`、`rejects 2471→4153（+1682 chunks）`，
+  而 bridge `stage` 仍只有 **128**（2 个 DATA 帧），`RECEIVING/vec=3/ready=1`。
+- 结论：**下行不再是"完全不送达"，而是 chunk 级拒绝率极高**（+1682 拒绝 vs +297 完成帧）：
+  一帧 5 个 chunk，任何 1 个 chunk 被拒就整帧报废（`tdma_maintenance_stream.c:116-132` 的重启分支），
+  所以 OTA DATA 帧极少完成。优先查 chunk 拒绝原因（CRC vs 身份不一致），并把 restart/duplicate 计数暴露到 SCPI。
+- 另：112 的"目标维护计数全 0"是起环瞬时状态，本次同一流程下恢复正常——复跑前先确认 `window_open>0`。
+
 ### OTA-TDMA-PROGRESS-20261101-112 - 计数实验：源端 chunks=3235 已发出，目标侧维护计数全 0（下行未送达）
 
 - 四板重启（计数清零）→ trn03 起环（`en=1/up=1`）→ 25 s relay：
