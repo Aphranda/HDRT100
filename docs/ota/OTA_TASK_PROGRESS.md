@@ -23,6 +23,18 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-098 - 环保持问题定位（OTA 失败态残留导致 RING en=0）；干净重启后 DATA 仍只进 2 帧
+
+- 环保持根因（本轮验证）：四板 OTA 处于 `FAILED` 残留时，`trn03` 虽报 `left_running`，板上
+  `TDMA:RING:STATus? en=0/up=0`；**干净重启四板（OTA=IDLE）后起环 `en=1/up=1` 稳定**
+  ⇒ 环启动被残留 OTA 状态挡住，属恢复流程问题（需在起环前复位 OTA 状态）。
+- 复跑（build `20261031101949`，含 maintenance-required + 周期重放）：
+  目标 `stage_len=128 / received=128`（2 个 64 B 帧进入 staging），随后仍 `NO_PROGRESS`；
+  末帧 `off=64`，**128 及以后从未到达**。
+- 结论：维护窗口在此配置下每次只放行约 2 帧，10 s 无进展窗口内收不满 512 B 块。
+  下一轮方向：①提高 OTA 期间维护流配额/优先级（或 OTA 期间暂停 process-image 训练）；②放宽
+  AO 首块前的无进展窗口；③或把 bridge 的首块目标降到可在一个窗口内完成的大小（需与 flash 页对齐核算）。
+
 ### OTA-TDMA-PROGRESS-20261031-097 - 找到真门控：维护传输在 AB 会话激活后停摆；修复后 DATA 首次进入 staging（128 B）
 
 - **根因（本轮新证据）**：`ota_ao_tdma_maintenance_allowed()` 只返回
