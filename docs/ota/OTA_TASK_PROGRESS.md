@@ -23,6 +23,15 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-109 - P3 复跑仍卡 Step 4（2/4 板）：OTA 步骤可复现地“首次成功、二次失败”
+
+- 复跑（`--run hawf-221207`）：四板重启 → 重跑 Step 2-4；Step 4 再次 `failed_count=2`，四板仍停在
+  旧 build `20261031135608`（OTA 未生效）；四板 `SYST:OTA:STAT?` 均为 `IDLE`（无 pending）。
+- 对照：**fresh factory flash 后第一次 OTA 成功**（107 的 Step 4 PASS），随后第二次 OTA 复现 2/4 失败。
+  ⇒ 与“板端已提交过一次 OTA（BCB/槽位状态变化）”相关，属 OTA 工具/目标状态机问题，不是本次架构改动。
+- 结论：P3 凭证在修好该 OTA 二刷问题 + DPLL 采集（107 的 Step 29）之前不可得；
+  代码保持未提交（同指纹冻结），功能主线（v2-C 维护流承载）未动。
+
 ### OTA-TDMA-PROGRESS-20261031-108 - P3 第二次尝试：Step 4 四板 OTA 全过（fresh factory flash 消除陈旧态）；Step 29 DPLL 采集仍失败
 
 - **Step 4 PASS**：四板先做 fresh factory flash（`picotool_flash.py`，COM3/COM6 首次失败、重试成功），
