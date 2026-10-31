@@ -507,3 +507,22 @@ offset 0 重放 ⇒ 帧挤满 16 深 TX 队列 ⇒ 实测 `queue_full` 261–425
 - **下一轮**：把该标志改成“bridge 会话活跃时才置位、结束即清”，并用 `bridge OFF` 构建做对照 A/B 确认。
 
 证据：`out/night/direct_ota.log`、`out/night/direct_ota2.log`、`out/night/direct_ota3.log`。
+
+### 9.16 擦除卡死已定位并修复：维护依赖必须按会话作用域（2026-11-01 05:25，build `20261031200639`）
+
+**根因**：`ota_tdma_v2_bridge_app_init()` 在**初始化时**无条件调用
+`ota_ao_set_tdma_maintenance_required(true)`，于是 `ota_ao_tdma_maintenance_allowed()` 对本机
+USB 会话也恒为真 ⇒ AO 在擦除/写入时把“维护流可用”当成前置条件，而环没跑时等不到 ⇒ `ERASE_SLOT`
+永不返回。P3 Step 4 之所以能过，是因为它跑在 **bridge 关闭**的构建上。
+
+**修复**：改为**会话作用域**——首个 bridged 帧到达时置位（`ota_tdma_v2_bridge_app_frame`），
+`release()` 里 bridge 不再活跃时清除；init 不再置位。
+
+**实测（直连 + 切片包，120 s 上限）**：`durable_offset` 依次 512 → 8 704 → 16 896 → 25 088 →
+33 280 → 41 472，擦除完成且写入持续推进（此前同条件 20 s 内即 `DATA 512` 超时、随后板端失联）。
+
+**新瓶颈**：写入速率 ≈ **0.4 KB/s**（1.14 MB 对象 ≈ 47 min，2.28 MB 整包 ≈ 95 min），
+对夜间单轮不现实。下一轮必须先把速率提上来（块大小/ACK 粒度/flash program 批量化），
+再谈 M4 的端到端。
+
+证据：`out\night\direct_ab2.out`、`out\night\direct_ab2.log`。

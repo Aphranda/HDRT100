@@ -23,6 +23,17 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-126 - 擦除卡死根因修复：maintenance_required 改会话作用域；写入速率 0.4 KB/s 成新瓶颈
+
+- 根因：`ota_tdma_v2_bridge_app_init()` 无条件 `ota_ao_set_tdma_maintenance_required(true)`，
+  使本机 USB 会话也把“维护流可用”当前置条件，环没跑时擦除永不返回。P3 Step 4 能过是因为跑在
+  bridge 关闭的构建上。
+- 修复（build `20261031200639`）：改为会话作用域——首个 bridged 帧置位、release 且 bridge 不活跃时清除。
+- 实测（直连+切片，120 s 上限）：`durable_offset` 512 → 8704 → 16896 → 25088 → 33280 → 41472，
+  擦除完成并持续写入；此前同条件 20 s 内超时且板端失联。
+- 新瓶颈：写入 ≈0.4 KB/s（1.14 MB ≈47 min、2.28 MB ≈95 min），夜间单轮不可行 ⇒ 先提速率再谈 M4。
+- 台架：四板 build `20261031200639`、IDLE、环停；代码未提交（待 M5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-125 - M4 A/B：环停时擦除同样卡住（修正 park 假设）；疑为 maintenance_required 被全局置位
 
 - 环停直连对照：切片包 `durable_offset=512` 成功，随后 `DATA 512` 超时（AO 停在擦除）；
