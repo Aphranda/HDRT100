@@ -41,6 +41,11 @@ Last updated: 2026-10-31
   进一步定位：目标 DIAG `entry.size=76 / b0=2 (DATA) / count 46→94` 证明 **DATA 帧已持续到达目标**，
   且 phase 仍为 84（帧处理返回成功、未标记失败）；但目标 session `durable=0`、`TRANSaction?` 全 0
   → 卡在目标侧“512 B 块写入/提交/ACK”这一段（ingress flush → port write → core 事务），不是 relay 或 OPEN。
+- **不对称点（下一轮入手）**：SCPI 本地路径在每次 DATA 前有“等 core 离开 CHECK_PERMISSION/ERASE_SLOT”
+  的有界等待（`scpi_cmd_ota_stream_data`，最长 300 s、5 ms 粒度）；**TDMA ingress 的 flush 没有这个等待**，
+  首块（package header）触发擦除后，后续 flush 可能落在 ERASE_SLOT 窗口内被拒/丢弃，而 ingress 仍报 OK
+  → 目标 durable 不推进、无 ACK。修复方向：ingress 在 flush 前做有界等待，或在擦除窗口内保持 staging 并
+  让 relay 重传（需要 offset/duplicate 语义配合）。
 - 代码状态：ensure 修复在 `portable_ota_core_port.c`（未提交，指纹已变，需重跑 P3 才能提交）。
 
 ### OTA-TDMA-PROGRESS-20261031-081 - N2 上板：relay OPEN 已修复但目标 stream 平台恢复链仍有缺口
