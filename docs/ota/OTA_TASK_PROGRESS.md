@@ -23,6 +23,17 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-105 - 修复 mailbox 覆盖：首个注册者生效（runtime 优先），host 49/49
+
+- 代码：`components/tdma/src/tdma_pio_spi_ring_adapter.c:847-869`
+  `tdma_pio_spi_ring_adapter_set_maintenance_mailbox()` 改为**首个非空 provider 生效**，
+  后续不同 provider 的注册被忽略（注释说明 OTA runtime 队列否则无人取）。
+- 依据：`tdma_long_frame_ensure_ready()` 在 SCPI 命令首次使用时才注册（`scpi_node_snapshot_commands.c:62`、
+  `scpi_tdma_snapshot_commands.c:1141/1172`），必然晚于 boot 期 `tdma_maintenance_runtime_init`
+  （`tdma_runtime_owner.c:430`），因此 SCPI 注册会覆盖 runtime。
+- host：**49/49** 绿（无测试直接依赖 mailbox 重注册）；固件编译通过（package 2,281,992 B）。
+- 待验证（下一轮）：`mailbox_calls>0`、目标 `DIAG type=1`、单块收满与 durable 递增。
+
 ### OTA-TDMA-PROGRESS-20261031-104 - 根因假设：adapter 的 maintenance mailbox 被 SCPI 长帧路径**覆盖**，OTA runtime 队列无人取
 
 - 两处注册同一个 adapter mailbox：
