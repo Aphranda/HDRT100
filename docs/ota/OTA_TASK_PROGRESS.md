@@ -23,6 +23,22 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-081 - N2 上板：relay OPEN 已修复但目标 stream 平台恢复链仍有缺口
+
+- 现场：四板 factory 刷写（build `20261031063547`）+ 静态维护环 running（`out/n2_ring_b.log`，hold 900 s，
+  `tx≈rx`），NO.1 → `ota_stream_send --relay-node 1`。
+- **relay 修复已生效**：目标 `SYST:OTA:TDMA:DIAG?` 解出 trace=302/303，`map_version=2`、`destination=2`、
+  `size=2278xxx`、`caps=7`（历史全零/MISMATCH 不再出现），`wire` 内容正确到达目标。
+- 新阻塞：目标 `pota_stream_session_open` 失败，raw 结果经诊断通道定位为
+  **CHECKPOINT(9)**（`DURABLE_ACK` 要求 session 挂 checkpoint sink；degraded 重建无 sink → 恒 CHECKPOINT），
+  改为 strict（journal attach）后前进到 **CORE(10)**（`pota_session_begin` 在目标槽上失败）。
+- 现场事实：factory 刷写后 BCB 为空白，boot 期 `ota_ao_init` 可能跳过 stream init；
+  SCPI bootstrap 只在 `STREAM_OPEN` 的 SESSION 分支触发，TDMA ingress 无此 bootstrap。
+- 实验改动（`portable_ota_core_port.c`：ensure init / degraded 重建 / stage 诊断）**已回退**，
+  备份 `out/n2_stream_recovery_experiment.patch`；回退后工作树与 `34037072` 一致。
+- 下一步：①按 host 可测方式实现 stream 平台恢复（确保 sink 挂接 + 陈旧 checkpoint 可清除/忽略）；
+  ②定位目标 `pota_session_begin` 的 CORE 失败（权限/擦除/槽位）；③再跑 N2 判据。
+
 ### OTA-TDMA-PROGRESS-20261031-080 - N2 开流阻塞根因：relay 的 OPEN 描述符指针悬垂（SCPI 栈帧 → 会话长期持有）
 
 - 结论：目标侧 decode 出全零/垃圾 OPEN（历史 DIAG[6..9]=0、buffer[12..15]=0、trace 301/403 抖动）不是
