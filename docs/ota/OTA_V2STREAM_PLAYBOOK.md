@@ -179,3 +179,47 @@ frame->payload/指针或诊断读取本身的缺陷）。host roundtrip 通过�
 2. 修好后重跑 N2 判据：目标 `READY_TO_REBOOT`、环 `tx≈rx` 不损坏、`durable` 递增。
 3. 之后进入 N3 矩阵（resume/drop/rollback），再 N4 滚动与单口形态。
 4. 最后统一补 FULL P3 验收并收口提交。
+
+## 8. 架构 v2 决定（2026-10-31）：REFMEM 控制面 + TDMA 数据面
+
+**决定（用户已确认接受代价）**：
+
+1. **控制面统一到 REFMEM**：OTA 的 begin / commit / switch / abort 由 REFMEM 统一控制面发起，
+   不再由 stream 的 88 B OPEN / CLOSE 语义承担控制职责。
+2. **TDMA 只做数据面**：0x4F 维护流只承载 OTA 数据块；relay/pump/carrier 保留（含"部分窗口续传"修复）。
+3. **目标侧复用既有 AB 流程**：维护帧 DATA → 现有 `ota_ao`/`ota_fb` 事件管线 →
+   `portable_ota_port_core_begin/write/end`，与 SCPI 本地路径**同一套** flash/BCB/切换逻辑
+   （写入→校验→提交→切换）。
+4. **退役第二套 stream 会话**：`pota_stream_session`/`ingress`/`checkpoint` 在目标侧不再作为
+   OTA 主路径；过渡期保留 USB 直连 stream 作为对照，完成后按域归档而不是直接删除。
+
+**理由**：
+
+- 既有 AB 流程在本机与四板上已被证明（P3 4/4、本机 stream OTA 全链路有历史证据）；
+- 现 stream 路径在目标侧 flash 事务的 completion journal 上阻塞（`COMPLETION(22)`），且叠了
+  第二套会话状态机 + checkpoint + completion lease，失败面与 RAM 都更大；
+- 估算（非事实源）：第二套静态约 3–4 KB（ingress 512 B staging、session/pota_core 上下文、
+  checkpoint store、port 静态副本）；relay 窗口 2 KiB 为传输必需，保留；
+- 台架实证：COM4 残留的 RECEIVING stream 会话会把 legacy `SYST:OTA:BEGIN` 一并挡住——
+  第二套会话会污染第一套流程。
+
+**影响面 / 门禁**：
+
+- TDMA 需要控制帧（BEGIN/END/ABORT）或在 relay 源侧由 REFMEM 事务驱动目标 begin/end；
+  若新增 frame/payload 类型，必须按 HAOFV 门①登记白名单（不得出现第二 ACK 事实）。
+- 目标侧 OTA event 的块大小上限（`OTA_EVENT_MAX_DATA_SIZE`）需与 TDMA DATA 块对齐并核算。
+- RAM 预算需用工具/符号复核（不以断言代替）。
+- 旧 stream 路径保留 feature 开关，迁移期双路径并存，逐阶段可回退。
+
+**迁移阶段（每阶段独立验证）**：
+
+| 阶段 | 内容 | 验证判据 |
+|---|---|---|
+| V2-A | 目标侧 bridge：维护帧 DATA → 现有 OTA event（开关默认关） | host 单测 + 目标 `SYST:OTA:STAT` 进入 WRITING |
+| V2-B | 控制帧/REFMEM 驱动 BEGIN/END/ABORT | begin 后目标进入 ERASE_SLOT→WRITING；abort 可回 IDLE |
+| V2-C | N2 单跳：relay + 既有 AB 流程 | 目标 `READY_TO_REBOOT`、`SLOT?` pending、durable 单调、环 `tx≈rx` |
+| V2-D | 退役旧 stream 目标路径（保留 USB 直连） | 回归用例 + P3 |
+
+**当前基线备注**：`ota_send.py` 的 raw 镜像模式在 V2 上会命中 `SIGNATURE_INVALID`
+（`require_signature` 且非 package 模式），AB 基线验证必须走 package 模式；
+本次 COM4 上 legacy 尝试即因此失败，且残留 stream 会话需先复位清除。

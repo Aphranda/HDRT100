@@ -23,6 +23,22 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-087 - 架构 v2 决定：REFMEM 控制面 + TDMA 数据面（用户确认）
+
+- 用户确认接受代价，要求"先把架构更新一下"；决定写入
+  `docs/ota/OTA_V2STREAM_PLAYBOOK.md` §8（架构 v2 决定 + 迁移阶段 V2-A..V2-D）。
+- 要点：①REFMEM 统一控制面负责 begin/commit/switch/abort；②TDMA 0x4F 只承载 OTA 数据块；
+  ③目标侧维护帧 DATA 投递到既有 `ota_ao`/`ota_fb` → `portable_ota_port_core_begin/write/end`
+  （与 SCPI 路径同一套 flash/BCB/切换）；④退役目标侧第二套 stream session/ingress/checkpoint
+  （过渡期保留 USB 直连并加开关）。
+- 依据：既有一台一板 AB 流程已验证；stream 路径阻塞在 completion journal（`COMPLETION(22)`）且
+  多一套状态机/持久化；估算第二套静态约 3–4 KB；台架实测残留 RECEIVING stream 会话会挡住
+  legacy `SYST:OTA:BEGIN`（第二套污染第一套）。
+- 基线备注（本轮台架）：`ota_send.py` raw 镜像模式在 V2 上命中 `SIGNATURE_INVALID`
+  （require_signature + 非 package），AB 基线必须走 package 模式；COM4 残留会话经
+  `picotool_reboot` 后 `STREAM:STAT?` 回到 IDLE。
+- 未做：V2-A 代码 bridge（下一轮）；P3 凭证仍不覆盖当前未提交改动。
+
 ### OTA-TDMA-PROGRESS-20261031-086 - 擦除粒度澄清与方向：复用正常 flash 流程 / REFMEM 控制面
 
 - 更正 085 的假设：`pota_core.c:171 pota_erase_one_step()` **按扇区（flash_sector_size）逐步擦除**，
