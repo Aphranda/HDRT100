@@ -23,6 +23,14 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-115 - 四板统一 build `20261031162743` 并起环成功；19 字段归因实验顺延
+
+- 四板全部刷到 `20261031162743`（COM3/COM6 补齐），trn03 `--expected-build` 通过，环
+  `matrix_staged 4/4 → complete → hold`（`left_running=true`）。
+- 本轮剩余预算用尽，relay 期间的 `restarts/duplicates/rejects/frames` 增量未采集；实验脚本已就绪：
+  起环 → 读两端 19 字段基线 → relay 12 s → 再读增量。
+- 台架已停环清理；下一轮直接复跑该归因实验。
+
 ### OTA-TDMA-PROGRESS-20261101-114 - RX 健康计数入 SCPI（19 字段）；环复跑被“混 build”挡住
 
 - 代码：`scpi_node_snapshot_commands.c` 的 `SYST:TDMA:LONGframe:STATus?` 追加两个只读字段
