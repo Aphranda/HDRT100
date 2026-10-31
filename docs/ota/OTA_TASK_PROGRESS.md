@@ -23,6 +23,17 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-096 - 门控输入可观测（DIAG[23]=vector state / [24]=ready）；台架复跑被环启动失败阻塞
+
+- 新增：`ota_tdma_v2_bridge_app_stats()` 扩到 9 项，增加 **最近一次门控看到的 vector state** 与
+  **ready 结果**；binding 在 bridge 模式把二者映射到 `DIAG[23]`/`DIAG[24]`
+  （替代原先的 ingress 结果/relay 标志，仅桥接模式）。
+- host：**49/49** 绿；固件编译通过（package 2,281,912 B）。
+- 台架复跑未完成：本轮多次起环失败（`could not open port COM6: PermissionError`——前序被 kill 的
+  python 进程占用串口），relay 未能到达目标，`DIAG[23]/[24]` 未取得有效读数。
+  已清理残留进程并停环；下一轮需先确认四个 COM 口可用再起环。
+- 结论：门控输入现在**可观测**，但"门控关闭的瞬间状态"仍待一次有效上板读数确认。
+
 ### OTA-TDMA-PROGRESS-20261031-095 - 源/目标双侧对照：源端确实发过 offset=0；目标收到 offset=0 但被 **ready 门控**丢弃
 
 - 新增源端可观测：pump 记录 `last_sent_offset / send_count / timeout_replays`，relay 暴露
