@@ -467,3 +467,23 @@ offset 0 重放 ⇒ 帧挤满 16 深 TX 队列 ⇒ 实测 `queue_full` 261–425
 要么在 M4 前定稿并写清理由，不得悬空。
 
 证据：`out/night/m3e_console2.log`（整包）、`out/night/m3c_console.log`（切片包）。
+
+### 9.14 M4 首测：环健康但擦除卡住——erase ↔ 运行中环 的交互（2026-11-01 04:05，build `20261031193724`）
+
+整包 relay 300 s 计划，实测在 34 s 处被源侧停滞看门狗中止：
+
+| 指标 | 实测 |
+|---|---|
+| 环健康（COM3 采样） | `tx == rx`（4446→6792 同步增长）、`bad=0` ✅ |
+| 目标状态 | 8.6 s 起 `ERASE_SLOT`（`received=512 / expected=2280616`） |
+| 目标后续 | 34 s 后 relay 已中止，目标**仍停在 `ERASE_SLOT`**（`PROG?=512,2280616,0`） |
+| host | `FAIL relay failed on the target (result=171, durable=0, wanted=512)` |
+
+- **环侧完全健康**（M4 的 `tx≈rx`、无坏帧判据本轮已满足）。
+- 阻塞点变成**擦除不结束**：AO 进入 `ERASE_SLOT` 后一直不返回，块 ACK 发不出去 ⇒ 源侧
+  30 s 停滞看门狗判失败。注意 relay 中止后目标自己**仍在擦除**，说明不是“没开始”，而是“擦不完”。
+- **首要怀疑（C1 相关）**：擦写需要 core1 park ACK，而环在运行时 core1 持续占用——擦除可能在等
+  park 握手。P3 Step 4 能过是因为那时**环没跑**。下一轮先取 flash 事务/park 的现场（`SYST:FLASH:*`
+  或 DIAG 字段 + 环停/环跑的 A/B 对照），再决定：OTA 期间暂停环（维护窗）还是修 park 时序。
+
+证据：`out/night/m4/result.json`、`out/night/m4_console.log`。

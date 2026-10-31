@@ -23,6 +23,17 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-124 - M4 首测：环 tx==rx/bad=0 健康；阻塞转为“erase 在运行中的环上不结束”
+
+- 整包 relay（300 s 计划）：环侧 `tx==rx` 同步增长、`bad=0` ✅；目标 8.6 s `ERASE_SLOT`
+  （`received=512 / expected=2280616`）；34 s 时源侧停滞看门狗中止（`result=171, durable=0`）。
+- relay 中止后目标**仍停在 `ERASE_SLOT`**（`PROG?=512,2280616,0`）⇒ 不是没开始，而是擦不完。
+- 首要怀疑（C1 相关）：擦写需 core1 park ACK，环运行时 core1 被占；P3 Step 4 能过是因为环没跑。
+  下一轮取 park/flash 现场并做“环停 vs 环跑”A/B，再决定 OTA 期间暂停环还是修 park 时序。
+- 另：目标侧 ABORT 语义已定稿——`release()` 只发 ABORT 帧、不再本地 abort（避免覆盖 AO 真错误）；
+  周期看门狗改为“发送一次、不 abort”，失败通知由源侧看门狗兜底。
+- 台架：四板 build `20261031193724`、IDLE、环停；代码未提交（待 M5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-123 - M3 收口：焦点是“截断包”——改发整包后首块进 AO 并进入 ERASE_SLOT
 
 - 诊断构建 `20261031192406`（保留 AO 失败、不覆盖为 ABORTED）读到真因：切片包 →
