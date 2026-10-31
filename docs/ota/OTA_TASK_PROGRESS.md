@@ -23,6 +23,24 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-082 - N2 首次打通 relay OPEN：目标进入 TDMA RECEIVING（durable 仍 0）
+
+- 固件：`n2final` build `20261031075103`（含 stream 平台恢复：OPEN 前 ensure init + force_reset 保留 journal sink），
+  四板 factory 刷写、`1,0,1,0,0`；静态维护环 running（`out/n2_ring_c.log`，tx≈rx）。
+- 结果：NO.1 → `ota_stream_send --relay-node 1 --package` 后，目标 `SYST:OTA:STREAM:STAT?` =
+  **`5,2,0,99939879,0`**（source=TDMA、state=RECEIVING、last_result=OK），`SYST:WATCHdog:OTA:PHase?` = **84**
+  （target stream opened），`SYST:OTA:TDMA:DIAG?` trace=**304**（开流成功）。
+- **Runbook 坑（已确认）**：host 发 package 必须带 `--package`，否则 OPEN 的 `package_mode=0`，
+  目标 `pota_begin` 命中 `require_signature && !package_mode` → `POTA_ERR_SIGNATURE_INVALID(16)`
+  （表现为 `STREAM_OPEN_5`，Diag stage=816）。原始 relay 尝试失败即此因，不是平台恢复问题。
+- 平台恢复链（factory 刷写后）：boot 期 `ota_ao_init` 可能跳过 stream init，OPEN 恒 SESSION；
+  在 `portable_ota_port_stream_open` 前 ensure（`ota_metadata_load` 成功则 stream_init，否则 factory
+  metadata 兜底）；`force_reset` 必须走 strict（挂 journal sink），degraded 无 sink 会被 `DURABLE_ACK`
+  拒绝为 `CHECKPOINT(9)`。
+- **仍阻塞**：coordinator 侧 `relay durable offset 512 not reached before timeout`，目标 durable=0；
+  即 OPEN 已通、数据/ACK 通路未推进（候选：relay pump 启动时序、窗口释放、ACK 回程 mask）。
+- 代码状态：ensure 修复在 `portable_ota_core_port.c`（未提交，指纹已变，需重跑 P3 才能提交）。
+
 ### OTA-TDMA-PROGRESS-20261031-081 - N2 上板：relay OPEN 已修复但目标 stream 平台恢复链仍有缺口
 
 - 现场：四板 factory 刷写（build `20261031063547`）+ 静态维护环 running（`out/n2_ring_b.log`，hold 900 s，
