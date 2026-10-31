@@ -23,6 +23,19 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-123 - M3 收口：焦点是“截断包”——改发整包后首块进 AO 并进入 ERASE_SLOT
+
+- 诊断构建 `20261031192406`（保留 AO 失败、不覆盖为 ABORTED）读到真因：切片包 →
+  `"FAILED",2,"BAD_HEADER",4`；`received_size` 仍 0。
+- 根因：`selected_package_object()` 只发“原头 + 目标对象”（1,140,392 B），头里
+  `package_size=2280616`、`image_count=2` 与载荷不符。
+- 修复（仅 host 工具、无需刷板）：`ota_stream_send.py` 新增 `--package-whole`，按整包字节发送。
+- 实测（整包 2,280,616 B）：1.4 s `RECEIVING`（expected=2280616）→ **8.6 s `ERASE_SLOT`、received=512**
+  ⇒ 首块被 AO 接收、会话存活。M3 的“512 B 首块 ≤10 s”在有意义会话中成立。
+- 待办：两个诊断开关（`OTA_TDMA_BRIDGE_KEEP_AB_FAILED`、目标侧看门狗 `if (false && …)`）
+  必须在 M4 前定稿；下一步跑长 relay 看 erase→writing→durable 推进。
+- 台架：四板 build `20261031192406`、IDLE、环停；代码未提交（待 M5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-122 - M3 现状（二）：AO 从未写入；ABORT 与“截断包（头声明 2.28 MB、载荷 1.14 MB）”高度相关
 
 - 诊断构建 `20261031191406` 临时关闭目标侧 ABORT 看门狗，0.2 s 采样：1.4 s `RECEIVING`

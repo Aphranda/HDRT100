@@ -445,3 +445,25 @@ offset 0 重放 ⇒ 帧挤满 16 深 TX 队列 ⇒ 实测 `queue_full` 261–425
   再用“自洽单镜像包”（重写包头 size/count/表项）或“整包 2.28 MB”二选一复测。
 
 证据：`out/night/m3c/result.json`、`out/night/m3c_console.log`。
+
+### 9.13 M3 收口：BAD_HEADER 是“截断包”，改发整包后首块进 AO 并开始擦除（2026-11-01 04:15，build `20261031192406`）
+
+**把 AO 的真实错误暴露出来**（诊断构建：`bridge_app_release()` 不再用 ABORT 覆盖失败，
+`OTA_TDMA_BRIDGE_KEEP_AB_FAILED=1`）后，0.2 s 采样直接读到原因：
+
+| 包形态 | 目标 `SYST:OTA:STAT?` |
+|---|---|
+| 切片包（头 512 B + 单对象，1,140,392 B） | 1.4 s `RECEIVING` → **8.8 s `"FAILED",2,"BAD_HEADER",4`** |
+| **整包（2,280,616 B，头/载荷一致）** | 1.4 s `RECEIVING`（`expected=2280616`）→ **8.6 s `ERASE_SLOT`（`received=512`）** |
+
+- 根因确认：host 的 `--package` 会调 `selected_package_object()` 只发“原头 + 目标对象”，
+  头里的 `package_size=2280616`、`image_count=2` 与载荷不符 ⇒ 目标解析包头即 `BAD_HEADER`。
+- 修复（**仅 host 工具，无需刷板**）：新增 `--package-whole`，`--package` 时按字节原样发整包。
+- 结果：首块 512 B 被 AO 接收，目标进入 `ERASE_SLOT`（擦除后再写入），会话不再 ABORT。
+  M3 的“512 B 首块 ≤10 s 收满”在有意义的会话里成立（8.6 s 前完成交付）。
+
+**注意（下轮必须处理）**：当前树里有两个诊断开关——`OTA_TDMA_BRIDGE_KEEP_AB_FAILED=1`
+（保留 AO 错误、不再发 ABORT）与目标侧看门狗的 `if (false && …)`。要么转成正式行为，
+要么在 M4 前定稿并写清理由，不得悬空。
+
+证据：`out/night/m3e_console2.log`（整包）、`out/night/m3c_console.log`（切片包）。
