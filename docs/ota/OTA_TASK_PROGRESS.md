@@ -23,6 +23,19 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-099 - 窗口配额核对：TX 队列 16 帧不是瓶颈，瓶颈是维护流排程（训练流量竞争）
+
+- 代码核对（`components/tdma/src/tdma_maintenance_runtime.c`）：
+  - `TDMA_MAINTENANCE_RUNTIME_TX_QUEUE = 16` 帧，单块 8 帧可完整入队 ⇒ **队列深度不是瓶颈**；
+  - `tdma_maintenance_runtime_submit()` 仅在 adapter 未就绪/队列满时拒绝；队列由维护流发送路径
+    `take_maintenance_chunk` 按窗口排程排出；
+  - 一帧 76 B 需 `ceil(76 / 18) = 5` 个 22 B chunk；process-image 训练同样占用第二类流窗口。
+- 结论：目标端只见 2 帧就停在 `NO_PROGRESS`，与“训练流量把窗口吃满、OTA 队列入队后长期排不出去”
+  一致；**配额问题在窗口排程，不在队列容量**。
+- 下一轮方向（按优先级）：①OTA 期间给维护流固定配额（第二类流调度加 OTA 优先级/最低配额）；
+  ②或 OTA 期间暂停 process-image 训练（与 legacy 行为一致）；③首块降尺寸成本高（512 B header
+  语义），暂不采用。
+
 ### OTA-TDMA-PROGRESS-20261031-098 - 环保持问题定位（OTA 失败态残留导致 RING en=0）；干净重启后 DATA 仍只进 2 帧
 
 - 环保持根因（本轮验证）：四板 OTA 处于 `FAILED` 残留时，`trn03` 虽报 `left_running`，板上
