@@ -400,3 +400,24 @@ offset 0 重放 ⇒ 帧挤满 16 深 TX 队列 ⇒ 实测 `queue_full` 261–425
 与 vector.state），并按需对齐 `OTA_EVENT_MAX_DATA_SIZE` / 块大小。
 
 证据：`out/night/m3_console3.log`、`out/night/m3/result.json`。
+
+### 9.11 M3 现状：首块到齐后目标收到显式 ABORT（2026-11-01 03:35，build `20261031185850`）
+
+**采样（0.6 s 粒度，目标 COM4）**：
+
+| t | `SYST:OTA:STAT?` | 桥 stage（diag16-19） |
+|---|---|---|
+| 0.8 s | `"IDLE",2,"NONE",0` | 0,0,0,0 |
+| 1.5 s | `"RECEIVING",2,"NONE",1` | 0,0,0,0 |
+| 8.9 s | `"ABORTED",2,"ABORTED",5` | 0,0,0,0（bridge 已复位） |
+| 12.3 s | `"RECEIVING",2,"NONE",1` | 0,192,192,0（新一轮会话） |
+
+- 字段解码（`scpi_ota_commands.c:scpi_cmd_ota_status_q`）：state/`target_slot`/`error_code`/`last_result`
+  ⇒ 目标 AO 收到的是**显式 ABORT 事件**（`OTA_ERR_ABORTED`），不是自身写失败。
+- 目标侧唯一能 post `OTA_EVENT_ABORT` 的路径是 `ota_tdma_v2_bridge_app_sink(OP_ABORT)`，
+  即**收到了 TDMA ABORT 帧**（`ota_tdma_v2_adapter.c:112-113`）。
+- **尚未确定**：该 ABORT 由谁发出（源 pump 重放后的 session 失败？host 侧工具？），
+  以及为何在块到齐后 ~2 s 发生。下一轮先读源侧 `SYST:OTA:TDMA:DIAG?`（`s_last_result`）
+  与 relay 的 `encode_abort` 调用点，再决定是“容忍重放”还是“修正 ACK 归属”。
+
+证据：`out/night/m3b/result.json`、`out/night/m3b_console.log`。

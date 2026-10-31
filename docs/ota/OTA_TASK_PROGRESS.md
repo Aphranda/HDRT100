@@ -23,6 +23,17 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-121 - M3 现状：首块 6.3 s 到齐后目标收到显式 ABORT（非写失败）
+
+- 0.6 s 粒度采样目标：1.5 s `RECEIVING`（stage 0）→ 8.9 s `"ABORTED",2,"ABORTED",5`（bridge 已复位，
+  diag16-19 全 0）→ 12.3 s 又出现 `RECEIVING`（新一轮会话，stage 192）。
+- 解码 `SYST:OTA:STAT?`（state/target_slot/error/last_result）⇒ AO 收到**显式 ABORT 事件**
+  （`OTA_ERR_ABORTED`），不是 flash 写失败；目标侧唯一来源是收到 TDMA ABORT 帧
+  （`ota_tdma_v2_adapter.c:112-113` → `bridge_app_sink(OP_ABORT)`）。
+- 未定：ABORT 的发出者与时机（块到齐后 ~2 s）。下一轮读源侧 `SYST:OTA:TDMA:DIAG?` 的 `s_last_result`
+  并核对 relay/session 的 `encode_abort` 调用点。
+- 台架：四板 build `20261031185850`、IDLE、环停；代码未提交（待 M5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-120 - M3：块 ACK 截止 200 ms→2000 ms 打通首块（6.3 s 收满 512 B）；随后目标 ABORT
 
 - 根因：200 ms 的块 ACK 截止短于“一个 512 B 块”的线路时间（8 帧 × 7 chunk ≈ 56 chunk ≈ 0.6 s），
