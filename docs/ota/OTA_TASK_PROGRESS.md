@@ -23,6 +23,21 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-088 - V2-A/B 起步：TDMA→既有 OTA 管线 bridge（单块在途 + 背压），host 绿
+
+- 新增 `components/ota_manager/inc/ota_tdma_bridge.h` + `src/ota_tdma_bridge.c`：
+  - 把维护流操作映射为 `BEGIN/DATA/END/ABORT` 并交给 sink（sink 最终接既有 `ota_ao` 事件管线）；
+  - 状态机 IDLE/RECEIVING/DONE/FAILED；越界/短镜像/重复 begin 一律拒绝；
+  - **单块在途 + 背压**：DATA 只有在前一块被 `ota_tdma_bridge_release()` 释放后才转发下一块，
+    避免 AO 仍持有帧缓冲时被覆写（与 080 的 OPEN 指针悬垂同类风险）；
+  - sink 拒绝 → FAILED（fail-closed），不再向 flash 转发。
+- 新增 host 测试 `tests/unit/test_ota_tdma_bridge.c`（6 组用例，含背压/短镜像/sink 失败/abort），
+  已加入聚合 runner；单测与 **48/48** 聚合套件均绿。
+- 固件编译通过（`out/build/v2b`，package 2279896 B）；bridge 尚未接入 AO 事件入口（下一步）。
+- 下一步（V2-B 后半）：AO 消费完 DATA 事件后回调 `ota_tdma_bridge_release()`；
+  维护帧 OPEN/CLOSE/ABORT 走 bridge 而非 stream session（feature 开关），
+  先本地单板验证 `SYST:OTA:STAT` 走 BEGIN→ERASE→WRITING→VERIFY→READY_TO_REBOOT。
+
 ### OTA-TDMA-PROGRESS-20261031-087 - 架构 v2 决定：REFMEM 控制面 + TDMA 数据面（用户确认）
 
 - 用户确认接受代价，要求"先把架构更新一下"；决定写入
