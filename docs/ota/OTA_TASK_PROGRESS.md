@@ -23,6 +23,18 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-112 - 计数实验：源端 chunks=3235 已发出，目标侧维护计数全 0（下行未送达）
+
+- 四板重启（计数清零）→ trn03 起环（`en=1/up=1`）→ 25 s relay：
+  - 源 COM5：`window_open=642, cycle=41071, mailbox_calls=15558, chunks=3235, rejects=21455`（发送侧在跑）；
+  - 目标 COM4：`window_open=0, cycle=0, mailbox_calls=0, chunks=0, frames=0, rejects=0`
+    ⇒ **目标侧维护服务一个周期都没跑**（不是“丢帧”，是根本没接收）；
+  - 两端 `OTATDMA:DIAG stage=0/type=0`、`OTA:STAT=IDLE`：relay 的 OPEN 也没到目标。
+- 与 106（目标 frames=953）/110（目标 stage 128→192）对比 ⇒ 下行送达是**间歇**的，取决于本次环的角色/状态；
+  这比“窗口吞吐”更靠前：先要保证维护帧稳定到达目标。
+- 下一轮：对比不同起环方式/角色下目标侧 `window_open/cycle`（是否 >0），再定位下行服务为何不跑
+  （ring role/service 调度 or 维护 mailbox 注册时机）。
+
 ### OTA-TDMA-PROGRESS-20261101-111 - 目标重定基线（P0-W）；吞吐瓶颈新假设：维护帧 chunk 级重启丢弃
 
 - 目标已按用户要求改为 v2 重定基线（`goal-4a29ca94` rev 8/9：maxRounds 50、phase active/armed），
