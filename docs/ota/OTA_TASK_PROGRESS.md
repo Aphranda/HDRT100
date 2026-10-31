@@ -23,6 +23,22 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-093 - 目标 bridge 统计上板：`stage/received=0`——DATA 根本没进 staging
+
+- 本轮加固：pump 在 **ACK 超时**时改为**整块从块首重放**（此前按游标续传，遇到维护窗口静默丢帧会
+  永久卡在缺口）；新增 host 回归 `test_ack_timeout_replays_block_from_start`；**49/49** 绿。
+- 诊断曝光：`ota_tdma_v2_bridge_app_stats()` → `SYST:OTA:TDMA:DIAG?` 的 16..19
+  （stage_offset/stage_length/received/inflight）。
+- 上板（build `20261031101949`，四板）：
+  - 目标状态时序：`IDLE → RECEIVING`（约 1–4 s）→ `FAILED/NO_PROGRESS`（约 11 s）；
+  - `DIAG count=231` 但 **stage_off=0 / stage_len=0 / received=0 / inflight=0**：
+    没有任何 DATA 进入 bridge staging。
+- 两个候选（下一轮用一次实验区分）：
+  1. **pump 没有发 DATA**（源端会话/ACK 路径问题）；
+  2. **ready 门控一直为假**（帧到达瞬间 vector 不是 `OTA_STATE_RECEIVING`）。
+- 决定性实验：把 ready 恒真 + 保留统计；若 `received>0` → 是门控（改门控语义/放宽）；
+  若仍为 0 → 是源端未发 DATA（查 relay 会话状态/ACK 处理）。
+
 ### OTA-TDMA-PROGRESS-20261031-092 - V2 质量加固：DATA 等 AB 就绪、relay 重试覆盖擦除窗口；目标仍 NO_PROGRESS
 
 - 质量项（本轮）：
