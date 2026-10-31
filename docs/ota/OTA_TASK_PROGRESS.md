@@ -23,6 +23,19 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-100 - 维护窗口参数核对：period=64/window=8 cycles；第二类 slot 与 process-image 共享
+
+- 代码核对（`middleware/scpi_port/src/scpi_system_snapshot_commands.c:231-235`）：
+  `period_cycles=64 / window_cycles=8 / max_window_bytes=TDMA_LONG_FRAME_MAX`；
+  `tdma_maintenance_on_cycle` 每周期一次、窗口内每周期至多送 1 个 chunk
+  （`components/tdma/src/tdma_maintenance.c:117` 相位判定）⇒ 理论约 8 chunk / 64 cycle。
+- 一帧 76 B = 5 chunk ⇒ 理论约 1.6 帧/窗口；若 ring 周期 ~4 kHz，约 100 帧/s，足以支撑
+  ~6 KB/s 的块传输。**实测仅 ~0.2 帧/s，差 3 个数量级** ⇒ 窗口在训练流量下实际被阻塞/延后，
+  而非窗口参数本身小。
+- 下一步：把 `tdma_maintenance_snapshot_t`（`window_open_count/tx_sent_count/tx_blocked_count`）
+  暴露为 SCPI 只读快照，relay 期间在**源端**读取，直接证明 `tx_blocked` 增长；据此决定
+  “OTA 期间暂停训练”还是“第二类 slot 给维护流固定配额”。
+
 ### OTA-TDMA-PROGRESS-20261031-099 - 窗口配额核对：TX 队列 16 帧不是瓶颈，瓶颈是维护流排程（训练流量竞争）
 
 - 代码核对（`components/tdma/src/tdma_maintenance_runtime.c`）：
