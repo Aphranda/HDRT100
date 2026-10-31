@@ -1,12 +1,16 @@
-# OTA TDMA 流式升级设计说明（静态维护态 v1）
+# OTA TDMA 流式升级设计说明（静态维护态 v2：REFMEM 控制面 + TDMA 数据面）
 
-Status: Draft
+Status: Active
 Domain: OTA / TDMA / Flash（跨域）
 Canonical: `docs/arch/ARCH_OTA_TDMA_STREAM_DESIGN.md`
-Related: `docs/ota/OTA_TODO.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-10-30
+Related: `docs/ota/OTA_TODO.md`, `docs/ota/OTA_V2STREAM_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
+Last updated: 2026-10-31
 
-> 本文是 `OTA-TDMA-001` 的设计说明初稿（评审材料，**不登记为契约**）。契约仍为 `ARCH-OTASTREAM-01`（`pending`）；实现前先评审本稿，评审通过后按 `docs/ota/OTA_TODO.md` 的 G1 序列落代码。
+> 本文是 `OTA-TDMA-001` 的设计说明。**2026-10-31 起以 §13「v2 架构决定」为准**：
+> TDMA 维护流只承载 OTA 数据，控制面归 REFMEM，目标侧复用既有 AB 流程，
+> 退役第二套 stream 会话。§4.2/§4.3/§5/§6 中与 §13 冲突的 v1 判读按 §13 执行
+> （保留为历史论证，不删除）。契约：`ARCH-OTASTREAM-01`（pending）拟由
+> `ARCH-OTASTREAM-02` 取代，C11 复核待办（见 §13.5）。
 
 ## 1. 目的与范围
 
@@ -232,3 +236,58 @@ host            coordinator                 ring                     target
 ## 12. 变更记录
 
 - 2026-10-29：初稿（静态维护态 v1；复用 session/A-B 与 maintenance stream；stop-and-wait；picotool 恢复梯子边界）。
+
+## 13. v2 架构决定（2026-10-31，用户确认）
+
+### 13.1 决定
+
+1. **控制面归 REFMEM**：OTA 的 begin / commit / switch / abort 由 REFMEM 统一控制面发起；
+   stream 的 88 B OPEN / CLOSE 不再承担控制语义（过渡期保留 SCPI `SYST:OTA:STREAM:*` 作为
+   数据入口，退出条件见 §13.4）。
+2. **TDMA 只承载数据**：`0x4F` 维护流只运 OTA 数据块；relay / pump / carrier 保留
+   （含“部分窗口续传”与“超时游标续传 + 每 3 次整块重放”）。
+3. **目标侧复用既有 AB 流程**：维护帧 → `ota_tdma_v2_bridge` → `ota_ao` 事件 →
+   `portable_ota_port_core_begin/write/end`，与 SCPI 本地路径**同一套** flash/BCB/切换逻辑。
+4. **退役第二套会话**：目标侧不再以 `pota_stream_session`/`ingress`/`checkpoint` 为主路径；
+   过渡期保留 USB 直连 stream 作为对照，完成后按域归档。
+
+### 13.2 依据
+
+- 既有 AB 流程在本机与四板已验证（P3 4/4、历史本机 stream OTA 全链路）；
+- stream 路径在目标侧 flash 事务 completion journal 上阻塞（`FLASH_TRANSACTION_ERROR_COMPLETION=22`），
+  且叠了第二套会话状态机 + checkpoint + completion lease；
+- 台架实测：残留的 RECEIVING stream 会话会挡住 legacy `SYST:OTA:BEGIN`（第二套污染第一套）。
+
+### 13.3 当前符合性（HAOFV 六门 + C1/C2）
+
+| 项 | 判定 | 依据 / 缺口 |
+|---|---|---|
+| ① 无新增总线/payload/第二命令槽/第二 ACK | ✅ | 仅用 `0x4F` 与既有帧类型；目标只在块消费后回一个 ACK |
+| ② 不占 core1 硬实时窗口/席位 | ⚠️ | 未新增席位；但堆两次下调（`config/freertos/FreeRTOSConfig.h`）未用工具复核下限；OTA 依赖低优先级维护窗口，训练下需配额 |
+| ③ 单写者/owner | ✅（已修） | adapter maintenance mailbox 双注册已改“首个注册者生效”；bridge/adapter 单实例 |
+| ④ fail-closed + reason/证据 | ⚠️ | sink 失败→FAILED、背压/重复忽略、NO_PROGRESS/INVALID_STATE 有 reason；未做 F0–F3 分级 |
+| ⑤ 布局/版本/契约同步 | ⚠️ | 未改 flash 布局/DeploymentGate CRC；本契约条目需 C11 复核；build id 不随构建变化（证据不可追溯） |
+| ⑥ host + 四板证据 | ❌ | host 49/49；四板传输已打通（chunks 7656 / frames 953），但 durable 未递增、无 P3 凭证 |
+| **C1** erase/program 仅 core0 | ✅ | bridge 不碰 flash；写仍由 AO/`FlashTransactionAO` 发起 |
+| **C2** 时间事实 | ✅ | 未触碰 raw tick / 时间基准 |
+
+### 13.4 迁移阶段
+
+| 阶段 | 内容 | 验证判据 |
+|---|---|---|
+| V2-A | 目标侧 bridge（已完成） | host 用例 + BEGIN 被 AB 流程接受 |
+| V2-B | 控制帧/REFMEM 驱动 BEGIN/END/ABORT（部分完成） | abort 回 IDLE；payload 白名单登记 |
+| V2-C | N2 单跳闭环 | 目标 `READY_TO_REBOOT`、durable 单调、环 `tx≈rx` |
+| V2-D | 退役旧 stream 目标路径（保留 USB 直连） | 回归用例 + P3 |
+
+**控制面退出条件（SCPI → REFMEM）**：V2-C 判据通过且 REFMEM begin/commit/switch 覆盖
+`STREAM:OPEN/CLOSE` 的全部语义后，删除 SCPI 的 relay 分支（保留只读诊断）。
+
+### 13.5 契约与待办
+
+- `ARCH-OTASTREAM-01`（pending）描述“所有传输共用 OtaStreamSession、ACK 只确认 durable offset”，
+  与 §13.1 冲突；拟新增 `ARCH-OTASTREAM-02` 取代它，**状态变更需 C11 交叉复核**，未复核前
+  两者并存、以本文 §13 为实现依据。
+- 待办：①维护流承载配额（训练下块收不齐）；②build id 每次构建必变；③32 个未提交文件的
+  P3 同指纹凭证。
+- 2026-10-31：新增 §13（v2 决定、符合性、迁移阶段、契约待办）；标题与状态更新为 v2 Active。

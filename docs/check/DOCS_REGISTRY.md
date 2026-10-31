@@ -53,6 +53,7 @@ Last updated: 2026-10-29
 | DOCS-TRIPLETFORMAT-01 | docs | 域文档 Architecture、TODO、Task Progress 三件套的最小格式、稳定 ID、状态词汇和文件接口 | 1 | docs/check/DOCS_REGRESSION_PLAN.md | doc_regression_check.py | 结构审查与后续自动化检查 | 2026-08-27 | pending |
 | ARCH-BOOTCTRL-01 | ota | BCB 双 lane append/commit 与 Direct A/B test-confirm-revert | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | ota_metadata.h | torn-write/boot/revert HIL | 2026-08-21 | pending |
 | ARCH-OTASTREAM-01 | ota | USB CDC/USBTMC/UART/RS485/SD/TDMA 共用 OtaStreamSession，ACK 只确认 durable offset | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | ota_package.h | transport 回归/parser fuzz/续传 HIL | 2026-08-21 | pending |
+| ARCH-OTASTREAM-02 | ota | TDMA 维护流只承载 OTA 数据，控制面归 REFMEM；目标侧复用既有 AB 流程（ota_ao/ota_fb → portable_ota_port_core_*），退役第二套 stream 会话（过渡期保留 USB 直连）；拟取代 ARCH-OTASTREAM-01，C11 复核后生效 | 1 | docs/arch/ARCH_OTA_TDMA_STREAM_DESIGN.md | ota_tdma_binding.c | host 用例 + 四板 HIL（chunks/frames）+ P3 | 2026-10-31 | pending |
 | REFMEM-PERSIST-01 | refmem | 只持久化部署 package/ref，上电建立新 epoch 且 live mirror 保持 stale | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | refmem_table_registry.h | power-cut/reboot/epoch/stale HIL | 2026-08-21 | pending |
 | VDC-PERSIST-01 | vdc | 只持久化低频 profile，上电从 OFF/CHECKING 基于新观测重新锁相 | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | vdc_domain.h | reboot/negative restore/DPLL HIL | 2026-08-21 | pending |
 | ARCH-PIOCAT-01 | arch | 动态 PIO 只装载签名 App catalog program，System Pack 只选择 ID | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | tdma_pio_spi_phys.h | catalog/resource/deployment/persona HIL | 2026-08-21 | pending |
