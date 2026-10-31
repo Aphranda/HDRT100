@@ -23,6 +23,17 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-128 - M4 硬阻塞（C1）：环运行时 erase 直接 FLASH_ERASE，环停则正常
+
+- 同构建 `20261031202200` 对照：环停+直连 4 KB 块 → 擦除成功、写入 856 576 B/180 s；
+  环跑+relay 整包 → 512 B 后 `"FAILED",2,"FLASH_ERASE",4`（两次复现），环侧 `tx==rx/bad=0` 正常。
+- 路径：`flash_transaction_park_core1()` → `drv_flash_write_session_begin()` 的 lockout/park 握手；
+  park 失败最终表现为 OTA 的 `FLASH_ERASE`。
+- 判定为 C1 相关问题：环运行时 core1 不释放 ⇒ 擦写拿不到 park ⇒ 硬失败（非“慢”）。
+  TDMA 流式 OTA 的硬前提是“擦写期间让环让出 core1”（维护窗或可抢占 park），需按 C1/§6 重新评审。
+- 建议：此点不宜无人值守继续改动，等人工确认方案（停环 vs 抢占 park）后再推进 M4。
+- 台架：四板 build `20261031202200`、IDLE、环停；代码未提交（待 M5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-127 - 吞吐标定：512 B 块 ≈0.5 KB/s，4 KB 块 ≈4.7 KB/s（擦除后 ≥6 KB/s）
 
 - 同一构建 `20261031200639`、直连+切片，只改块大小：512 B → 41 472 B/120 s；4096 B → **856 576 B/180 s**。

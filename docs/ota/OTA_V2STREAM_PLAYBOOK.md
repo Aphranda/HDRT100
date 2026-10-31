@@ -544,3 +544,24 @@ USB 会话也恒为真 ⇒ AO 在擦除/写入时把“维护流可用”当成�
   或直接按“长跑 40 min”排一次 M4 端到端。
 
 证据：`out\night\direct_4k_long.out`、`out\night\direct_ab2.out`。
+
+### 9.18 M4 硬阻塞：环运行时 erase 直接失败（FLASH_ERASE），环停则正常（2026-11-01 06:55）
+
+同一构建 `20261031202200`，两组对照：
+
+| 场景 | 结果 |
+|---|---|
+| **环停** + 直连（`direct_ab.py 180 4096`） | 擦除成功、写入 856 576 B / 180 s（≈4.7 KB/s） |
+| **环跑** + relay 整包（`m4_probe.py … 150`） | 目标 512 B 后 **`"FAILED",2,"FLASH_ERASE",4`**；`received` 停在 512 |
+| 环侧健康 | `tx == rx`（28 504 同步）、`bad=0`（两组均正常） |
+
+- 代码路径：`flash_transaction_park_core1()` → `drv_flash_write_session_begin()` 的 lockout/park 握手；
+  park 失败会以 `FLASH_TRANSACTION_ERROR_PARK` 落到 OTA 侧的 `FLASH_ERASE`。
+- **判定：C1 相关问题成立** —— 环运行时 core1 不释放，擦除拿不到 park，直接报错（不是“慢”，是“失败”）。
+  直连（环停）能过、relay（环跑）必挂，与 P3 Step 4（环停跑 OTA）能过也一致。
+- **架构含义**：TDMA 流式 OTA 若要真正落地，“擦除/编程期间必须让环让出 core1”是硬前提；
+  需要维护窗级别的停环/让位机制，而不是靠重试。
+- **下一轮（不建议无人值守继续动）**：由人确认方案——(a) OTA 擦写期间暂停环（维护窗）；
+  (b) park 请求提升为可抢占 TDMA 席位；两者都要按 C1 与 §6 预算重新评审。
+
+证据：`out\night\m4b_console.log`（环跑失败）、`out\night\direct_4k_long.out`（环停成功）。
