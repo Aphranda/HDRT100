@@ -23,6 +23,23 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-090 - V2-B 收敛：bridge 按“flash 可写块”聚合（512/256），ACK 与块边界对齐
+
+- 问题：适配器初版按 64 B 帧逐块投递并逐帧 ACK，与 pump 的“块级 ACK”（首块 512、其后 256）不一致，
+  会把正常重传判成协议错误；且每 64 B 一个 OTA 事件对 flash 写入效率极低。
+- 修正（`ota_tdma_bridge.[ch]`）：
+  - bridge 内置 **staging**：按 64 B 帧累积，满 **512 B（首块）/ 256 B（其后）** 才向 sink 投递一个
+    DATA 操作；这是既有 OTA 管线一次 flash 写入的粒度；
+  - **单块在途**：块投递后 `block_in_flight=true`，后续帧返回 backpressure（源端重传），
+    直到 AO 消费完调用 `release()`；
+  - `release()` 返回块尾偏移，适配器据此回 ACK —— ACK 与 pump 的块边界严格对齐；
+  - `end()` 要求无在途块、无残余 stage、收满镜像；abort 清空 staging 回 IDLE。
+- 适配器相应简化：帧解码/分发 + OPEN 重组；非连续 offset/重复帧一律忽略（不 NACK，避免误杀 pump），
+  仅 sink 失败为致命。
+- host：bridge 6 组 + adapter 4 组用例全过；聚合 **49/49** 绿；固件编译通过（package 2,279,896 B）。
+- 下一步：binding 侧 `PROJECT_OTA_TDMA_V2_BRIDGE` 开关接入（sink→现有 OTA event、AO 消费后 release），
+  本地单板验证后进 V2-C。
+
 ### OTA-TDMA-PROGRESS-20261031-089 - V2-B 核心：维护帧→bridge 适配器（OPEN 重组→begin、DATA→背压、CLOSE→end、ABORT）
 
 - 新增 `components/ota_manager/inc/ota_tdma_v2_adapter.h` + `src/ota_tdma_v2_adapter.c`：
