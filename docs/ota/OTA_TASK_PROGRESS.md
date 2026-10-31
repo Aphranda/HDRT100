@@ -23,6 +23,19 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-117 - M2：package 模式会话已通；瓶颈确认为“队列满丢弃风暴”，失败回传未达 ≤5 s
+
+- 关键发现：此前 relay 漏传 `--package`，目标按 raw 模式开会话 ⇒ `IMAGE_TOO_LARGE`。
+  加 `--package` 后目标正常开出会话并消费数据（122 s 内 `frames +691`）。
+- 122 s 增量：源 COM5 `chunks +11085 / mailbox +23118 / win_open +871 / rejects +58574`，其中
+  **`queue_full +51887`（425 次/s）**、rx_chunk_rejects +6238、tx_retries +924、tx_fail +450；
+  目标 COM4 `frames +691`、`rejects +4242 == rx_chunk_rejects`、restarts +1。
+- 结论：线路排空 ≈91 chunks/s（≈9 帧/s、窗口占空比 1.6%）；relay 以每帧一次 `submit` 生产，
+  远超排空速率 ⇒ 帧在 16 深队列口被丢弃而非节流，块凑不齐，host 等不到 `durable 512`。
+  M2 的“失败 ≤5 s 回传 ABORT”未满足（host 先撞自己的 30 s 超时），M2 记为部分达成、不跨阶。
+- 下一步：为 submit 加背压（队列近满时按排空速率节流），再测 512 B 首块；ABORT 时延单列验收。
+- 台架：四板 IDLE、环停；代码仍未提交（待 M5 P3 同批）。
+
 ### OTA-TDMA-PROGRESS-20261101-116 - M1：23 字段上板；reject 归因指向 TX 队列满（+5057/12 s），非重组器
 
 - 夜间里程碑（`OTA_V2STREAM_PLAYBOOK.md` §9）第一轮。修掉构建阻塞：`v2on` 被默认 preset 重配成

@@ -247,7 +247,7 @@ frame->payload/指针或诊断读取本身的缺陷）。host roundtrip 通过�
 |---|---|---|---|---|---|
 | **M0 台架基线复位**（每轮可重复） | 串口 COM3–COM6 存在 | `SYST:BOOT:RESET` 四板 → 等重枚举 → 校验 build/OTA/环状态 | 4/4 build 一致且等于目标 build；`SYST:OTA:STAT?`=IDLE；`RING:STATus?` `enabled=0` | `out/night/<ts>/m0.json` | 仅只读+复位，无凭证需求 |
 | **M1 维护流可观测性** | M0 通过 | `SYST:TDMA:LONGframe:STATus?` 追加只读字段 `rx_chunk_rejects`/`tx_retries`/`tx_fail`/`queue_full`（`tdma_maintenance_runtime_diag_t` 已有，不新增状态） | 23 字段可读；增量自洽（按方向分别核，见 9.6）：收端 `rejects == rx_chunk_rejects`；发端 `rejects ≈ queue_full + tx_fail + rx_chunk_rejects + 其它submit失败`（偏差 <3%，两次读取之间的计数漂移）；host 单测同集全绿 | `out/night/m1/` | 固件改动，**提交前必须 P3**；夜间只做上板验证不提交 |
-| **M2 relay 会话可通（package 模式）** | M1 通过 | 让 relay 的 88 B OPEN 描述符携带 package_mode（§8 备注：raw 必挂 `SIGNATURE_INVALID`，`.pkg` 走 raw 必挂 `IMAGE_TOO_LARGE`） | 从 IDLE 发起 relay：目标 `SYST:OTA:STAT?` 进入 RECEIVING/WRITING（非 FAILED）；`stage_len>0`；host `consumed>0`；失败时 host 在 ≤5 s 内拿到 `ABORT`/错误码 | `out/night/<ts>/m2.json` | 固件改动，同 M1 |
+| **M2 relay 会话可通（package 模式）** | M1 通过 | 让 relay 的 88 B OPEN 描述符携带 package_mode（§8 备注：raw 必挂 `SIGNATURE_INVALID`，`.pkg` 走 raw 必挂 `IMAGE_TOO_LARGE`） | 从 IDLE 发起 relay：目标 `SYST:OTA:STAT?` 进入 RECEIVING/WRITING（非 FAILED）；`stage_len>0`；host `consumed>0`；失败时 host 在 ≤5 s 内拿到 `ABORT`/错误码 | `out/night/m2/` | 固件改动，同 M1 |
 | **M3 吞吐归因与修复（P0-W 定论）** | M2 通过 | 用 M1 字段 + bridge `stage/vec/ready` 计数测 OTA DATA 帧/s；判定瓶颈属于“窗口配额 / 帧级 ACK 时延与重传 / AO 消费”；只改被证据指认的一处 | 512 B 首块在 ≤10 s 内收满并进入 AO（`stage_len` 达 512）；给出“增量→结论”归因表；修复后同条件复测不退化 | `out/night/<ts>/m3.json` | 固件改动，同 M1 |
 | **M4 四板 relay 端到端（V2-C）** | M3 通过 | NO.1→NO.2 relay 真实 `.pkg`（2 280 616 B） | 目标 `durable` 单调至 100% 且 `READY_TO_REBOOT`；环 `tx≈rx`、`ring_last_error=0`；协调者擦写计数 0；commit 后重启 build 变化 | `out/night/<ts>/m4.json` | 该指纹的 P3 前置证据 |
 | **M5 硬件验收（P3）** | M4 通过 | 统一 build（含 M1–M4）→ 四板 flash → `p3_hardware_acceptance.py run`（或 workflow `--profile full`）；处理 OTA 二刷 2/4 与 Step 29 `exit 2` | 凭证 `scope=FULL`、指纹覆盖 staged 源码、ERROR 0、`check-staged` 通过 | `out/HardwareAcceptance/<date>/<run>/` | P3 凭证 |
@@ -308,3 +308,25 @@ frame->payload/指针或诊断读取本身的缺陷）。host roundtrip 通过�
 3. 两端的 reject 语义不同，判据必须按方向分别写（本表即修正后的判据）。
 
 证据：`out/night/m1/result.json`、`out/night/m1_console.log`、`out/night/flash2.py`、`out/night/set_board_no.py`。
+
+### 9.7 M2 实测结果（2026-11-01 02:15，build `20261031171732`）
+
+**结论：M2 部分达成（会话已通，失败回传未达成），不跨阶。**
+
+- **package 模式可用**：`ota_stream_send.py ... --package --relay-node 1`（此前漏 `--package` 才命中
+  raw 模式 `IMAGE_TOO_LARGE`）。目标确实开出了会话并消费数据。
+- **122 s relay 增量**（源 COM5 / 目标 COM4）：
+  - COM5：`chunks +11085`、`mailbox +23118`、`win_open +871`、`rejects +58574`，其中
+    **`queue_full +51887`**、`rx_chunk_rejects +6238`、`tx_retries +924`、`tx_fail +450`；
+  - COM4：`frames +691`、`rejects +4242 == rx_chunk_rejects`、`restarts +1`、`win_open +464`。
+- **判定**：
+  1. 线路排空约 **91 chunks/s ≈ 9 帧/s**；维护窗口占空比 `win_open/cycle ≈ 1.6%`（871/55706）。
+  2. relay 生产速率（每帧一次 `submit`）远超排空速率 ⇒ **队列满丢弃 425 次/s**，
+     帧被丢弃而不是被节流，块永远凑不齐；目标和 host 都等不到 `durable 512`。
+  3. 目标每完成一帧伴随 ~6 次 chunk 拒绝（4242/691），说明重复/过期块也在消耗窗口。
+  4. 失败回传：host 侧是**自己的 30 s timeout**先到（`FAIL relay durable offset 512`），
+     目标的 `NO_PROGRESS`（40 s 首块预算）晚于它 ⇒ “≤5 s 回传 ABORT”未满足（M2 未完成项）。
+- **下一步（仍属 M2→M3）**：先让 submit 具备背压（队列近满时按排空速率节流，而不是丢弃），
+  再做 512 B 首块实测；`ABORT` 回传时延单独计一项验收。
+
+证据：`out/night/m2/result.json`、`out/night/m2/relay.log`、`out/night/m2_console.log`。
