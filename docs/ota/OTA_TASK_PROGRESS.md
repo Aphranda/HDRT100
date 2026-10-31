@@ -23,6 +23,23 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-084 - N2 目标侧 OTA admission 缺口修复；flash 事务仍 FAILED（需 error 码）
+
+- 先排除“训练锁”：环运行期间 `SYSTem:RESource:TRAINing? = 0,0`（COM5/COM4 均如此），
+  说明 `FLASH_TRANSACTION_ERROR_TDMA_TRAINING_ACTIVE` 不是 083 的失败原因。
+- 找到真实缺口：`flash_transaction_ao` 对 OTA requester 要求
+  `resource_arbiter_ota_admission_active()`，否则返回 **MODE**；而 OTA admission 只由 **SCPI**
+  OTA 命令获取（`scpi_ota_commands.c` 的统一入口）。TDMA 目标的 OPEN 走维护流、不经过 SCPI，
+  **从未申请 admission** → 目标侧 flash 事务被 MODE 拒绝。
+- 修复（`application/src/ota_tdma_binding.c`）：目标侧在 OPEN 成功后
+  `resource_arbiter_request_ota_admission()`，会话 DONE/FAILED/reset 时释放；新增
+  `test_ota_tdma_binding` 断言（OPEN 后 request=1、DONE 后 release=1），binding host 测试通过。
+- 上板（build `20261031090405`）：目标仍 `STREAM:STAT? = 5,6,512,2102,5`（duration=512、FAILED、
+  token=2102=`2000+flash_execute_stage(102)`）。admission 修复生效但事务仍报
+  `FLASH_TRANSACTION_RESULT_FAILED`；**需把 `completion.error` 编入诊断**（下一步：
+  `stage = 200 + error`，可区分 MODE/POLICY/RANGE/RAW_OPERATION/COMPLETION 等）。
+- 台架：四板 build `20261031090405`、环已停；工作区 7 个源码改动未提交（pump/binding/port/tests）。
+
 ### OTA-TDMA-PROGRESS-20261031-083 - N2 pump 部分窗口续传修复：目标首个 512 B 块 durable，随后 flash 执行阶段 102 失败
 
 - 定位（082 遗留）：目标 ingress `stage=0/stage_len=64/expected=64/count=50`——窗口每次只放行 1 帧，
