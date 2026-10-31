@@ -9,6 +9,16 @@
 #define SLOT_B 2048u
 #define SLOT_SIZE 1024u
 
+static uint8_t s_program_workspace[POTA_MAX_FLASH_PAGE_SIZE];
+
+static bool test_pota_stream_session_init(pota_stream_session_t *session,
+                                     const pota_platform_t *platform)
+{
+    return pota_stream_session_init(session, platform) &&
+           pota_core_set_program_workspace(&session->core.core, s_program_workspace,
+                                           sizeof(s_program_workspace));
+}
+
 static uint8_t s_flash[FLASH_SIZE];
 
 static bool read_flash(uint32_t offset, void *data, uint32_t size)
@@ -124,7 +134,7 @@ int main(void)
     pota_stream_session_t session;
     pota_stream_ingress_t ingress;
     int failed = 0;
-    failed += !expect("session init", pota_stream_session_init(&session, &platform));
+    failed += !expect("session init", test_pota_stream_session_init(&session, &platform));
     const pota_stream_checkpoint_policy_t checkpoint_policy = {
         .interval_bytes = 16u,
         .checkpoint_on_final = true,
@@ -250,7 +260,7 @@ int main(void)
      * hints.  A fresh session must reject them before any Flash operation. */
     memset(&s_flash[3072u], 0xFF, sizeof(s_flash) - 3072u);
     failed += !expect("reinit for unknown capability",
-                      pota_stream_session_init(&session, &platform));
+                      test_pota_stream_session_init(&session, &platform));
     failed += !expect("reinit ingress for unknown capability",
                       pota_stream_ingress_init(&ingress, &session,
                           POTA_STREAM_INGRESS_SOURCE_BIT(POTA_STREAM_INGRESS_USB_CDC),

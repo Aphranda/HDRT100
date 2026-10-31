@@ -21,6 +21,7 @@ typedef enum {
     OTA_ERR_BAD_ARGUMENT,
     OTA_ERR_SIGNATURE_INVALID,
     OTA_ERR_SECURITY_COUNTER_ROLLBACK,
+    OTA_ERR_NO_PROGRESS,
 } ota_error_t;
 
 #endif

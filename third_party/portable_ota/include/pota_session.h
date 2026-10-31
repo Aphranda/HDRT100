@@ -21,6 +21,8 @@ pota_error_t pota_session_resume_package(pota_session_t *session,
                                          uint32_t durable_crc32,
                                          uint32_t image_crc32);
 pota_error_t pota_session_service(pota_session_t *session, uint32_t budget_us);
+pota_error_t pota_session_last_error(void);
+pota_error_t pota_session_last_write_error(void);
 pota_error_t pota_session_write(pota_session_t *session, const uint8_t *data, uint32_t size);
 pota_error_t pota_session_end(pota_session_t *session);
 pota_error_t pota_session_abort(pota_session_t *session);

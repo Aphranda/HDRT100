@@ -10,6 +10,16 @@
 #define MOCK_PAGE_SIZE 16u
 #define MOCK_SECTOR_SIZE 256u
 
+static uint8_t s_program_workspace[POTA_MAX_FLASH_PAGE_SIZE];
+
+static bool test_pota_stream_session_init(pota_stream_session_t *session,
+                                     const pota_platform_t *platform)
+{
+    return pota_stream_session_init(session, platform) &&
+           pota_core_set_program_workspace(&session->core.core, s_program_workspace,
+                                           sizeof(s_program_workspace));
+}
+
 static uint8_t s_flash[MOCK_FLASH_SIZE];
 static uint32_t s_pending_count;
 static uint32_t s_erase_count;
@@ -221,7 +231,7 @@ int main(void)
     };
     pota_stream_session_t session;
     int failed = 0;
-    failed += !expect("init", pota_stream_session_init(&session, &platform));
+    failed += !expect("init", test_pota_stream_session_init(&session, &platform));
 
     const pota_stream_checkpoint_config_t checkpoint_config = {
         .context = s_flash,
@@ -258,7 +268,7 @@ int main(void)
     signed_platform.info.require_signature = true;
     pota_stream_session_t signed_session;
     failed += !expect("signed stream init",
-                      pota_stream_session_init(&signed_session,
+                      test_pota_stream_session_init(&signed_session,
                                                &signed_platform));
     failed += !expect("signed checkpoint attach",
                       pota_stream_session_set_checkpoint_store(
@@ -270,7 +280,7 @@ int main(void)
                           s_erase_count == 0u && s_program_count == 0u);
     pota_stream_session_t no_store_session;
     failed += !expect("zero-storage session init",
-                      pota_stream_session_init(&no_store_session, &platform));
+                      test_pota_stream_session_init(&no_store_session, &platform));
     failed += !expect("zero-storage durable open rejected",
                       pota_stream_session_open(&no_store_session, &open) ==
                           POTA_STREAM_RESULT_CHECKPOINT &&
@@ -323,7 +333,7 @@ int main(void)
         pota_crc32_compute(resume_image, sizeof(resume_image));
     resume_open.package_hash[1] = 0x6Bu;
     failed += !expect("resume session init",
-                      pota_stream_session_init(&session, &platform));
+                      test_pota_stream_session_init(&session, &platform));
     failed += !expect("resume checkpoint attach",
                       pota_stream_session_set_checkpoint_store(
                           &session, &checkpoint_store, &checkpoint_policy));
@@ -354,7 +364,7 @@ int main(void)
                           POTA_STREAM_CHECKPOINT_OK);
     pota_stream_session_t recovered_session;
     failed += !expect("recovered session init",
-                      pota_stream_session_init(&recovered_session, &platform));
+                      test_pota_stream_session_init(&recovered_session, &platform));
     failed += !expect("recovered checkpoint attach",
                       pota_stream_session_set_checkpoint_store(
                           &recovered_session, &recovered_store,
@@ -368,7 +378,7 @@ int main(void)
                           POTA_STREAM_RESULT_MISMATCH);
 
     failed += !expect("recovered session reinit",
-                      pota_stream_session_init(&recovered_session, &platform));
+                      test_pota_stream_session_init(&recovered_session, &platform));
     failed += !expect("recovered checkpoint reattach",
                       pota_stream_session_set_checkpoint_store(
                           &recovered_session, &recovered_store,
@@ -396,7 +406,7 @@ int main(void)
     s_flash[MOCK_SLOT_B_OFFSET] ^= 1u;
 
     failed += !expect("recovered session final init",
-                      pota_stream_session_init(&recovered_session, &platform));
+                      test_pota_stream_session_init(&recovered_session, &platform));
     failed += !expect("recovered checkpoint final attach",
                       pota_stream_session_set_checkpoint_store(
                           &recovered_session, &recovered_store,
@@ -462,7 +472,7 @@ int main(void)
     abort_open.generation++;
     abort_open.package_hash[3] = 0x7Cu;
     failed += !expect("abort session init",
-                      pota_stream_session_init(&session, &platform));
+                      test_pota_stream_session_init(&session, &platform));
     failed += !expect("abort checkpoint attach",
                       pota_stream_session_set_checkpoint_store(
                           &session, &recovered_store, &checkpoint_policy));
@@ -491,7 +501,7 @@ int main(void)
                           POTA_STREAM_CHECKPOINT_OK);
     pota_stream_session_t restarted_session;
     failed += !expect("aborted session rebuild",
-                      pota_stream_session_init(&restarted_session, &platform));
+                      test_pota_stream_session_init(&restarted_session, &platform));
     failed += !expect("aborted checkpoint reattach",
                       pota_stream_session_set_checkpoint_store(
                           &restarted_session, &aborted_store,
@@ -501,7 +511,7 @@ int main(void)
                                                &abort_open) ==
                           POTA_STREAM_RESULT_MISMATCH);
     failed += !expect("new generation session init",
-                      pota_stream_session_init(&restarted_session, &platform));
+                      test_pota_stream_session_init(&restarted_session, &platform));
     failed += !expect("new generation checkpoint attach",
                       pota_stream_session_set_checkpoint_store(
                           &restarted_session, &aborted_store,
@@ -561,7 +571,7 @@ int main(void)
                           POTA_STREAM_CHECKPOINT_OK);
     pota_stream_session_t full_package_session;
     failed += !expect("full package session init",
-                      pota_stream_session_init(&full_package_session,
+                      test_pota_stream_session_init(&full_package_session,
                                                &package_platform));
     failed += !expect("full package checkpoint attach",
                       pota_stream_session_set_checkpoint_store(
@@ -587,7 +597,7 @@ int main(void)
                                                   &checkpoint_config) ==
                           POTA_STREAM_CHECKPOINT_OK);
     failed += !expect("package session init",
-                      pota_stream_session_init(&session, &package_platform));
+                      test_pota_stream_session_init(&session, &package_platform));
     failed += !expect("package checkpoint attach",
                       pota_stream_session_set_checkpoint_store(
                           &session, &package_store, &checkpoint_policy));
@@ -637,7 +647,7 @@ int main(void)
                           POTA_STREAM_CHECKPOINT_OK);
     pota_stream_session_t package_recovered;
     failed += !expect("package recovered init",
-                      pota_stream_session_init(&package_recovered,
+                      test_pota_stream_session_init(&package_recovered,
                                                &package_platform));
     failed += !expect("package recovered attach",
                       pota_stream_session_set_checkpoint_store(
@@ -659,7 +669,7 @@ int main(void)
     bad_header[POTA_MANIFEST_EXTENSION_OFFSET + 24u] ^= 1u;
     pota_stream_session_t bad_package_resume;
     failed += !expect("bad package resume init",
-                      pota_stream_session_init(&bad_package_resume,
+                      test_pota_stream_session_init(&bad_package_resume,
                                                &package_platform));
     failed += !expect("bad package resume attach",
                       pota_stream_session_set_checkpoint_store(
@@ -677,7 +687,7 @@ int main(void)
     s_flash[MOCK_SLOT_B_OFFSET] ^= 1u;
     pota_stream_session_t corrupt_package_resume;
     failed += !expect("corrupt package resume init",
-                      pota_stream_session_init(&corrupt_package_resume,
+                      test_pota_stream_session_init(&corrupt_package_resume,
                                                &package_platform));
     failed += !expect("corrupt package resume attach",
                       pota_stream_session_set_checkpoint_store(

@@ -3491,9 +3491,12 @@ void vdc_dpll_manager_dpll_service(void)
 void tdma_component_core1_service(void)
 {
     /* During an active OTA session the config plane erases/writes flash.
-     * Skip the TDMA service so the core1 lockout poll stays tight and the
-     * flash protocol never times out behind the ring beacon. */
-    if (ota_ao_is_active()) {
+     * Legacy raw-data sessions keep the historical behaviour: skip the TDMA
+     * service so the core1 lockout poll stays tight.  A stream session is the
+     * static maintenance mode (only TDMA runs), where the ring must carry the
+     * maintenance stream; flash program/erase still parks core1 for that
+     * window and the bounded service pass resumes afterwards. */
+    if (ota_ao_is_active() && !ota_ao_tdma_maintenance_allowed()) {
         return;
     }
     /* Explicit finite TDMA-owner diagnostic, independent of OTA. The entire

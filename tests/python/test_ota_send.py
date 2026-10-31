@@ -4,12 +4,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tools.ota_send.ota_send import (
+    FAILURE_CAPABILITY_UNAVAILABLE,
+    OtaTransferError,
+    abort_session,
     closed_loop_expected_state,
     effective_block_size,
     parse_flash_transaction_state,
     parse_ota_state,
     parse_transfer_capability,
     reopen_after_end_reset,
+    resolve_block_size,
     transfer_chunks,
     validate_block_size,
 )
@@ -57,6 +61,37 @@ def test_legacy_sender_uses_three_field_capability_contract() -> None:
     assert parse_transfer_capability("256,0,1") == (256, 0, 1)
     with pytest.raises(ValueError, match="invalid OTA transfer capability"):
         parse_transfer_capability("4096,0")
+
+
+def test_capability_failure_fails_closed_without_override() -> None:
+    """OTA-HAOFV-014: an unusable CAP? must not silently drop to 512 B."""
+    with pytest.raises(OtaTransferError) as excinfo:
+        resolve_block_size(4096, "", False)
+    assert excinfo.value.kind == FAILURE_CAPABILITY_UNAVAILABLE
+    with pytest.raises(OtaTransferError):
+        resolve_block_size(4096, "garbage", False)
+
+
+def test_capability_failure_opt_in_uses_compatibility_block_size() -> None:
+    decision = resolve_block_size(4096, "garbage", True)
+    assert decision.block_size == 512
+    assert decision.reported_max == 512
+    assert decision.capability_reported is False
+
+
+def test_capability_negotiates_down_from_reported_max() -> None:
+    decision = resolve_block_size(4096, "1024,0,1", False)
+    assert decision.block_size == 1024
+    assert decision.reported_max == 1024
+    assert decision.capability_reported is True
+
+
+def test_abort_session_is_best_effort_when_link_is_dead() -> None:
+    class DeadPort:
+        def write(self, *_args, **_kwargs):
+            raise RuntimeError("link down")
+
+    assert abort_session(DeadPort()) == ""
 
 
 def test_end_reset_closes_stale_handle_before_reopening() -> None:

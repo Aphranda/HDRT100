@@ -32,6 +32,12 @@ static pota_stream_ingress_result_t remember(
     return result;
 }
 
+uint32_t pota_stream_ingress_last_session_result(
+    const pota_stream_ingress_t *ingress)
+{
+    return ingress == NULL ? 0xFFFFFFFFu : ingress->last_session_result;
+}
+
 bool pota_stream_ingress_init(pota_stream_ingress_t *ingress,
                               pota_stream_session_t *session,
                               uint32_t source_mask,
@@ -66,6 +72,7 @@ pota_stream_ingress_result_t pota_stream_ingress_open(
     }
     const pota_stream_result_t result =
         pota_stream_session_open(ingress->session, open);
+    ingress->last_session_result = (uint32_t)result;
     if (result != POTA_STREAM_RESULT_OK) {
         return remember(ingress, session_result(result));
     }

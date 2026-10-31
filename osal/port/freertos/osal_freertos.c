@@ -1,4 +1,5 @@
 #include "osal.h"
+#include "drv_watchdog.h"
 
 #include "board.h"
 #include "FreeRTOS.h"
@@ -177,6 +178,7 @@ void osal_heap_get_status(uint32_t *free_bytes, uint32_t *minimum_ever_free_byte
 
 void vApplicationMallocFailedHook(void)
 {
+    drv_watchdog_mark_ota_phase(42u); /* retained: malloc failed */
     taskDISABLE_INTERRUPTS();
     while (true) {
         board_status_led_toggle();
@@ -189,6 +191,7 @@ void vApplicationAssertHook(const char *file, int line)
     (void)file;
     (void)line;
 
+    drv_watchdog_mark_ota_phase(100000u + (uint32_t)(line & 0xFFFF));
     taskDISABLE_INTERRUPTS();
     while (true) {
         board_status_led_toggle();
@@ -201,6 +204,7 @@ void vApplicationStackOverflowHook(TaskHandle_t task, char *task_name)
     (void)task;
     (void)task_name;
 
+    drv_watchdog_mark_ota_phase(41u); /* retained: stack overflow */
     taskDISABLE_INTERRUPTS();
     while (true) {
         board_status_led_toggle();

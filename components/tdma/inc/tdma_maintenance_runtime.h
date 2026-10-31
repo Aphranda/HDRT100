@@ -12,6 +12,9 @@
 bool tdma_maintenance_runtime_init(tdma_pio_spi_ring_adapter_t *adapter,
                                    uint32_t local_slot);
 bool tdma_maintenance_runtime_ready(void);
+/* Local node slot recorded at init; used by the OTA carrier to build the
+ * peer target mask without exposing the ring profile. */
+bool tdma_maintenance_runtime_get_local_slot(uint32_t *slot);
 bool tdma_maintenance_runtime_submit(const uint8_t *frame,
                                      size_t frame_size,
                                      uint8_t stream_id,

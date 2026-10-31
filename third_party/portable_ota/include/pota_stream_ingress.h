@@ -15,6 +15,7 @@ typedef enum {
     POTA_STREAM_INGRESS_SD,
     POTA_STREAM_INGRESS_UART,
     POTA_STREAM_INGRESS_RS485,
+    POTA_STREAM_INGRESS_TDMA,
     POTA_STREAM_INGRESS_SOURCE_COUNT,
 } pota_stream_ingress_source_t;
 
@@ -33,6 +34,7 @@ typedef struct {
     uint32_t max_frame_size;
     pota_stream_ingress_source_t active_source;
     pota_stream_ingress_result_t last_result;
+    uint32_t last_session_result;
     bool open;
 } pota_stream_ingress_t;
 
@@ -43,6 +45,9 @@ typedef struct {
     uint32_t stream_token;
     pota_stream_ingress_result_t last_result;
 } pota_stream_ingress_status_t;
+
+uint32_t pota_stream_ingress_last_session_result(
+    const pota_stream_ingress_t *ingress);
 
 bool pota_stream_ingress_init(pota_stream_ingress_t *ingress,
                               pota_stream_session_t *session,

@@ -227,6 +227,26 @@ scpi_result_t scpi_cmd_flash_transaction_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+
+scpi_result_t scpi_cmd_flash_lockout_q(scpi_t *context)
+{
+    drv_flash_lockout_status_t status;
+    drv_flash_get_lockout_status(&status);
+    SCPI_ResultUInt32(context, status.core1_lockout_supported ? 1u : 0u);
+    SCPI_ResultUInt32(context, status.core1_lockout_online ? 1u : 0u);
+    SCPI_ResultUInt32(context, status.core1_lockout_requested ? 1u : 0u);
+    SCPI_ResultUInt32(context, status.core1_lockout_acknowledged ? 1u : 0u);
+    SCPI_ResultUInt32(context, status.park_state);
+    SCPI_ResultUInt32(context, status.request_seq);
+    SCPI_ResultUInt32(context, status.ack_seq);
+    SCPI_ResultUInt32(context, status.release_seq);
+    SCPI_ResultUInt32(context, status.timeout_count);
+    SCPI_ResultUInt32(context, status.release_timeout_count);
+    SCPI_ResultUInt32(context, status.last_result);
+    SCPI_ResultUInt32(context, status.last_elapsed_us);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_flash_jedec_q(scpi_t *context)
 {
     drv_flash_jedec_id_t jedec;

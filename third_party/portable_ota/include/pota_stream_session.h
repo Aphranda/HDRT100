@@ -11,6 +11,9 @@
 #define POTA_STREAM_PACKAGE_HASH_SIZE 32u
 #define POTA_STREAM_CAP_INACTIVE_WRITE (1u << 0)
 #define POTA_STREAM_CAP_DURABLE_ACK    (1u << 1)
+/* Relay routing (OTA-TDMA): the OPEN is addressed to a ring node rather than
+ * to the local board; `relay_node` carries the node id (0..31). */
+#define POTA_STREAM_CAP_RELAY          (1u << 2)
 
 typedef enum {
     POTA_STREAM_STATE_IDLE = 0,
@@ -47,6 +50,7 @@ typedef struct {
     uint32_t total_size;
     uint32_t package_crc32;
     bool package_mode;
+    uint8_t relay_node;
     uint8_t identity[POTA_STREAM_IDENTITY_SIZE];
     uint8_t package_hash[POTA_STREAM_PACKAGE_HASH_SIZE];
 } pota_stream_open_t;
@@ -88,6 +92,9 @@ bool pota_stream_session_set_checkpoint_store(
     const pota_stream_checkpoint_policy_t *policy);
 pota_stream_result_t pota_stream_session_open(
     pota_stream_session_t *session, const pota_stream_open_t *open);
+pota_stream_result_t pota_stream_session_last_result(void);
+pota_stream_result_t pota_stream_session_last_write_result(void);
+uint32_t pota_stream_session_core_state(const pota_stream_session_t *session);
 pota_stream_result_t pota_stream_session_service(
     pota_stream_session_t *session, uint32_t budget_us);
 pota_stream_result_t pota_stream_session_write(

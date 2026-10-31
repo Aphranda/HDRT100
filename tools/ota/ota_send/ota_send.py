@@ -8,7 +8,7 @@ import binascii
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -33,6 +33,80 @@ FLASH_TRANSACTION_STATE_FAILED = 10
 FLASH_TRANSACTION_STATE_ABORTED = 11
 FLASH_TRANSACTION_GENERATION_INDEX = 11
 
+# OTA-HAOFV-014: a failed transfer must name its failure class so callers can
+# tell "the device rejected the block" from "the block was never consumed" and
+# from "the link died", instead of a generic timeout.
+FAILURE_CAPABILITY_UNAVAILABLE = "capability_unavailable"
+FAILURE_OPEN_REJECTED = "open_rejected"
+FAILURE_OPEN_TIMEOUT = "open_timeout"
+FAILURE_BLOCK_REJECTED = "block_rejected"
+FAILURE_BLOCK_NOT_CONSUMED = "block_not_consumed"
+FAILURE_LINK_LOST = "link_lost"
+
+
+class OtaTransferError(RuntimeError):
+    """Structured transfer failure carrying a machine-readable kind."""
+
+    def __init__(self, kind: str, detail: str):
+        super().__init__(f"{kind}: {detail}")
+        self.kind = kind
+        self.detail = detail
+
+
+class BlockSizeDecision(NamedTuple):
+    block_size: int
+    reported_max: int
+    capability_mask: int
+    map_version: int
+    capability_reported: bool
+
+
+def resolve_block_size(requested: int, capability_response: str,
+                       allow_compat: bool) -> BlockSizeDecision:
+    """Decide the block size, failing closed when CAP? cannot be trusted.
+
+    A silent fallback to the 512-byte compatibility size hides a firmware/host
+    capability mismatch and slows every transfer; the caller must opt in.
+    """
+    try:
+        reported, mask, map_version = parse_transfer_capability(capability_response)
+    except ValueError as exc:
+        if not allow_compat:
+            raise OtaTransferError(
+                FAILURE_CAPABILITY_UNAVAILABLE,
+                f"transfer capability rejected {capability_response!r}: {exc}; "
+                "pass --allow-compat-block-size to override explicitly",
+            ) from exc
+        print(f"transfer_capability_query=unavailable ({exc}); explicit "
+              f"compatibility block size {COMPATIBILITY_BLOCK_SIZE}",
+              file=sys.stderr)
+        return BlockSizeDecision(COMPATIBILITY_BLOCK_SIZE, COMPATIBILITY_BLOCK_SIZE,
+                                 0, 0, False)
+    return BlockSizeDecision(effective_block_size(requested, reported), reported,
+                             mask, map_version, True)
+
+
+def transfer_error(serial_port, metadata: dict[str, Any] | None, kind: str,
+                   detail: str) -> "OtaTransferError":
+    """Abort the device session and build a classified transfer error."""
+    status = abort_session(serial_port)
+    if metadata is not None:
+        metadata.update({"failure_kind": kind, "abort_status": status})
+    return OtaTransferError(kind, f"{detail}; abort={status!r}")
+
+
+def abort_session(serial_port) -> str:
+    """Best-effort ABORt so a failed transfer never leaves the device parked.
+
+    The abort must not mask the original failure, so every transport error is
+    swallowed and reported as an empty status.
+    """
+    try:
+        write_line(serial_port, "SYST:OTA:ABOR")
+        return query_final_status(serial_port)
+    except Exception:  # noqa: BLE001 - abort is evidence, not the failure path
+        return ""
+
 
 def crc32(data: bytes) -> int:
     return binascii.crc32(data) & 0xFFFFFFFF
@@ -47,6 +121,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-b", type=Path, help="Slot B linked raw firmware .bin")
     parser.add_argument("--baud", type=int, default=115200, help="ignored by USB CDC on most hosts")
     parser.add_argument("--block-size", type=int, default=DEFAULT_BLOCK_SIZE)
+    parser.add_argument(
+        "--allow-compat-block-size", action="store_true",
+        help=("explicitly allow the 512-byte compatibility block size when "
+              "SYST:OTA:STREAM:CAP? does not answer")),
     parser.add_argument("--timeout", type=float, default=2.0)
     parser.add_argument("--begin-timeout", type=float, default=DEFAULT_BEGIN_TIMEOUT_S)
     parser.add_argument("--corrupt-crc", action="store_true", help="send an intentionally wrong CRC32")
@@ -538,20 +616,19 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int,
 
         capability_started = time.monotonic()
         capability_response = ""
-        reported_block_size = COMPATIBILITY_BLOCK_SIZE
-        capability_mask = 0
-        reported_map_version = 0
-        capability_reported = False
         try:
             capability_response = query(ser, "SYST:OTA:STREAM:CAP?")
-            reported_block_size, capability_mask, reported_map_version = \
-                parse_transfer_capability(capability_response)
-            capability_reported = True
-        except ValueError:
-            print("transfer_capability_query=unavailable; using 512",
-                  file=sys.stderr)
-        block_size = effective_block_size(args.block_size,
-                                          reported_block_size)
+        except (OSError, RuntimeError) as exc:
+            raise OtaTransferError(
+                FAILURE_CAPABILITY_UNAVAILABLE,
+                f"transfer capability query failed: {exc}") from exc
+        decision = resolve_block_size(args.block_size, capability_response,
+                                      args.allow_compat_block_size)
+        block_size = decision.block_size
+        reported_block_size = decision.reported_max
+        capability_mask = decision.capability_mask
+        reported_map_version = decision.map_version
+        capability_reported = decision.capability_reported
         chunks = transfer_chunks(image, block_size, package_mode)
         if (args.flash_transaction_probe_after_blocks < 0 or
                 args.flash_transaction_probe_after_blocks > len(chunks)):
@@ -584,10 +661,47 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int,
         print(f"effective_block_size={block_size}")
         print(f"effective_block_count={len(chunks)}")
 
+        def wait_receiving(phase: str) -> None:
+            try:
+                wait_for_receiving(ser, args.begin_timeout)
+            except serial.SerialException as exc:
+                raise transfer_error(ser, metadata, FAILURE_LINK_LOST,
+                                     f"{phase}: {exc}") from exc
+            except TimeoutError as exc:
+                raise transfer_error(ser, metadata, FAILURE_OPEN_TIMEOUT,
+                                     f"{phase}: {exc}") from exc
+            except RuntimeError as exc:
+                raise transfer_error(ser, metadata, FAILURE_OPEN_REJECTED,
+                                     f"{phase}: {exc}") from exc
+
+        def wait_consumed(phase: str, expected_offset: int) -> str:
+            try:
+                return wait_for_received_offset(
+                    ser, expected_offset, args.begin_timeout,
+                    fast_ack=args.fast_ack)
+            except serial.SerialException as exc:
+                raise transfer_error(ser, metadata, FAILURE_LINK_LOST,
+                                     f"{phase}: {exc}") from exc
+            except TimeoutError as exc:
+                raise transfer_error(ser, metadata, FAILURE_BLOCK_NOT_CONSUMED,
+                                     f"{phase}: {exc}") from exc
+            except RuntimeError as exc:
+                raise transfer_error(ser, metadata, FAILURE_BLOCK_REJECTED,
+                                     f"{phase}: {exc}") from exc
+
+        def write_block(payload: bytes) -> None:
+            try:
+                ser.write(b"SYST:OTA:DATA ")
+                ser.write(scpi_block(payload))
+                ser.write(b"\n")
+            except serial.SerialException as exc:
+                raise transfer_error(ser, metadata, FAILURE_LINK_LOST,
+                                     f"DATA write: {exc}") from exc
+
         begin_command = "SYST:OTA:PBEGIN" if package_mode else "SYST:OTA:BEGIN"
         begin_started = time.monotonic()
         write_line(ser, f"{begin_command} {len(image)},{image_crc}")
-        wait_for_receiving(ser, args.begin_timeout)
+        wait_receiving("open")
         if timing is not None:
             timing.record("open_ready", time.monotonic() - begin_started,
                           request=f"{begin_command} {len(image)},{image_crc}",
@@ -605,15 +719,13 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int,
                 # image.  Sector erase is deliberately bounded and may take
                 # substantially longer than one USB round trip.
                 time.sleep(5.0 if offset == PACKAGE_HEADER_SIZE else 0.02)
-                wait_for_receiving(ser, args.begin_timeout)
+                wait_receiving(f"pre-block {sent_blocks}")
             probe_baseline = ""
             if sent_blocks == args.flash_transaction_probe_after_blocks:
                 probe_baseline = query(ser, "SYST:DIAG:FLASH:TRAN?")
                 parse_flash_transaction_state(probe_baseline)
 
-            ser.write(b"SYST:OTA:DATA ")
-            ser.write(scpi_block(chunk))
-            ser.write(b"\n")
+            write_block(chunk)
 
             if package_mode and offset == 0:
                 first_block_status = query_final_status(ser)
@@ -627,9 +739,8 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int,
 
             # DATA is asynchronous; apply sender-side back-pressure so the
             # following block (or END) cannot overtake the AO.
-            wait_for_received_offset(
-                ser, offset + len(chunk), args.begin_timeout,
-                fast_ack=args.fast_ack)
+            wait_consumed(f"block {sent_blocks} offset {offset}",
+                          offset + len(chunk))
 
             if sent_blocks == args.flash_transaction_probe_after_blocks:
                 response = wait_for_flash_transaction_probe(
@@ -776,6 +887,13 @@ def main() -> int:
 
         result = 0
         return result
+    except OtaTransferError as exc:
+        error = str(exc)
+        metadata["failure_kind"] = exc.kind
+        metadata["failure_detail"] = exc.detail
+        print(f"FAIL {exc}", file=sys.stderr)
+        print(f"failure_kind={exc.kind}")
+        return 1
     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
         error = str(exc)
         print(f"FAIL {exc}", file=sys.stderr)

@@ -22,14 +22,12 @@
 #define APP_WATCHDOG_TASK_STACK_WORDS 256u
 #define APP_SCPI_TASK_STACK_WORDS 2048u
 #define APP_UI_TASK_STACK_WORDS 1024u
-/* OTA is event-driven; runtime watermark captured only a small command
- * handling footprint.  Keep one KiB baseline and retain the negotiated data
- * block increment below for larger OTA payloads. */
-#define APP_OTA_TASK_BASE_STACK_WORDS 1024u
-#define APP_OTA_TASK_STACK_WORDS \
-    (APP_OTA_TASK_BASE_STACK_WORDS + \
-     ((OTA_EVENT_MAX_DATA_SIZE - OTA_EVENT_INLINE_DATA_SIZE + \
-       sizeof(uint32_t) - 1u) / sizeof(uint32_t)))
+/* OTA task stack: the program staging window is one flash page instead of a
+ * block-sized frame (OTA-HAOFV-011).  Measured high-water after a full package
+ * transfer is 1428 words (`SYST:RTOS:STAT?`, ota words - free, build
+ * 20261029160058); 1792 words leaves ~25% margin.  Do not shrink below the
+ * measured peak: a 1152-word attempt overflowed during BEGIN/erase. */
+#define APP_OTA_TASK_STACK_WORDS 1792u
 
 static void task_system(void *context)
 {

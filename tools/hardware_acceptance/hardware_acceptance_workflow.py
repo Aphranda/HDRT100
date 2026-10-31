@@ -146,7 +146,7 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
             launch[key] = True
     if getattr(ns, "monitor", None):
         launch["monitor"] = ns.monitor
-    for key in ("package", "ota_summary", "build_dir", "reuse_topology"):
+    for key in ("package", "ota_summary", "build_dir", "reuse_topology", "preset"):
         if getattr(ns, key, None) is not None:
             launch[key] = str(getattr(ns, key))
     if getattr(ns, "method", None):
@@ -167,7 +167,7 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
         full=full, tdma_only=bool(launch.get("tdma_only")),
         diagnostic_continue=bool(launch.get("diagnostic_continue")),
         out_dir=out_dir, reuse_topology=path("reuse_topology"),
-        build_dir=path("build_dir"), package=path("package"),
+        build_dir=path("build_dir"), package=path("package"), preset=launch.get("preset"),
         ota_summary=path("ota_summary"), flash_method=launch.get("flash_method", "ota"),
         strict_stage=[], _launch=launch)
 
@@ -541,6 +541,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--package", type=Path, default=None)
     parser.add_argument("--ota-summary", type=Path, default=None)
     parser.add_argument("--build-dir", type=Path, default=None)
+    parser.add_argument("--preset", default=None,
+                        help="CMake preset forwarded to the build step")
     parser.add_argument("--reuse-topology", type=Path, default=None)
     parser.add_argument("--full-bench", dest="full_config", action="store_true",
                         help="use config/hardware_acceptance/p3_bench.json (FULL profile)")

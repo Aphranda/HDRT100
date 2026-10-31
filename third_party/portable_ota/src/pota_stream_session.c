@@ -38,7 +38,8 @@ static bool open_valid(const pota_stream_session_t *session,
                        const pota_stream_open_t *open)
 {
     const uint32_t known_capabilities =
-        POTA_STREAM_CAP_INACTIVE_WRITE | POTA_STREAM_CAP_DURABLE_ACK;
+        POTA_STREAM_CAP_INACTIVE_WRITE | POTA_STREAM_CAP_DURABLE_ACK |
+        POTA_STREAM_CAP_RELAY;
     return session != NULL && open != NULL && open->session_id != 0u &&
            open->generation != 0u &&
            open->map_version != 0u && open->object_id != 0u &&
@@ -230,7 +231,7 @@ pota_stream_result_t pota_stream_session_open(
     return POTA_STREAM_RESULT_OK;
 }
 
-pota_stream_result_t pota_stream_session_service(
+static pota_stream_result_t pota_stream_session_service_impl(
     pota_stream_session_t *session, uint32_t budget_us)
 {
     if (session == NULL) {
@@ -274,7 +275,7 @@ pota_stream_result_t pota_stream_session_service(
     return POTA_STREAM_RESULT_OK;
 }
 
-pota_stream_result_t pota_stream_session_write(
+static pota_stream_result_t pota_stream_session_write_impl(
     pota_stream_session_t *session, uint32_t offset,
     const uint8_t *data, uint32_t size)
 {
@@ -463,4 +464,45 @@ pota_stream_state_t pota_stream_session_state(
     const pota_stream_session_t *session)
 {
     return session == NULL ? POTA_STREAM_STATE_FAILED : session->state;
+}
+
+
+static pota_stream_result_t s_last_result;
+
+pota_stream_result_t pota_stream_session_last_result(void)
+{
+    return s_last_result;
+}
+
+pota_stream_result_t pota_stream_session_service(pota_stream_session_t *session,
+                                                 uint32_t budget_us)
+{
+    const pota_stream_result_t result =
+        pota_stream_session_service_impl(session, budget_us);
+    s_last_result = result;
+    return result;
+}
+
+
+uint32_t pota_stream_session_core_state(const pota_stream_session_t *session)
+{
+    return session == NULL ? 0u : session->core.core.status.state;
+}
+
+static pota_stream_result_t s_last_write_result;
+
+pota_stream_result_t pota_stream_session_last_write_result(void)
+{
+    return s_last_write_result;
+}
+
+pota_stream_result_t pota_stream_session_write(pota_stream_session_t *session,
+                                               uint32_t offset,
+                                               const uint8_t *data,
+                                               uint32_t size)
+{
+    const pota_stream_result_t result =
+        pota_stream_session_write_impl(session, offset, data, size);
+    s_last_write_result = result;
+    return result;
 }

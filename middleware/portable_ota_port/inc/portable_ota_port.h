@@ -53,10 +53,20 @@ pota_stream_ingress_result_t portable_ota_port_stream_write(
 pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us);
 pota_stream_ingress_result_t portable_ota_port_stream_close(
     pota_stream_ingress_source_t source);
+/* Drops any open stream session and rebuilds the ingress surfaces.  Used by
+ * the TDMA target when a retried OPEN arrives while an old lease is stuck. */
+bool portable_ota_port_stream_force_reset(void);
+
+/* Raw pota_stream_result_t of the last ingestion session open (diagnostics). */
+uint32_t portable_ota_port_stream_last_session_result(void);
+uint32_t portable_ota_port_stream_platform_map_version(void);
+
 pota_stream_ingress_result_t portable_ota_port_stream_abort(
     pota_stream_ingress_source_t source);
 bool portable_ota_port_stream_is_active(void);
 bool portable_ota_port_stream_get_status(pota_stream_ingress_status_t *status);
+uint32_t portable_ota_port_stream_core_state(void);
+uint32_t portable_ota_port_stream_total_size(void);
 const char *portable_ota_port_state_to_string(ota_state_t state);
 const char *portable_ota_port_error_to_string(uint32_t error_code);
 const char *portable_ota_port_result_to_string(ota_result_t result);

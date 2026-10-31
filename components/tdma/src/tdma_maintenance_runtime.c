@@ -196,6 +196,15 @@ bool tdma_maintenance_runtime_init(tdma_pio_spi_ring_adapter_t *adapter,
     return true;
 }
 
+bool tdma_maintenance_runtime_get_local_slot(uint32_t *slot)
+{
+    if (slot == NULL || s_adapter == NULL) {
+        return false;
+    }
+    *slot = s_local_slot;
+    return true;
+}
+
 bool tdma_maintenance_runtime_ready(void)
 {
     return s_adapter != NULL;

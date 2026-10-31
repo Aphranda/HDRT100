@@ -17,6 +17,18 @@ if (-not $hostCc) {
     throw "Host GCC not found in PATH; pass -HostGccDir to override"
 }
 
+# Several RefMem/TDMA host tests include distributed_refmem.h, which pulls in
+# trigger_position_descriptor.h from components\sync_trigger\inc.  The single
+# runners do not add that directory, so provide it through the compiler search
+# path for the whole aggregate run (same approach as run_refmem_all_host_tests).
+$triggerInclude = Join-Path $repo "components\sync_trigger\inc"
+$oldIncludePath = $env:C_INCLUDE_PATH
+if ($oldIncludePath) {
+    $env:C_INCLUDE_PATH = "$triggerInclude;$oldIncludePath"
+} else {
+    $env:C_INCLUDE_PATH = $triggerInclude
+}
+
 $scripts = @(
     "run_biss_protocol_tests.ps1",
     "run_calibration_training_store_tests.ps1",
@@ -27,6 +39,15 @@ $scripts = @(
     "run_portable_log_tests.ps1",
     "run_portable_ota_tests.ps1",
     "run_ota_journal_tests.ps1",
+    "run_ota_progress_watch_tests.ps1",
+    "run_ota_tdma_codec_tests.ps1",
+    "run_ota_tdma_ingress_tests.ps1",
+    "run_ota_tdma_pump_tests.ps1",
+    "run_ota_tdma_loopback_tests.ps1",
+    "run_ota_tdma_session_tests.ps1",
+    "run_ota_tdma_carrier_tests.ps1",
+    "run_ota_tdma_binding_tests.ps1",
+    "run_ota_tdma_relay_tests.ps1",
     "run_refmem_application_contract_tests.ps1",
     "run_refmem_command_tests.ps1",
     "run_refmem_node_load_sync_tests.ps1",
@@ -67,6 +88,12 @@ foreach ($script in $scripts) {
         exit $LASTEXITCODE
     }
     $passed++
+}
+
+if ($oldIncludePath) {
+    $env:C_INCLUDE_PATH = $oldIncludePath
+} else {
+    Remove-Item Env:C_INCLUDE_PATH -ErrorAction SilentlyContinue
 }
 
 Write-Host "host unit test scripts passed: $passed/$($scripts.Count)"

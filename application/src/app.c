@@ -20,6 +20,11 @@
 #include "loop_engine.h"
 #include "model_turntable.h"
 #include "ota_ao.h"
+#include "ota_tdma_binding.h"
+
+/* Bumped whenever the relay diagnostics change, so a retained phase read
+ * after a flash proves which image is actually running. */
+#define OTA_STREAM_BOOT_SENTINEL 91u
 #include "product_config.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
@@ -507,9 +512,34 @@ void app_config_gate_service(void)
     system_manager_service();
 }
 
+static bool s_ota_tdma_binding_ready;
+static bool s_ota_tdma_parser_registered;
+
 void app_ota_service(void)
 {
     ota_ao_service(500u);
+    /* The OTA frame parser must exist before the first ring frame arrives;
+     * registration is independent of the local stream session. */
+    if (!s_ota_tdma_parser_registered) {
+        s_ota_tdma_parser_registered = ota_tdma_binding_register_parser();
+    }
+    /* Static maintenance mode: the TDMA ring carries OTA frames, so the AO
+     * task drains the maintenance transport while a stream session is active.
+     * The binding is created lazily (it needs the TDMA runtime local slot) and
+     * never runs outside that mode. */
+    const bool relay_active = ota_tdma_binding_relay_active();
+    if (!ota_ao_tdma_maintenance_allowed() && !relay_active) {
+        return;
+    }
+    if (!s_ota_tdma_binding_ready) {
+        s_ota_tdma_binding_ready = ota_tdma_binding_init();
+    }
+    /* A relay started from the SCPI path may have initialised the binding
+     * itself; the service must still run so relay_tick can start/retry the
+     * source pump. */
+    if (relay_active || s_ota_tdma_binding_ready) {
+        ota_tdma_binding_service(board_uptime_ms(), 2u);
+    }
 }
 
 void app_diag_service(void)

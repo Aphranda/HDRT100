@@ -18,5 +18,9 @@ void ota_ao_publish_metadata_snapshot(const ota_metadata_t *metadata);
  * The realtime core uses this to skip TDMA service during flash maintenance,
  * keeping the lockout poll tight. */
 bool ota_ao_is_active(void);
+/* True when an active OTA session expects the TDMA maintenance transport to
+ * keep running (static maintenance mode).  Legacy raw-data sessions keep the
+ * historical behaviour: the ring stays idle while flash is written. */
+bool ota_ao_tdma_maintenance_allowed(void);
 
 #endif

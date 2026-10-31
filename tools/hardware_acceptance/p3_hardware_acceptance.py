@@ -3243,13 +3243,23 @@ def phase_build(run: AcceptanceRun) -> None:
     build_dir = root / (
         args.build_dir or Path(f"out/build/p3-acceptance-{stamp}"))
     print(f"P3 acceptance: build -> {build_dir}", flush=True)
-    _run_step([
+    build_command = [
         sys.executable,
         str(root / "tools/cmake_build_auto/cmake_build_auto.py"),
         "--root", str(root), "--build-dir", str(build_dir),
-    ], root, out_dir / "build.log")
+    ]
+    if getattr(args, "preset", None):
+        build_command.extend(["--preset", str(args.preset)])
+    _run_step(build_command, root, out_dir / "build.log")
     run.put(build_dir=build_dir)
     package = build_dir / "DHRT100_UPDATE.pkg"
+    if not package.is_file():
+        # A V2 factory-candidate build names its package explicitly; the
+        # acceptance flow keeps the standard path so downstream evidence and
+        # receipts stay layout-agnostic.
+        v2_package = build_dir / "DHRT100_V2_CANDIDATE_UPDATE.pkg"
+        if v2_package.is_file():
+            shutil.copyfile(v2_package, package)
     if package.is_file():
         # Record which source produced this package so --reuse-flashed can
         # prove that the boards' build is the current tree's build.
@@ -3387,7 +3397,8 @@ def phase_flash(run: AcceptanceRun) -> None:
         str(package), "--expected-board-count",
         str(len(ota_board_ids)),
         "--expected-build", build_id, "--out-dir", str(ota_dir),
-        "--block-size", "4096",
+        "--block-size", "4096", "--timeout", "60",
+        "--begin-timeout", "300",
     ]
     for board_id in ota_board_ids:
         ota_command.extend(["--serial-number", board_id])
@@ -5048,6 +5059,11 @@ def parse_args() -> argparse.Namespace:
     run.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     run.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     run.add_argument("--build-dir", type=Path)
+    run.add_argument(
+        "--preset", default=None,
+        help=("CMake configure preset for the build step (default: the "
+              "cmake_build_auto default, i.e. pico2-release); use "
+              "pico2-v2-factory-candidate for a V2 deployment run"))
     run.add_argument("--out-dir", type=Path)
     run.add_argument("--reuse-topology", type=Path,
                      help="reuse an original passing P0T summary; quick four-board mode only")

@@ -447,6 +447,7 @@ set(PROJECT_APP_SOURCES
         application/src/app_refmem_domain_config.c
         application/src/app_tdma_record.c
         application/src/app_tasks.c
+        application/src/ota_tdma_binding.c
         ${PROJECT_BUILD_INFO_SOURCE}
         boards/rp2350_trig/src/board.c
         third_party/portable_log/src/portable_log.c
@@ -544,6 +545,13 @@ set(PROJECT_APP_SOURCES
         components/ota_manager/src/ota_metadata_flash_app.c
         components/ota_manager/src/ota_metadata_flash_read.c
         components/ota_manager/src/ota_package.c
+        components/ota_manager/src/ota_progress_watch.c
+        components/ota_manager/src/ota_tdma_codec.c
+        components/ota_manager/src/ota_tdma_ingress.c
+        components/ota_manager/src/ota_tdma_pump.c
+        components/ota_manager/src/ota_tdma_session.c
+        components/ota_manager/src/ota_tdma_carrier.c
+        components/ota_manager/src/ota_tdma_relay.c
         components/product_config/src/product_config.c
         ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
         ${PROJECT_OTA_CRYPTO_SOURCES}

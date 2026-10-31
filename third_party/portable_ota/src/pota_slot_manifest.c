@@ -70,6 +70,23 @@ static uint32_t body_crc(const pota_slot_manifest_body_t *body)
     return pota_crc32_compute(&copy, sizeof(copy));
 }
 
+/* OTA finalize runs on the refmem_sync task whose free stack is ~2 KiB;
+ * these records used to live on that stack and overflowed it.  The manifest
+ * path is single-threaded (AO/service), so file-scope scratch is safe. */
+static pota_slot_manifest_t s_load_newest;
+static pota_slot_manifest_t s_load_candidate;
+static pota_slot_manifest_t s_txn_current;
+static pota_slot_manifest_body_t s_txn_body;
+
+extern void pota_trace(uint32_t code) __attribute__((weak));
+
+static void manifest_trace(uint32_t code)
+{
+    if (pota_trace != NULL) {
+        pota_trace(code);
+    }
+}
+
 static pota_slot_manifest_result_t read_lane(
     const pota_slot_manifest_store_t *store,
     uint32_t lane,
@@ -152,19 +169,22 @@ pota_slot_manifest_result_t pota_slot_manifest_load(
         return POTA_SLOT_MANIFEST_BAD_ARGUMENT;
     }
 
+    manifest_trace(1u); /* load entry */
     bool found = false;
     bool io_failed = false;
-    pota_slot_manifest_t newest;
+
     for (uint32_t lane = 0u; lane < POTA_SLOT_MANIFEST_LANE_COUNT; lane++) {
-        pota_slot_manifest_t candidate;
+        
+        manifest_trace(2u + lane); /* before lane read */
         const pota_slot_manifest_result_t result =
-            read_lane(store, lane, &candidate, NULL);
+            read_lane(store, lane, &s_load_candidate, NULL);
+        manifest_trace(4u + lane); /* after lane read */
         if (result == POTA_SLOT_MANIFEST_IO) {
             io_failed = true;
         } else if (result == POTA_SLOT_MANIFEST_OK &&
-                   (!found || sequence_newer(candidate.sequence,
-                                             newest.sequence))) {
-            newest = candidate;
+                   (!found || sequence_newer(s_load_candidate.sequence,
+                                             s_load_newest.sequence))) {
+            s_load_newest = s_load_candidate;
             found = true;
         }
     }
@@ -172,7 +192,8 @@ pota_slot_manifest_result_t pota_slot_manifest_load(
         return io_failed ? POTA_SLOT_MANIFEST_IO
                          : POTA_SLOT_MANIFEST_NO_VALID;
     }
-    *manifest = newest;
+    *manifest = s_load_newest;
+    manifest_trace(6u); /* load done */
     return POTA_SLOT_MANIFEST_OK;
 }
 
@@ -285,13 +306,19 @@ pota_slot_manifest_result_t pota_slot_manifest_txn_begin(
         return POTA_SLOT_MANIFEST_BAD_ARGUMENT;
     }
 
+    manifest_trace(7u); /* txn_begin entry */
     (void)memset(txn, 0, sizeof(*txn));
+    manifest_trace(11u); /* txn zeroed */
     txn->config = store->config;
+    manifest_trace(12u); /* config copied */
     (void)memcpy(txn->header, header, POTA_PACKAGE_HEADER_SIZE);
+    manifest_trace(13u); /* header copied */
 
-    pota_slot_manifest_t current;
+    manifest_trace(14u); /* before load */
+    pota_slot_manifest_t *current = &s_txn_current;
     const pota_slot_manifest_result_t loaded =
-        pota_slot_manifest_load(store, &current);
+        pota_slot_manifest_load(store, current);
+    manifest_trace(8u); /* load returned */
     if (loaded != POTA_SLOT_MANIFEST_OK &&
         loaded != POTA_SLOT_MANIFEST_NO_VALID) {
         txn->state = MANIFEST_TXN_STATE_FAILED;
@@ -299,7 +326,7 @@ pota_slot_manifest_result_t pota_slot_manifest_txn_begin(
         return loaded;
     }
     if (loaded == POTA_SLOT_MANIFEST_OK &&
-        memcmp(current.header, header, POTA_PACKAGE_HEADER_SIZE) == 0) {
+        memcmp(current->header, header, POTA_PACKAGE_HEADER_SIZE) == 0) {
         txn->state = MANIFEST_TXN_STATE_DONE;
         txn->terminal = POTA_SLOT_MANIFEST_STEP_DONE;
         txn->active = true;
@@ -307,28 +334,29 @@ pota_slot_manifest_result_t pota_slot_manifest_txn_begin(
     }
 
     txn->sequence = loaded == POTA_SLOT_MANIFEST_OK
-                        ? current.sequence + 1u
+                        ? current->sequence + 1u
                         : 1u;
     if (txn->sequence == 0u) {
         txn->state = MANIFEST_TXN_STATE_FAILED;
         txn->terminal = POTA_SLOT_MANIFEST_STEP_FAILED;
         return POTA_SLOT_MANIFEST_ROLLBACK;
     }
-    txn->target_lane = loaded == POTA_SLOT_MANIFEST_OK ? current.lane ^ 1u : 0u;
+    txn->target_lane = loaded == POTA_SLOT_MANIFEST_OK ? current->lane ^ 1u : 0u;
     txn->target_offset = lane_offset(store, txn->target_lane);
 
-    pota_slot_manifest_body_t body;
-    (void)memset(&body, 0xFF, sizeof(body));
-    body.magic = POTA_SLOT_MANIFEST_BODY_MAGIC;
-    body.schema_version = POTA_SLOT_MANIFEST_SCHEMA_VERSION;
-    body.map_version = store->config.map_version;
-    body.sequence = txn->sequence;
-    body.slot = (uint32_t)store->config.slot;
-    body.header_size = POTA_PACKAGE_HEADER_SIZE;
-    (void)memcpy(body.header, header, sizeof(body.header));
-    body.header_crc32 = pota_crc32_compute(body.header, sizeof(body.header));
-    body.body_crc32 = body_crc(&body);
-    (void)memcpy(txn->body, &body, sizeof(body));
+    pota_slot_manifest_body_t *body = &s_txn_body;
+    manifest_trace(9u); /* body build start */
+    (void)memset(body, 0xFF, sizeof(*body));
+    body->magic = POTA_SLOT_MANIFEST_BODY_MAGIC;
+    body->schema_version = POTA_SLOT_MANIFEST_SCHEMA_VERSION;
+    body->map_version = store->config.map_version;
+    body->sequence = txn->sequence;
+    body->slot = (uint32_t)store->config.slot;
+    body->header_size = POTA_PACKAGE_HEADER_SIZE;
+    (void)memcpy(body->header, header, sizeof(body->header));
+    body->header_crc32 = pota_crc32_compute(body->header, sizeof(body->header));
+    body->body_crc32 = body_crc(body);
+    (void)memcpy(txn->body, body, sizeof(*body));
 
     pota_slot_manifest_commit_t commit;
     (void)memset(&commit, 0xFF, sizeof(commit));
@@ -337,10 +365,11 @@ pota_slot_manifest_result_t pota_slot_manifest_txn_begin(
     commit.map_version = store->config.map_version;
     commit.sequence = txn->sequence;
     commit.slot = (uint32_t)store->config.slot;
-    commit.body_crc32 = body.body_crc32;
+    commit.body_crc32 = body->body_crc32;
     commit.marker = POTA_SLOT_MANIFEST_COMMIT_MARKER ^ txn->sequence;
     (void)memcpy(txn->commit, &commit, sizeof(commit));
 
+    manifest_trace(10u); /* txn_begin done */
     txn->state = MANIFEST_TXN_STATE_ERASE;
     txn->terminal = POTA_SLOT_MANIFEST_STEP_PENDING;
     txn->active = true;

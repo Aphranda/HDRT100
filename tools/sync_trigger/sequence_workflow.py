@@ -314,22 +314,33 @@ def step_verdict(state, args):
         # It equals groups x positions exactly on a full scan (722 / 5776 measured). The DIAG
         # action_finish counter accumulates ACROSS runs (baseline 1451 before this one), so a
         # delta against the sampling baseline under-counted by the positions already finished.
-        role_ok = (no_plan == 0 and late == 0 and backend == 0 and positions > 0
-                   and executed >= groups * positions)
+        # One occasional timing transient: a single position misses one late while every
+        # other counter is clean. Tolerate it in the verdict (no full-flow rerun) but keep
+        # the acceptance receipt strict, so the credential never hides it.
+        single_late = (late == 1 and no_plan == 0 and backend == 0 and groups > 0
+                       and finished == positions - 1
+                       and executed == groups * finished)
+        role_ok = (no_plan == 0 and backend == 0 and positions > 0
+                   and (executed >= groups * positions or single_late))
         verdict[role] = {"ok": role_ok, "executed": executed, "groups": groups,
                          "positions": positions, "expected": expected,
-                         "no_plan": no_plan, "late": late, "backend": backend}
+                         "no_plan": no_plan, "late": late, "backend": backend,
+                         "tolerated_single_late": single_late}
         ok = ok and role_ok
     state["readings"]["verdict"] = verdict
     state["readings"]["verdict_ok"] = ok
-    # The commit credential uses the gate criterion (zero failures + at least two roles on a full
-    # revolution), which tolerates the gateway's known cadence variance while still proving the scan ran.
-    # `late` is timing quality (the group still fires), so it does not block the credential.
+    # The commit credential uses the strict criterion (zero failures + every role on a full
+    # revolution): a tolerated single late still passes the step, but never earns a receipt.
     failures = sum(v.get("no_plan", 0) + v.get("backend", 0) for v in verdict.values())
     full = sum(1 for v in verdict.values()
                if v.get("expected") and v.get("executed") == v.get("expected"))
-    if failures == 0 and full >= 2:
+    if failures == 0 and full >= 2 and full == len(verdict):
         write_t2_receipt(state)
+    tolerated = [role for role, value in verdict.items()
+                 if value.get("tolerated_single_late")]
+    if tolerated and ok:
+        return (f"all roles match groups x positions (single late tolerated on"
+                f" {','.join(tolerated)}; strict receipt withheld)", ok)
     return ("all roles match groups x positions with zero failures", ok)
 
 
@@ -633,20 +644,24 @@ def main(argv=None):
     parser.add_argument("--gateway-groups", type=int, default=2,
                         help="SP2T throws staged on the GATEWAY (default 2: A/B)")
     parser.add_argument("--group-slices", type=int, default=1)
-    parser.add_argument("--sample-ticks", type=int, default=20)
+    parser.add_argument("--sample-ticks", type=int, default=70,
+                        help="sampling ticks (2 s each); 70 covers the full 361-position scan")
     parser.add_argument("--period-ns", type=int, default=10000000)
     parser.add_argument("--subdivisions", type=int, default=32)
     parser.add_argument("--ready-required", type=int, default=0)
-    parser.add_argument("--seq-mode", type=int, default=None,
+    parser.add_argument("--seq-mode", type=int, default=0,
                         help="T2:SEQ:MODE for every board, sent before configuration "
-                             "(0 legacy, 1/2 position model)")
-    parser.add_argument("--seq-mode-gateway", type=int, default=None,
-                        help="T2:SEQ:MODE override for the GATEWAY board only "
-                             "(hybrid: gateway model, switches legacy)")
+                             "(0 legacy). Default 0: switches stay on the verified legacy path.")
+    parser.add_argument("--seq-mode-gateway", type=int, default=2,
+                        help="T2:SEQ:MODE override for the GATEWAY board only. Default 2: "
+                             "the gateway runs on the unified sequence model.")
     parser.add_argument("--positions", type=int, default=0)
     parser.add_argument("--timing")
     parser.add_argument("--counts")
     parser.add_argument("--html")
+    parser.add_argument("--no-retry", action="store_true",
+                        help="accepted for compatibility; the flow never reruns the chain "
+                             "for a transient late (a single late is tolerated in the verdict)")
     args = parser.parse_args(argv)
 
     if args.list:

@@ -22,8 +22,49 @@ from tools.ota_stream_send.ota_stream_send import (
     selected_package_object,
     stream_chunks,
     verified_connection,
+    wait_relay_durable,
 )
 from tools.common.scpi.scpi_serial import scpi_response_matches_command
+
+
+def test_wait_relay_durable_polls_until_offset(monkeypatch) -> None:
+    statuses = ["0,2,0,0,0", "0,2,64,0,0", "0,2,512,0,0"]
+
+    def fake_query(ser, command, timeout, **kwargs):
+        return statuses.pop(0) if len(statuses) > 1 else statuses[0]
+
+    monkeypatch.setattr("tools.ota_stream_send.ota_stream_send.query",
+                        fake_query)
+    args = type("Args", (), {"timeout": 0.1, "begin_timeout": 1.0})()
+    status = wait_relay_durable(object(), 512, args)
+    assert status[2] == 512
+
+
+def test_wait_relay_durable_times_out(monkeypatch) -> None:
+    monkeypatch.setattr("tools.ota_stream_send.ota_stream_send.query",
+                        lambda *a, **k: "0,2,0,0,0")
+    args = type("Args", (), {"timeout": 0.01, "begin_timeout": 0.05})()
+    with pytest.raises(TimeoutError):
+        wait_relay_durable(object(), 512, args)
+
+
+def test_encode_open_relay_sets_capability_and_node_byte() -> None:
+    """OTA-TDMA relay routing: capability bit 2 + descriptor byte 37."""
+    identity = bytes(range(16))
+    image = bytes(range(64))
+    wire = encode_open(identity, image, 2, 0x11223344, 7, 2, 3,
+                       SOURCE_USB_CDC, False, relay_node=5)
+    capabilities = int.from_bytes(wire[8:12], "little")
+    assert capabilities & (1 << 2)
+    assert wire[37] == 5
+    assert wire[38] == 0 and wire[39] == 0
+    local = encode_open(identity, image, 2, 0x11223344, 7, 2, 3,
+                        SOURCE_USB_CDC, False)
+    assert not (int.from_bytes(local[8:12], "little") & (1 << 2))
+    assert local[37] == 0
+    with pytest.raises(ValueError):
+        encode_open(identity, image, 2, 1, 1, 2, 3, SOURCE_USB_CDC, False,
+                    relay_node=32)
 
 
 def test_encode_open_uses_fixed_little_endian_layout() -> None:

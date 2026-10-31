@@ -324,6 +324,10 @@ def parse_args() -> argparse.Namespace:
         help=("while STOPPED, derive the P4-LIVE DIAGNOSTIC_ONLY path matrix "
               "from the frozen TRN-03 link-base matrix before ARM"))
     parser.add_argument(
+        "--hold-s", type=float, default=0.0,
+        help=("keep the process (and the process-image ring) alive "
+              "for this many seconds after START; used by relay tests"))
+    parser.add_argument(
         "--leave-running", action="store_true",
         help=("leave the matrix-backed ring running only after every closed-"
               "loop gate and a final runtime readback pass; diagnostic mode "
@@ -2612,6 +2616,13 @@ def main() -> int:
                           interval_us=0, query_policy="NO_RECORD")
             progress.emit("complete", passed=True, left_running=True,
                           error="", summary="")
+            hold_s = float(getattr(args, "hold_s", 0.0) or 0.0)
+            if hold_s > 0.0:
+                progress.emit("hold", hold_s=hold_s)
+                # release the persistent serial handles so an external step
+                # (relay test) can use the ports while the ring keeps running
+                close_persistent_connections()
+                time.sleep(hold_s)
             return 0
         for board in start_order:
             record_arm_with_evidence(

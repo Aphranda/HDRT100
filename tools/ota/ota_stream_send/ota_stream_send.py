@@ -199,6 +199,22 @@ def app_partition_id(map_version: int, target_slot: int) -> int:
     raise ValueError(f"{wanted} missing from {source}")
 
 
+def wait_relay_durable(ser: serial.Serial, wanted_offset: int,
+                       args: argparse.Namespace,
+                       timing: "OtaTiming | None" = None) -> tuple[int, ...]:
+    deadline = time.monotonic() + max(args.timeout, args.begin_timeout)
+    while time.monotonic() < deadline:
+        status = parse_stream_status(query(
+            ser, "SYST:OTA:STREAM:STAT?", args.timeout,
+            timing=timing, stage="relay_durable_query",
+            details={"wanted_offset": wanted_offset}))
+        if status[2] >= wanted_offset:
+            return status
+        time.sleep(0.02)
+    raise TimeoutError(
+        f"relay durable offset {wanted_offset} not reached before timeout")
+
+
 def wait_stream_state(ser: serial.Serial, wanted: int,
                       timeout_s: float, *, timing: OtaTiming | None = None,
                       stage: str = "stream_state_wait") -> tuple[int, int, int, int, int]:
@@ -216,10 +232,14 @@ def wait_stream_state(ser: serial.Serial, wanted: int,
     raise TimeoutError(f"stream state {wanted} timeout, last={last!r}")
 
 
+STREAM_CAP_RELAY = 1 << 2
+
+
 def encode_open(identity: bytes, image: bytes, target_slot: int,
                 session_id: int, generation: int, map_version: int,
                 partition_id: int,
-                source: int, package_mode: bool = False) -> bytes:
+                source: int, package_mode: bool = False,
+                relay_node: int | None = None) -> bytes:
     if len(identity) != 16:
         raise ValueError("identity must be 16 bytes")
     if target_slot not in (1, 2):
@@ -228,11 +248,16 @@ def encode_open(identity: bytes, image: bytes, target_slot: int,
         raise ValueError("serial stream tool requires USB CDC source")
     if map_version <= 0:
         raise ValueError("map version must be positive")
-    wire = struct.pack(
+    if relay_node is not None and not 0 <= relay_node <= 31:
+        raise ValueError("relay node must fit 0..31")
+    capabilities = STREAM_CAPABILITIES
+    if relay_node is not None:
+        capabilities |= STREAM_CAP_RELAY
+    wire = bytearray(struct.pack(
         STREAM_OPEN_WIRE_FORMAT,
         session_id,
         generation,
-        STREAM_CAPABILITIES,
+        capabilities,
         map_version,
         partition_id,
         target_slot,
@@ -242,10 +267,12 @@ def encode_open(identity: bytes, image: bytes, target_slot: int,
         int(package_mode),
         identity,
         hashlib.sha256(image).digest(),
-    )
+    ))
     if len(wire) != STREAM_OPEN_WIRE_SIZE:
         raise AssertionError("stream OPEN wire size mismatch")
-    return wire
+    if relay_node is not None:
+        wire[37] = relay_node
+    return bytes(wire)
 
 
 def identify_port(port: str, baud: int, timeout_s: float) -> str | None:
@@ -460,9 +487,11 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
         else:
             session_id = args.session_id or (int(time.time()) & 0xFFFFFFFF or 1)
             generation = args.generation or session_id
+        relay_node = getattr(args, "relay_node", None)
         wire = encode_open(identity, image, target_slot, session_id,
                            generation, map_version, partition_id,
-                           SOURCE_USB_CDC, args.package)
+                           SOURCE_USB_CDC, args.package,
+                           relay_node=relay_node)
         if args.resume and (journal[6] != 1 or journal[5] != crc32(wire)):
             raise RuntimeError(
                 "journal identity token does not match the selected image/map")
@@ -537,6 +566,10 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
             )
             if "OK" not in response:
                 raise RuntimeError(f"stream DATA rejected at {offset}: {response!r}")
+            if relay_node is not None:
+                # Relay feeds one resident block at a time: wait until the
+                # target has made this block durable before the next DATA.
+                wait_relay_durable(ser, offset + len(chunk), args)
             if offset == 0 or offset + len(chunk) == len(image) or \
                     (offset // block_size) % args.progress_every == 0:
                 status = parse_stream_status(query(
@@ -560,14 +593,57 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
         print(f"ready durable_offset={status[2]} token={status[3]}")
         if not args.boot_and_commit:
             return 0
+        # COMMIT records the pending slot; the bootloader applies it on the
+        # next reset.  Do not reboot before the commit is visible.
+        slot_before = query(ser, "SYST:OTA:SLOT?", args.timeout,
+                            timing=timing, stage="pre_commit_slot")
+        print(f"pre_commit_slot={slot_before}")
         try:
-            query(ser, "SYST:OTA:STREAM:BOOT", args.timeout, timing=timing,
-                  stage="boot")
+            response = query(ser, "SYST:OTA:COMM", args.timeout,
+                             timing=timing, stage="commit")
+        except (OSError, serial.SerialException):
+            response = "<timeout>"
+        target_slot = parse_first_uint(
+            query(ser, "SYST:OTA:TARG?", args.timeout, timing=timing,
+                  stage="target_slot_query"))
+        deadline = time.monotonic() + max(args.timeout, 30.0)
+        pending_ok = False
+        slot_after_commit = ""
+        while time.monotonic() < deadline:
+            slot_after_commit = query(ser, "SYST:OTA:SLOT?", args.timeout,
+                                      timing=timing,
+                                      stage="post_commit_slot")
+            fields = [int(x) for x in slot_after_commit.split(",")
+                      if x.strip().isdigit()]
+            if len(fields) >= 2 and fields[1] == target_slot:
+                pending_ok = True
+                break
+            time.sleep(1.0)
+        print(f"committed_slot={slot_after_commit} target={target_slot} "
+              f"pending_ok={pending_ok}")
+        if not pending_ok:
+            raise RuntimeError(
+                f"commit did not stage slot {target_slot}: "
+                f"response={response!r} slot={slot_after_commit!r}")
+        try:
+            query(ser, "SYST:BOOT:RESET", args.timeout, timing=timing,
+                  stage="apply_reset")
         except (OSError, serial.SerialException):
             pass
+        ser.close()
 
     with wait_reenumeration(port, args.baud, args.timeout,
                             timing=timing) as ser:
+        deadline = time.monotonic() + max(args.begin_timeout, 60.0)
+        while time.monotonic() < deadline:
+            slot_after = query(ser, "SYST:OTA:SLOT?", args.timeout,
+                               timing=timing, stage="applied_slot")
+            fields = [int(x) for x in slot_after.split(",")
+                      if x.strip().isdigit()]
+            if len(fields) >= 2 and fields[0] == target_slot and fields[1] == 0:
+                break
+            time.sleep(1.5)
+        print(f"applied_slot={slot_after}")
         if args.expected_build:
             running_build = query(
                 ser, "SYSTem:FW:BUILD?", args.timeout, timing=timing,
@@ -576,16 +652,6 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
                 raise RuntimeError(
                     f"running build {running_build!r} != "
                     f"{args.expected_build!r}")
-        slot_before = query(ser, "SYST:OTA:SLOT?", args.timeout,
-                            timing=timing, stage="pre_commit_slot")
-        response = query(ser, "SYST:OTA:COMM", args.timeout, timing=timing,
-                         stage="commit")
-        if "OK" not in response:
-            raise RuntimeError(f"commit rejected: {response!r}")
-        slot_after = query(ser, "SYST:OTA:SLOT?", args.timeout,
-                           timing=timing, stage="post_commit_slot")
-        print(f"post_boot_slot={slot_before}")
-        print(f"committed_slot={slot_after}")
     return 0
 
 
@@ -617,6 +683,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--package", action="store_true",
                         help="input is a complete signed OTA package")
     parser.add_argument("--boot-and-commit", action="store_true")
+    parser.add_argument(
+        "--relay-node", type=int, default=None,
+        help=("forward this package to the given ring node (0..31) instead of "
+              "programming the connected board; the connected board must be "
+              "the relay coordinator"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out-dir", type=Path,
                         help="write timing.json and serial_trace.jsonl")
@@ -635,6 +706,11 @@ def parse_args() -> argparse.Namespace:
             f"{', '.join(str(size) for size in SUPPORTED_BLOCK_SIZES)}")
     if args.resume and (args.session_id is not None or args.generation is not None):
         parser.error("--resume cannot be combined with explicit session identity")
+    if args.relay_node is not None:
+        if args.boot_and_commit:
+            parser.error("--relay-node cannot boot/commit the coordinator")
+        if args.resume:
+            parser.error("--relay-node cannot reuse the coordinator journal")
     if args.session_id is not None and not 0 < args.session_id <= 0xFFFFFFFF:
         parser.error("--session-id must fit a nonzero uint32")
     if args.generation is not None and not 0 < args.generation <= 0xFFFFFFFF:

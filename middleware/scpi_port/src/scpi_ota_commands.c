@@ -1,4 +1,6 @@
 #include "scpi_ota_commands.h"
+#include <stdio.h>
+#include "osal.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -6,7 +8,12 @@
 #include "distributed_config.h"
 #include "drv_flash.h"
 #include "drv_watchdog.h"
+#include "board_identity.h"
 #include "ota_ao.h"
+#include "ota_metadata.h"
+#include "ota_partition.h"
+#include "ota_tdma_binding.h"
+#include "tdma_maintenance_runtime.h"
 #include "ota_journal.h"
 #include "product_config.h"
 #include "scpi_port_internal.h"
@@ -21,6 +28,16 @@ static bool scpi_ota_request_admission(scpi_t *context)
     }
     scpi_port_push_exec_error(context, "OTA_ADMISSION_DENIED");
     return false;
+}
+
+static uint8_t scpi_ota_local_node(void)
+{
+    uint32_t slot = 0u;
+    if (tdma_maintenance_runtime_get_local_slot(&slot) && slot < 32u) {
+        return (uint8_t)slot;
+    }
+    const uint8_t no = board_identity_get_no();
+    return no == 0u ? 0xFFu : (uint8_t)(no - 1u);
 }
 
 scpi_result_t scpi_cmd_ota_status_q(scpi_t *context)
@@ -124,18 +141,23 @@ scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
 
 scpi_result_t scpi_cmd_ota_data(scpi_t *context)
 {
+    /* The arbitrary block is part of this command's message: consume it before
+     * any rejection.  Returning early with the block still buffered leaves the
+     * payload to be parsed as command text, so the next query reads garbage
+     * (OTA-HAOFV-013).  Rejections therefore happen after the block is parsed
+     * and length-checked. */
+    const char *data = NULL;
+    size_t length = 0u;
+    if (SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+
     if (scpi_port_reject_if_run_forbidden(
             context,
             DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
         return SCPI_RES_ERR;
     }
     if (portable_ota_port_stream_is_active()) {
-        return SCPI_RES_ERR;
-    }
-
-    const char *data = NULL;
-    size_t length = 0u;
-    if (SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE) {
         return SCPI_RES_ERR;
     }
 
@@ -456,6 +478,8 @@ static bool scpi_ota_stream_source_matches_control_plane(
 #endif
 }
 
+static bool s_stream_bootstrapped;
+
 scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
 {
     if (scpi_port_reject_if_run_forbidden(
@@ -479,6 +503,8 @@ scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
+    /* A previous relay record must not shadow a new local session. */
+    ota_tdma_binding_relay_clear();
     pota_stream_open_t open;
     if (!pota_stream_open_decode_le((const uint8_t *)data,
                                     (uint32_t)length, &open)) {
@@ -486,8 +512,67 @@ scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    if (portable_ota_port_stream_open(source, &open) !=
-        POTA_STREAM_INGRESS_OK) {
+    if ((open.capability_mask & POTA_STREAM_CAP_RELAY) != 0u &&
+        open.relay_node != scpi_ota_local_node()) {
+        /* Addressed to another ring node: forward without local flash.  A new
+         * OPEN supersedes any stale relay left by an interrupted attempt. */
+        drv_watchdog_mark_ota_phase(70u); /* relay branch entered */
+        if (ota_tdma_binding_relay_active()) {
+            ota_tdma_binding_relay_abort();
+        }
+        drv_watchdog_mark_ota_phase(71u); /* stale relay cleared */
+        ota_tdma_binding_relay_clear();
+        if (!ota_tdma_binding_relay_start(&open)) {
+            resource_arbiter_release_ota_admission();
+            return SCPI_RES_ERR;
+        }
+        drv_watchdog_mark_ota_phase(
+            700000u + ota_tdma_binding_relay_wire_code()); /* relay wire */
+        return scpi_port_result_ok(context);
+    }
+    /* A new OPEN supersedes any stale local stream session (for example one
+     * left in RECEIVING by an interrupted host run); otherwise the ingress
+     * rejects the new OPEN and the maker never sees a response. */
+    if (portable_ota_port_stream_is_active()) {
+        (void)portable_ota_port_stream_abort(source);
+    }
+    pota_stream_ingress_result_t open_result =
+        portable_ota_port_stream_open(source, &open);
+    if (open_result == POTA_STREAM_INGRESS_SESSION &&
+        !s_stream_bootstrapped) {
+        /* A factory-blank V2 board has no BCB yet, so ota_ao_init() never
+         * initialises the stream surfaces.  The first maintenance update must
+         * still be able to open a session: bootstrap the portable platform
+         * with factory-default slot metadata (active slot A, no pending). */
+        ota_metadata_t factory_metadata;
+        memset(&factory_metadata, 0, sizeof(factory_metadata));
+        factory_metadata.magic = OTA_METADATA_MAGIC;
+        factory_metadata.version = OTA_METADATA_VERSION;
+        factory_metadata.active_slot = (uint32_t)OTA_SLOT_A;
+        factory_metadata.pending_slot = (uint32_t)OTA_SLOT_NONE;
+        factory_metadata.confirmed_slot = (uint32_t)OTA_SLOT_A;
+        factory_metadata.slot_a_size = ota_partition_slot_size(OTA_SLOT_A);
+        factory_metadata.slot_b_size = ota_partition_slot_size(OTA_SLOT_B);
+        if (portable_ota_port_stream_init(&factory_metadata)) {
+            s_stream_bootstrapped = true;
+            /* A factory-blank V2 board has no BCB at all, so a later COMMIT
+             * would fail with METADATA.  Provision the factory default record
+             * once, before the first stream session. */
+            (void)ota_metadata_store(&factory_metadata);
+            open_result = portable_ota_port_stream_open(source, &open);
+        }
+    }
+    if (open_result == POTA_STREAM_INGRESS_OK) {
+        /* Bounded maintenance window: finalize (manifest hash/BCB) can take
+         * longer than the 3 s supervisor budget.  The host workflow enforces
+         * per-step deadlines, and every terminal path restores the budget. */
+        drv_watchdog_enable(120000u);
+    }
+    if (open_result != POTA_STREAM_INGRESS_OK) {
+        static char open_error[32];
+        (void)snprintf(open_error, sizeof(open_error),
+                       "STREAM_OPEN_%u", (unsigned)open_result);
+        scpi_port_push_exec_error(context, open_error);
         resource_arbiter_release_ota_admission();
         return SCPI_RES_ERR;
     }
@@ -516,9 +601,40 @@ scpi_result_t scpi_cmd_ota_stream_data(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    return portable_ota_port_stream_write(
-               source, offset, (const uint8_t *)data, (uint32_t)length,
-               true, crc32) == POTA_STREAM_INGRESS_OK
+    if (ota_tdma_binding_relay_active()) {
+        return ota_tdma_binding_relay_feed(offset, (const uint8_t *)data,
+                                           (uint32_t)length)
+                   ? scpi_port_result_ok(context)
+                   : SCPI_RES_ERR;
+    }
+    /* The final block can trigger the manifest/hash finalize inside the write
+     * path; widen the supervisor budget for OTA data traffic. */
+    drv_watchdog_enable(30000u);
+    /* The first DATA after the package header arrives while the inactive slot
+     * is still being erased.  The core rejects writes in ERASE_SLOT, which
+     * would fail a healthy session, so wait (bounded) for the AO to finish the
+     * erase before applying the block. */
+    for (uint32_t waited_ms = 0u; waited_ms < 300000u; waited_ms += 5u) {
+        const uint32_t core_state = portable_ota_port_stream_core_state();
+        if (core_state != (uint32_t)POTA_STATE_CHECK_PERMISSION &&
+            core_state != (uint32_t)POTA_STATE_ERASE_SLOT) {
+            break;
+        }
+        osal_task_delay_ms(5u);
+    }
+    drv_watchdog_mark_ota_phase(20u); /* before data write */
+    const pota_stream_ingress_result_t write_result =
+        portable_ota_port_stream_write(
+            source, offset, (const uint8_t *)data, (uint32_t)length,
+            true, crc32);
+    drv_watchdog_mark_ota_phase(
+        write_result == POTA_STREAM_INGRESS_OK ? 21u : 22u);
+    if (write_result == POTA_STREAM_INGRESS_OK &&
+        (offset + (uint32_t)length) >=
+            portable_ota_port_stream_total_size()) {
+        drv_watchdog_mark_ota_phase(23u); /* final block accepted */
+    }
+    return write_result == POTA_STREAM_INGRESS_OK
                ? scpi_port_result_ok(context)
                : SCPI_RES_ERR;
 }
@@ -535,8 +651,18 @@ scpi_result_t scpi_cmd_ota_stream_close(scpi_t *context)
         !scpi_ota_stream_source_matches_control_plane(source)) {
         return SCPI_RES_ERR;
     }
+    if (ota_tdma_binding_relay_active() ||
+        ota_tdma_binding_relay_done()) {
+        return scpi_port_result_ok(context);
+    }
+    /* Finalization (manifest hash + signature + BCB commit) legitimately takes
+     * longer than the 3 s supervisor budget; widen it for the close path. */
+    drv_watchdog_enable(30000u);
+    drv_watchdog_mark_ota_phase(24u); /* before close */
     const pota_stream_ingress_result_t result =
         portable_ota_port_stream_close(source);
+    drv_watchdog_mark_ota_phase(25u); /* close returned */
+    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
     if (result == POTA_STREAM_INGRESS_OK) {
         /* CLOSE only queues the bounded END transaction.  Keep the OTA
          * admission lease until FlashTransaction-owned verification,
@@ -567,8 +693,14 @@ scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context)
         !scpi_ota_stream_source_matches_control_plane(source)) {
         return SCPI_RES_ERR;
     }
+    if (ota_tdma_binding_relay_active() || ota_tdma_binding_relay_done()) {
+        ota_tdma_binding_relay_abort();
+        resource_arbiter_release_ota_admission();
+        return scpi_port_result_ok(context);
+    }
     const pota_stream_ingress_result_t result =
         portable_ota_port_stream_abort(source);
+    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
     if (result == POTA_STREAM_INGRESS_OK) {
         resource_arbiter_release_ota_admission();
     }
@@ -595,6 +727,17 @@ scpi_result_t scpi_cmd_ota_stream_boot(scpi_t *context)
 
 scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context)
 {
+    if (ota_tdma_binding_relay_active() || ota_tdma_binding_relay_done()) {
+        SCPI_ResultUInt32(context, (uint32_t)POTA_STREAM_INGRESS_TDMA);
+        SCPI_ResultUInt32(context,
+                          ota_tdma_binding_relay_done()
+                              ? (uint32_t)POTA_STREAM_STATE_READY_TO_REBOOT
+                              : (uint32_t)POTA_STREAM_STATE_RECEIVING);
+        SCPI_ResultUInt32(context, ota_tdma_binding_relay_durable());
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, ota_tdma_binding_last_result());
+        return SCPI_RES_OK;
+    }
     pota_stream_ingress_status_t status;
     if (!portable_ota_port_stream_get_status(&status)) {
         return SCPI_RES_ERR;
@@ -607,6 +750,16 @@ scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_ota_tdma_diag_q(scpi_t *context)
+{
+    uint32_t diag[26] = {0};
+    ota_tdma_binding_diag(diag);
+    for (uint32_t i = 0; i < 26u; ++i) {
+        SCPI_ResultUInt32(context, diag[i]);
+    }
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_ota_stream_capability_q(scpi_t *context)
 {
     /* Report the accepted DATA payload, stream capability mask and the
@@ -616,7 +769,8 @@ scpi_result_t scpi_cmd_ota_stream_capability_q(scpi_t *context)
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
     SCPI_ResultUInt32(context,
                       POTA_STREAM_CAP_INACTIVE_WRITE |
-                          POTA_STREAM_CAP_DURABLE_ACK);
+                          POTA_STREAM_CAP_DURABLE_ACK |
+                          POTA_STREAM_CAP_RELAY);
     SCPI_ResultUInt32(context, 2u);
 #else
     /* v1 compatibility builds can still accelerate legacy OTA DATA blocks,

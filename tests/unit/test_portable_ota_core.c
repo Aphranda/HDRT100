@@ -12,6 +12,16 @@
 #define MOCK_PAGE_SIZE 16u
 #define MOCK_SECTOR_SIZE 256u
 
+static uint8_t s_program_workspace[POTA_MAX_FLASH_PAGE_SIZE];
+
+static bool test_pota_init(pota_context_t *context,
+                           const pota_platform_t *platform)
+{
+    return pota_init(context, platform) &&
+           pota_core_set_program_workspace(context, s_program_workspace,
+                                           sizeof(s_program_workspace));
+}
+
 static uint8_t s_flash[MOCK_FLASH_SIZE];
 static bool s_validate_vector_result;
 static bool s_mark_pending_result;
@@ -301,7 +311,7 @@ static int test_raw_positive(void)
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     int failed = 0;
 
-    if (!pota_init(&context, &platform)) {
+    if (!test_pota_init(&context, &platform)) {
         (void)printf("raw init failed\n");
         return 1;
     }
@@ -349,7 +359,7 @@ static int test_readback_failure(void)
         .crc32 = pota_crc32_compute(image, sizeof(image)),
         .package_mode = false,
     };
-    failed += !pota_init(&context, &platform);
+    failed += !test_pota_init(&context, &platform);
     failed += expect_error("readback begin", pota_begin(&context, &begin), POTA_ERR_NONE);
     failed += service_until_receiving(&context, "readback service");
     s_corrupt_readback = true;
@@ -375,7 +385,7 @@ static int test_package_positive_copy_to_active(void)
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     int failed = 0;
 
-    if (!pota_init(&context, &platform)) {
+    if (!test_pota_init(&context, &platform)) {
         (void)printf("package init failed\n");
         return 1;
     }
@@ -433,7 +443,7 @@ static int test_signed_package_counter_propagates(void)
         .crc32 = pota_crc32_compute(package, sizeof(package)),
         .package_mode = true,
     };
-    int failed = !pota_init(&context, &platform);
+    int failed = !test_pota_init(&context, &platform);
     failed += expect_error("signed package begin", pota_begin(&context, &begin),
                            POTA_ERR_NONE);
     failed += expect_error("signed package header",
@@ -470,12 +480,12 @@ static int test_signature_policy_rejects_raw(void)
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_DIRECT_AB);
     platform.info.require_signature = true;
     pota_context_t context;
-    int failed = !pota_init(&context, &platform);
+    int failed = !test_pota_init(&context, &platform);
     failed += expect_error("signed policy raw begin",
                            pota_begin(&context, &begin),
                            POTA_ERR_SIGNATURE_INVALID);
 
-    failed += !pota_init(&context, &platform);
+    failed += !test_pota_init(&context, &platform);
     failed += expect_error("signed policy raw resume",
                            pota_resume_raw(&context, &begin, sizeof(image),
                                            begin.crc32),
@@ -499,7 +509,7 @@ static int test_crc_failure(void)
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     int failed = 0;
 
-    (void)pota_init(&context, &platform);
+    (void)test_pota_init(&context, &platform);
     const pota_begin_t begin = {
         .size = sizeof(image),
         .crc32 = 0x12345678u,
@@ -529,7 +539,7 @@ static int test_raw_final_block_padding(void)
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     int failed = 0;
 
-    (void)pota_init(&context, &platform);
+    (void)test_pota_init(&context, &platform);
     const pota_begin_t begin = {
         .size = sizeof(image),
         .crc32 = pota_crc32_compute(image, sizeof(image)),
@@ -542,14 +552,16 @@ static int test_raw_final_block_padding(void)
     failed += expect_error("padding end", pota_end(&context), POTA_ERR_NONE);
     failed += expect_error("padding end service", service_until_end(&context), POTA_ERR_NONE);
 
-    if (s_last_program_offset != MOCK_SLOT_B_OFFSET ||
-        s_last_program_size != 32u ||
+    /* The program path writes whole pages from the caller block and stages
+     * only the trailing partial page, so the final program is one page. */
+    if (s_last_program_offset != (MOCK_SLOT_B_OFFSET + MOCK_PAGE_SIZE) ||
+        s_last_program_size != MOCK_PAGE_SIZE ||
         memcmp(&s_flash[MOCK_SLOT_B_OFFSET], image, sizeof(image)) != 0) {
         (void)printf("raw final padding side effects failed\n");
         failed++;
     }
 
-    for (uint32_t i = sizeof(image); i < s_last_program_size; i++) {
+    for (uint32_t i = sizeof(image); i < 32u; i++) {
         if (s_flash[MOCK_SLOT_B_OFFSET + i] != 0xFFu) {
             (void)printf("raw final padding fill failed\n");
             failed++;
@@ -571,7 +583,7 @@ static int test_raw_unaligned_nonfinal_rejected(void)
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     int failed = 0;
 
-    (void)pota_init(&context, &platform);
+    (void)test_pota_init(&context, &platform);
     const pota_begin_t begin = {
         .size = sizeof(image),
         .crc32 = pota_crc32_compute(image, sizeof(image)),
@@ -602,7 +614,7 @@ static int test_vector_failure(void)
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     int failed = 0;
 
-    (void)pota_init(&context, &platform);
+    (void)test_pota_init(&context, &platform);
     const pota_begin_t begin = {
         .size = sizeof(image),
         .crc32 = pota_crc32_compute(image, sizeof(image)),
@@ -634,7 +646,7 @@ static int test_metadata_failure(void)
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     int failed = 0;
 
-    (void)pota_init(&context, &platform);
+    (void)test_pota_init(&context, &platform);
     const pota_begin_t begin = {
         .size = sizeof(image),
         .crc32 = pota_crc32_compute(image, sizeof(image)),
@@ -665,7 +677,7 @@ static int test_package_header_crc_mismatch(void)
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     int failed = 0;
 
-    (void)pota_init(&context, &platform);
+    (void)test_pota_init(&context, &platform);
     const pota_begin_t begin = {
         .size = sizeof(package),
         .crc32 = pota_crc32_compute(package, sizeof(package)) ^ 0xFFFFFFFFu,
@@ -704,7 +716,7 @@ static int test_invalid_flash_geometry_rejected(void)
     pota_context_t context;
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     platform.info.flash_page_size = 24u;
-    (void)pota_init(&context, &platform);
+    (void)test_pota_init(&context, &platform);
     failed += expect_error("invalid page geometry begin",
                            pota_begin(&context, &begin),
                            POTA_ERR_BAD_ARGUMENT);
@@ -717,7 +729,7 @@ static int test_invalid_flash_geometry_rejected(void)
     reset_mock();
     platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
     platform.info.flash_sector_size = 384u;
-    (void)pota_init(&context, &platform);
+    (void)test_pota_init(&context, &platform);
     failed += expect_error("invalid sector geometry begin",
                            pota_begin(&context, &begin),
                            POTA_ERR_BAD_ARGUMENT);

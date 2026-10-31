@@ -907,10 +907,13 @@ int main(void)
                              snapshot.seat_rotation_priority_share, 2u);
         failed += expect_u32("rejected values leave 2:1 first class",
                              snapshot.seat_rotation_first_class_share, 1u);
+        /* The adapter-level setter is online-safe (single atomic packed word,
+         * next opportunity takes effect); the STOP-only gate is the SCPI
+         * wrapper in tdma_runtime_owner, per TDMA-SEAT-SHARE-01 / N6.3. */
         adapter.started = 1u;
-        failed += expect_bool("seat rotation rejected while started",
+        failed += expect_bool("seat rotation accepted while started",
                               tdma_pio_spi_ring_adapter_set_seat_rotation(
-                                  &adapter, 1u, 1u), false);
+                                  &adapter, 1u, 1u), true);
         adapter.started = 0u;
         failed += expect_bool("seat rotation returns to 1:1",
                               tdma_pio_spi_ring_adapter_set_seat_rotation(

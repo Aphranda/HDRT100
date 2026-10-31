@@ -10,8 +10,13 @@
 #include "ota_fb.h"
 #include "ota_metadata.h"
 #include "ota_partition.h"
+#include "ota_progress_watch.h"
 #include "portable_ota_port.h"
 #include "resource_arbiter.h"
+
+#ifndef OTA_SESSION_NO_PROGRESS_TIMEOUT_MS
+#define OTA_SESSION_NO_PROGRESS_TIMEOUT_MS OTA_PROGRESS_WATCH_DEFAULT_TIMEOUT_MS
+#endif
 
 static struct ota_ao_context s_ota_context;
 static ota_vector_t s_vector_snapshot[2];
@@ -19,6 +24,26 @@ static ota_metadata_t s_metadata_snapshot[2];
 static uint32_t s_vector_active_index;
 static uint32_t s_metadata_active_index;
 static bool s_metadata_snapshot_valid;
+static ota_progress_watch_t s_progress_watch;
+
+static void ota_ao_fail_no_progress(struct ota_ao_context *context)
+{
+    /* Stop the in-flight transport before publishing FAILED: the next BEGIN is
+     * only accepted if the session/Flash transaction is already released. */
+    if (portable_ota_port_stream_is_active()) {
+        pota_stream_ingress_status_t status;
+        if (portable_ota_port_stream_get_status(&status)) {
+            (void)portable_ota_port_stream_abort(status.source);
+        }
+    } else {
+        (void)portable_ota_port_core_abort(&context->vector);
+    }
+    resource_arbiter_release_ota_admission();
+    context->vector.error_code = (uint32_t)OTA_ERR_NO_PROGRESS;
+    context->vector.last_result = (uint32_t)OTA_RESULT_FAILED;
+    context->vector.state = (uint32_t)OTA_STATE_FAILED;
+    LOG_INFO("ota", "OTA session failed: no host progress");
+}
 
 void ota_ao_publish_vector(const ota_ao_context_t *context)
 {
@@ -98,6 +123,7 @@ bool ota_ao_init(void)
     s_ota_context.vector.target_slot = (uint32_t)OTA_SLOT_B;
     s_ota_context.vector.error_code = (uint32_t)OTA_ERR_NONE;
     s_ota_context.target_slot = OTA_SLOT_B;
+    ota_progress_watch_reset(&s_progress_watch, board_uptime_ms());
 
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
     /* Completion durability must be established even when BCB metadata is
@@ -156,6 +182,21 @@ void ota_ao_service(uint32_t budget_us)
 
     s_ota_context.vector.timestamp_ms = board_uptime_ms();
     ota_ao_publish_vector(&s_ota_context);
+
+    /* A host that dies mid-transfer must not hold the maintenance admission
+     * forever (OTA-HAOFV-012).  Watch the published vector before any routing
+     * so both the legacy event path and the stream path are covered. */
+    if (ota_progress_watch_step(&s_progress_watch,
+                                s_ota_context.vector.timestamp_ms,
+                                s_ota_context.vector.state,
+                                s_ota_context.vector.received_size,
+                                s_ota_context.vector.programmed_size,
+                                OTA_SESSION_NO_PROGRESS_TIMEOUT_MS) ==
+        OTA_PROGRESS_WATCH_TIMEOUT) {
+        ota_ao_fail_no_progress(&s_ota_context);
+        ota_ao_publish_vector(&s_ota_context);
+        return;
+    }
 
     /* Service bounded permission/erase work before consuming DATA.  SCPI
      * producers can queue a DATA block while the inactive slot is still
@@ -230,6 +271,11 @@ bool ota_ao_get_metadata_snapshot(ota_metadata_t *metadata)
         __atomic_load_n(&s_metadata_active_index, __ATOMIC_ACQUIRE) & 1u;
     *metadata = s_metadata_snapshot[active];
     return true;
+}
+
+bool ota_ao_tdma_maintenance_allowed(void)
+{
+    return portable_ota_port_stream_is_active();
 }
 
 bool ota_ao_is_active(void)

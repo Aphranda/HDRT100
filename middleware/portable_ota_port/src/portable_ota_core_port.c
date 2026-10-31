@@ -1,3 +1,4 @@
+#include "pico/time.h"
 #include "portable_ota_port.h"
 
 #include "ota_error.h"
@@ -51,6 +52,7 @@ static const pota_compat_text_entry_t s_product_error_texts[] = {
     {OTA_ERR_BAD_ARGUMENT, "BAD_ARGUMENT"},
     {OTA_ERR_SIGNATURE_INVALID, "SIGNATURE_INVALID"},
     {OTA_ERR_SECURITY_COUNTER_ROLLBACK, "SECURITY_COUNTER_ROLLBACK"},
+    {OTA_ERR_NO_PROGRESS, "NO_PROGRESS"},
 };
 
 uint32_t portable_ota_port_crc32_update(uint32_t crc, const uint8_t *data, size_t length)
@@ -161,6 +163,8 @@ static void portable_core_provider_release(void *context)
     }
 }
 
+static uint32_t s_flash_execute_stage;
+
 static bool portable_core_flash_execute(uint32_t operation,
                                         uint32_t offset,
                                         const uint8_t *data,
@@ -170,6 +174,7 @@ static bool portable_core_flash_execute(uint32_t operation,
     uint32_t relative_offset = 0u;
     if (!flash_transaction_ao_resolve_range(offset, size, &partition_id,
                                             &relative_offset)) {
+        s_flash_execute_stage = 1u; /* range/permission rejected */
         return false;
     }
 
@@ -200,7 +205,9 @@ static bool portable_core_flash_execute(uint32_t operation,
         .completion_lease = flash_transaction_ao_get_completion_lease(),
     };
     flash_transaction_completion_t completion;
-    return flash_transaction_ao_execute(&request, &completion);
+    const bool ok = flash_transaction_ao_execute(&request, &completion);
+    s_flash_execute_stage = ok ? 0u : (100u + (uint32_t)completion.result);
+    return ok;
 }
 
 static bool portable_core_flash_erase(uint32_t offset, uint32_t size)
@@ -347,6 +354,7 @@ static pota_platform_step_result_t portable_core_commit_slot_manifest_step(
         return POTA_PLATFORM_STEP_FAILED;
     }
     if (!s_slot_manifest_txn_active) {
+        drv_watchdog_mark_ota_phase(50u); /* before manifest init/begin */
         s_slot_manifest_base = OTA_SLOT_MANIFEST_BASE_OFFSET((ota_slot_t)slot);
         const pota_slot_manifest_config_t config = {
             .context = NULL,
@@ -360,18 +368,31 @@ static pota_platform_step_result_t portable_core_commit_slot_manifest_step(
             .map_version = FLASH_DEPLOYMENT_MAP_VERSION,
             .slot = slot,
         };
-        if (pota_slot_manifest_init(&s_slot_manifest_store, &config) !=
-                POTA_SLOT_MANIFEST_OK ||
+        drv_watchdog_mark_ota_phase(53u); /* before manifest store init */
+        const pota_slot_manifest_result_t init_result =
+            pota_slot_manifest_init(&s_slot_manifest_store, &config);
+        drv_watchdog_mark_ota_phase(54u); /* after manifest store init */
+        if (init_result != POTA_SLOT_MANIFEST_OK) {
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+        drv_watchdog_mark_ota_phase(55u); /* before manifest txn_begin */
+        const pota_slot_manifest_result_t begin_result =
             pota_slot_manifest_txn_begin(&s_slot_manifest_txn,
-                                         &s_slot_manifest_store, header) !=
-                POTA_SLOT_MANIFEST_OK) {
+                                         &s_slot_manifest_store, header);
+        drv_watchdog_mark_ota_phase(56u); /* after manifest txn_begin */
+        if (begin_result != POTA_SLOT_MANIFEST_OK) {
             return POTA_PLATFORM_STEP_FAILED;
         }
         s_slot_manifest_txn_active = true;
     }
 
+    drv_watchdog_mark_ota_phase(51u); /* before manifest txn step */
     const pota_slot_manifest_step_result_t result =
         pota_slot_manifest_txn_step(&s_slot_manifest_txn);
+    drv_watchdog_mark_ota_phase(52u); /* manifest txn step returned */
+    /* One manifest page program/readback per call; feed the hardware watchdog
+     * so a long finalize cannot trip the 3 s supervisor budget. */
+    drv_watchdog_feed();
     if (result == POTA_SLOT_MANIFEST_STEP_DONE) {
         s_slot_manifest_txn_active = false;
         drv_watchdog_mark_ota_phase(
@@ -467,6 +488,44 @@ static void portable_core_copy_status(ota_vector_t *vector)
     vector->last_result = portable_core_map_result(status.last_result);
 }
 
+
+static void portable_core_feed_watchdog(void)
+{
+    drv_watchdog_feed();
+}
+
+static void portable_core_yield_or_delay(void)
+{
+    /* Let the core0 supervisor and other tasks run between 4 KiB verify
+     * chunks; without this the whole image is verified inside one AO call and
+     * the supervisor watchdog fires (observed as CORE0_SUPERVISOR_STALL). */
+    sleep_ms(1u);
+}
+
+extern void diagnostics_watchdog_task_heartbeat(int task)
+    __attribute__((weak));
+
+extern void diagnostics_watchdog_flash_transaction_progress(void)
+    __attribute__((weak));
+
+static void portable_core_publish_progress(void)
+{
+    if (diagnostics_watchdog_flash_transaction_progress != NULL) {
+        diagnostics_watchdog_flash_transaction_progress();
+    }
+    /* The AO manifest/verify steps run inside task_refmem_sync; without its
+     * heartbeat the watchdog supervisor withholds the hardware feed and a
+     * legitimate long finalize trips the 3 s stall detector. */
+    if (diagnostics_watchdog_task_heartbeat != NULL) {
+        diagnostics_watchdog_task_heartbeat(3 /* REFMEM_SYNC */);
+    }
+}
+
+void pota_trace(uint32_t code)
+{
+    drv_watchdog_mark_ota_phase(600u + code);
+}
+
 static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadata)
 {
 #if PROJECT_FLASH_DEPLOYMENT_V2
@@ -510,6 +569,8 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
             .flash_program = portable_core_flash_program,
             .mark_pending = portable_core_mark_pending,
             .mark_pending_step = portable_core_mark_pending_step,
+            .feed_watchdog = portable_core_feed_watchdog,
+            .ota_yield_or_delay = portable_core_yield_or_delay,
             .confirm_active = portable_core_confirm_active,
             .validate_vector = portable_core_validate_vector,
 #if PROJECT_FLASH_DEPLOYMENT_V2
@@ -584,6 +645,8 @@ bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
     return true;
 }
 
+static uint32_t s_stream_last_service_result;
+
 pota_stream_ingress_result_t portable_ota_port_stream_open(
     pota_stream_ingress_source_t source,
     const pota_stream_open_t *open)
@@ -593,11 +656,10 @@ pota_stream_ingress_result_t portable_ota_port_stream_open(
     }
     const pota_stream_state_t state =
         pota_stream_session_state(&s_stream_session);
-    if (state == POTA_STREAM_STATE_ABORTED ||
-        state == POTA_STREAM_STATE_FAILED) {
-        if (!portable_core_init_stream_surfaces()) {
-            return POTA_STREAM_INGRESS_SESSION;
-        }
+    if (state != POTA_STREAM_STATE_IDLE) {
+        /* Any leftover session (aborted, failed, or a stale RECEIVING lease
+         * from a timed-out relay) must be dropped before a retried OPEN. */
+        (void)portable_ota_port_stream_force_reset();
     }
     return pota_stream_ingress_open(&s_stream_ingress, source, open);
 }
@@ -613,14 +675,35 @@ pota_stream_ingress_result_t portable_ota_port_stream_write(
     if (!s_stream_initialized) {
         return POTA_STREAM_INGRESS_SESSION;
     }
-    return pota_stream_ingress_write(&s_stream_ingress, source, offset, data,
-                                     size, has_crc32, crc32);
+    const pota_stream_ingress_result_t result =
+        pota_stream_ingress_write(&s_stream_ingress, source, offset, data,
+                                  size, has_crc32, crc32);
+    if (result != POTA_STREAM_INGRESS_OK) {
+        const pota_stream_result_t write_result =
+            pota_stream_session_last_write_result();
+        s_stream_last_service_result =
+            write_result == POTA_STREAM_RESULT_CORE
+                ? 6000u + (uint32_t)pota_session_last_write_error()
+                : 5000u + (uint32_t)write_result;
+    }
+    return result;
 }
 
 pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us)
 {
     if (!s_stream_initialized) {
         return POTA_STREAM_INGRESS_SESSION;
+    }
+    /* The core operation table only allows SERVICE in the permission/erase/
+     * verify/mark-pending states.  In RECEIVING the session is driven by DATA
+     * writes, and servicing it would return INVALID_STATE and kill a live
+     * session; skip the tick in that state only. */
+    const uint32_t core_state = pota_stream_session_core_state(&s_stream_session);
+    if (core_state != (uint32_t)POTA_STATE_CHECK_PERMISSION &&
+        core_state != (uint32_t)POTA_STATE_ERASE_SLOT &&
+        core_state != (uint32_t)POTA_STATE_VERIFYING &&
+        core_state != (uint32_t)POTA_STATE_MARK_PENDING) {
+        return POTA_STREAM_INGRESS_OK;
     }
     pota_stream_ingress_status_t status;
     if (!pota_stream_ingress_get_status(&s_stream_ingress, &status) ||
@@ -630,6 +713,16 @@ pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us
     const pota_stream_ingress_result_t result =
         pota_stream_ingress_service(&s_stream_ingress, status.source,
                                     budget_us);
+    if (result != POTA_STREAM_INGRESS_OK) {
+        s_stream_last_service_result =
+            1000u + (uint32_t)pota_stream_session_last_result();
+        if (pota_stream_session_last_result() == POTA_STREAM_RESULT_CORE) {
+            s_stream_last_service_result =
+                s_flash_execute_stage != 0u
+                    ? 2000u + s_flash_execute_stage
+                    : 3000u + (uint32_t)pota_session_last_error();
+        }
+    }
     return result;
 }
 
@@ -640,6 +733,33 @@ pota_stream_ingress_result_t portable_ota_port_stream_close(
         return POTA_STREAM_INGRESS_SESSION;
     }
     return pota_stream_ingress_close(&s_stream_ingress, source);
+}
+
+uint32_t portable_ota_port_stream_platform_map_version(void)
+{
+    return s_stream_platform.info.map_version;
+}
+
+uint32_t portable_ota_port_stream_last_session_result(void)
+{
+    return pota_stream_ingress_last_session_result(&s_stream_ingress);
+}
+
+bool portable_ota_port_stream_force_reset(void)
+{
+    if (portable_core_init_stream_surfaces()) {
+        return true;
+    }
+    /* Journal re-attach can fail while an old durable transaction is still
+     * pending; the stream lease must still be dropped so a retried OPEN is not
+     * rejected forever with SESSION. */
+    if (!pota_stream_session_init(&s_stream_session, &s_stream_platform)) {
+        return false;
+    }
+    return pota_stream_ingress_init(
+        &s_stream_ingress, &s_stream_session,
+        (1u << (uint32_t)POTA_STREAM_INGRESS_SOURCE_COUNT) - 1u,
+        POTA_MAX_DATA_BLOCK_SIZE);
 }
 
 pota_stream_ingress_result_t portable_ota_port_stream_abort(
@@ -666,10 +786,31 @@ bool portable_ota_port_stream_is_active(void)
            state == POTA_STREAM_STATE_READY_TO_REBOOT;
 }
 
+uint32_t portable_ota_port_stream_total_size(void)
+{
+    return s_stream_initialized ? s_stream_session.open.total_size : 0u;
+}
+
+uint32_t portable_ota_port_stream_core_state(void)
+{
+    return s_stream_initialized
+               ? pota_stream_session_core_state(&s_stream_session)
+               : 0u;
+}
+
 bool portable_ota_port_stream_get_status(pota_stream_ingress_status_t *status)
 {
-    return s_stream_initialized &&
-           pota_stream_ingress_get_status(&s_stream_ingress, status);
+    if (!s_stream_initialized ||
+        !pota_stream_ingress_get_status(&s_stream_ingress, status)) {
+        return false;
+    }
+    /* Once a session has failed, the token field carries the session-level
+     * service result so the failure reason is observable from SCPI. */
+    if (status->state == POTA_STREAM_STATE_FAILED ||
+        status->state == POTA_STREAM_STATE_ABORTED) {
+        status->stream_token = s_stream_last_service_result;
+    }
+    return true;
 }
 
 bool portable_ota_port_core_begin(const ota_metadata_t *metadata,
@@ -710,7 +851,13 @@ bool portable_ota_port_core_begin(const ota_metadata_t *metadata,
 
 bool portable_ota_port_core_service(uint32_t budget_us, ota_vector_t *vector)
 {
+    /* Each service call may advance a manifest page program+readback.  The
+     * watchdog supervisor only feeds when it sees forward progress from the
+     * transaction owner, so publish progress around the step instead of
+     * feeding the hardware watchdog directly. */
+    portable_core_publish_progress();
     const pota_error_t error = pota_session_service(&s_session, budget_us);
+    portable_core_publish_progress();
     portable_core_copy_status(vector);
     return error == POTA_ERR_NONE;
 }

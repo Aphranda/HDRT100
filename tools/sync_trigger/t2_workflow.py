@@ -2972,7 +2972,7 @@ def step_19_trial_and_pulse_start(ctx, slot, board, uid):
     # Controlled start offset: the first position's deadline is solved from the first
     # counter edge, so starting the source in the same instant as the ring arms can make
     # that one position late. A short offset lets the runtime arm the first window first.
-    start_delay = float(os.environ.get("T2_START_DELAY_S", "0") or 0.0)
+    start_delay = float(os.environ.get("T2_START_DELAY_S", "0.5") or 0.0)
     if start_delay > 0.0:
         print(f"  start offset {start_delay:.2f}s before SOURce:STARt", flush=True)
         time.sleep(start_delay)
@@ -3937,8 +3937,11 @@ def apply_sequence_modes(ctx):
     the grid/T2 configuration binds the ring epoch; switching it later was
     measured to rewrite the ring/epoch prerequisites (ORIGin:TRIAL refused).
     """
-    mode_all = os.environ.get("T2_SEQ_MODE", "")
-    mode_gateway = os.environ.get("T2_SEQ_MODE_GATEWAY", "")
+    # Default T2 flow: the GATEWAY position flow runs on the unified sequence
+    # model (MODE 2) while the switches stay on the verified legacy deadline
+    # path (MODE 0); the model's position service only implements the gateway.
+    mode_all = os.environ.get("T2_SEQ_MODE", "0")
+    mode_gateway = os.environ.get("T2_SEQ_MODE_GATEWAY", "2")
     valid = ("0", "1", "2")
     if mode_all not in valid and mode_gateway not in valid:
         return

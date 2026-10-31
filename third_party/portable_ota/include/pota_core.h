@@ -41,6 +41,13 @@ typedef struct {
     /* END is an AO-owned state machine.  Each service call advances at most
      * one validation/metadata transaction and then yields to the scheduler. */
     pota_end_step_t end_step;
+    /* Program staging workspace (OTA-HAOFV-011).  The program path used to
+     * keep POTA_MAX_DATA_BLOCK_SIZE + POTA_MAX_FLASH_PAGE_SIZE bytes on the
+     * caller's stack.  When an owner attaches a buffer it must hold at least
+     * one flash page; otherwise the program path uses a single page-sized
+     * stack window. */
+    uint8_t *program_workspace;
+    uint32_t program_workspace_size;
 } pota_context_t;
 
 typedef struct {
@@ -56,6 +63,12 @@ typedef struct {
 } pota_write_t;
 
 bool pota_init(pota_context_t *context, const pota_platform_t *platform);
+/* Attach an optional caller-owned program staging buffer of at least one
+ * flash page (POTA_MAX_FLASH_PAGE_SIZE).  Without it the program path keeps a
+ * single page-sized stack window instead of a block-sized one. */
+bool pota_core_set_program_workspace(pota_context_t *context,
+                                     uint8_t *buffer,
+                                     uint32_t size);
 pota_error_t pota_begin(pota_context_t *context, const pota_begin_t *begin);
 pota_error_t pota_resume_raw(pota_context_t *context,
                              const pota_begin_t *begin,

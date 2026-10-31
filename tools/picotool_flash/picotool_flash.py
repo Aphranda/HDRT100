@@ -45,6 +45,51 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+
+def _scpi_bootsel(serial_number: str) -> bool:
+    """Ask the running application to enter BOOTSEL via SCPI.
+
+    The application quiesces core1 and local interrupts before writing the
+    ROM BOOTSEL magic, which picotool's own USB reset request cannot do on
+    this firmware (the core1 breadcrumbs otherwise overwrite the magic).
+    """
+    try:
+        import serial  # pyserial
+        import serial.tools.list_ports
+    except ImportError:
+        return False
+
+    candidates = [port.device for port in serial.tools.list_ports.comports()]
+    for port in candidates:
+        try:
+            with serial.Serial(port, 115200, timeout=0.5) as ser:
+                ser.reset_input_buffer()
+                ser.write(b"*IDN?\n")
+                ser.flush()
+                idn = ser.readline().decode("ascii", errors="replace").strip()
+                if serial_number not in idn:
+                    continue
+                ser.write(b"SYST:BOOT:BOOTSel\n")
+                ser.flush()
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def wait_bootsel(picotool: Path, timeout_s: float = 10.0) -> str | None:
+    """Poll picotool until a BOOTSEL device is visible; return its info text."""
+    import time as _time
+
+    deadline = _time.monotonic() + timeout_s
+    while _time.monotonic() < deadline:
+        probe = run(picotool, ["info"], 60.0)
+        if "Program Information" in probe.stdout or "Device Information" in probe.stdout:
+            return probe.stdout
+        _time.sleep(0.2)
+    return None
+
+
 def run(picotool: Path, args: list[str], timeout_s: float) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -147,6 +192,19 @@ def main() -> int:
         records.append(
             f"$ picotool info -a {' '.join(selection)} after reboot\n{bootsel_probe.stdout}"
         )
+        if not bootsel_device_visible(bootsel_probe.stdout) and args.serial_number:
+            # The forced reset above reboots the application; give it time to
+            # re-enumerate before asking it to enter BOOTSEL.
+            for _attempt in range(12):
+                if _scpi_bootsel(args.serial_number):
+                    records.append("application asked to enter BOOTSEL via SCPI\n")
+                    break
+                time.sleep(1.0)
+            scpi_text = wait_bootsel(picotool)
+            if scpi_text is not None:
+                records.append(f"$ picotool info after SCPI BOOTSEL\n{scpi_text}")
+                bootsel_probe = subprocess.CompletedProcess(
+                    [str(picotool), "info"], 0, scpi_text, "")
     app_fallback = selected_application_device_visible(
         bootsel_probe.stdout, args.serial_number
     )

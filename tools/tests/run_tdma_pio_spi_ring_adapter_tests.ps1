@@ -14,6 +14,8 @@ $adapterSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter.
 $adapterTxSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter_tx.c"
 $adapterRxSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter_rx.c"
 $adapterServiceSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter_service.c"
+$adapterOriginSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_origin.c"
+$ringRxPrepareSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_rx_prepare.c"
 $commFsmSource = Join-Path $repo "components\tdma\src\tdma_adapter_comm_fsm.c"
 $flightFifoSource = Join-Path $repo "components\tdma\src\tdma_flight_fifo.c"
 $flightEngineSource = Join-Path $repo "components\tdma\src\tdma_flight_engine.c"
@@ -41,7 +43,7 @@ if (-not $hostCc) {
 if ($hostCc) {
     $exe = Join-Path $build "test_tdma_pio_spi_ring_adapter.exe"
     & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" `
-        $testSource $adapterSource $adapterTxSource $adapterRxSource $adapterServiceSource $commFsmSource $flightFifoSource $flightEngineSource $overlaySource $prepareSource $rxPrepareSource $receiveHealthSource $processMapSource $runtimeSource $transportSource $transportLoadSource $profileSource `
+        $testSource $adapterSource $adapterTxSource $adapterRxSource $adapterServiceSource $adapterOriginSource $ringRxPrepareSource $commFsmSource $flightFifoSource $flightEngineSource $overlaySource $prepareSource $rxPrepareSource $receiveHealthSource $processMapSource $runtimeSource $transportSource $transportLoadSource $profileSource `
         -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
@@ -64,7 +66,7 @@ if (-not $ArmGcc -or -not (Test-Path $ArmGcc)) {
     throw "No host C compiler or ARM GCC found"
 }
 
-foreach ($source in @($testSource, $adapterSource, $commFsmSource, $flightFifoSource, $flightEngineSource, $overlaySource, $prepareSource, $rxPrepareSource, $receiveHealthSource, $processMapSource, $runtimeSource, $transportSource, $transportLoadSource, $profileSource)) {
+foreach ($source in @($testSource, $adapterSource, $ringRxPrepareSource, $commFsmSource, $flightFifoSource, $flightEngineSource, $overlaySource, $prepareSource, $rxPrepareSource, $receiveHealthSource, $processMapSource, $runtimeSource, $transportSource, $transportLoadSource, $profileSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$include" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

@@ -45,7 +45,8 @@ pota_error_t pota_session_resume_package(pota_session_t *session,
                                durable_offset, durable_crc32, image_crc32);
 }
 
-pota_error_t pota_session_service(pota_session_t *session, uint32_t budget_us)
+static pota_error_t pota_session_service_impl(pota_session_t *session,
+                                                 uint32_t budget_us)
 {
     if (session == NULL) {
         return POTA_ERR_BAD_ARGUMENT;
@@ -54,7 +55,9 @@ pota_error_t pota_session_service(pota_session_t *session, uint32_t budget_us)
     return pota_service(&session->core, budget_us);
 }
 
-pota_error_t pota_session_write(pota_session_t *session, const uint8_t *data, uint32_t size)
+static pota_error_t pota_session_write_impl(pota_session_t *session,
+                                              const uint8_t *data,
+                                              uint32_t size)
 {
     if (session == NULL) {
         return POTA_ERR_BAD_ARGUMENT;
@@ -97,4 +100,33 @@ void pota_session_get_status(const pota_session_t *session, pota_status_t *statu
     }
 
     pota_get_status(&session->core, status);
+}
+
+static pota_error_t s_last_error;
+
+pota_error_t pota_session_last_error(void)
+{
+    return s_last_error;
+}
+
+pota_error_t pota_session_service(pota_session_t *session, uint32_t budget_us)
+{
+    const pota_error_t error = pota_session_service_impl(session, budget_us);
+    s_last_error = error;
+    return error;
+}
+
+static pota_error_t s_last_write_error;
+
+pota_error_t pota_session_last_write_error(void)
+{
+    return s_last_write_error;
+}
+
+pota_error_t pota_session_write(pota_session_t *session, const uint8_t *data,
+                                uint32_t size)
+{
+    const pota_error_t error = pota_session_write_impl(session, data, size);
+    s_last_write_error = error;
+    return error;
 }

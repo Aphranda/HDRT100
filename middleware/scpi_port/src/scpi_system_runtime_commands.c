@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "diagnostics.h"
+#include "drv_watchdog.h"
 #include "board_identity.h"
 #include "led_manager.h"
 #include "osal.h"
@@ -349,9 +350,11 @@ scpi_result_t scpi_cmd_watchdog_log_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_watchdog_ota_phase_q(scpi_t *context)
 {
-    diagnostics_watchdog_status_t status;
-    diagnostics_get_watchdog_status(&status);
-    SCPI_ResultUInt32(context, status.ota_phase);
+    /* read the retained live scratch: diagnostics status only refreshes on
+     * diagnostics_watchdog_mark_ota_phase(), while OTA paths use the driver. */
+    drv_watchdog_reset_snapshot_t snapshot;
+    drv_watchdog_get_reset_snapshot(&snapshot);
+    SCPI_ResultUInt32(context, snapshot.ota_phase);
     return SCPI_RES_OK;
 }
 

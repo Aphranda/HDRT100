@@ -18,16 +18,43 @@ static void write_le32(uint8_t *data, uint32_t value)
     data[3] = (uint8_t)((value >> 24u) & 0xFFu);
 }
 
+extern void pota_wire_trace(uint32_t code) __attribute__((weak));
+
+static void wire_trace(uint32_t code)
+{
+    if (pota_wire_trace != NULL) {
+        pota_wire_trace(code);
+    }
+}
+
 bool pota_stream_open_decode_le(const uint8_t *data, uint32_t size,
                                 pota_stream_open_t *open)
 {
     const uint32_t known_capabilities =
-        POTA_STREAM_CAP_INACTIVE_WRITE | POTA_STREAM_CAP_DURABLE_ACK;
-    if (data == NULL || open == NULL || size != POTA_STREAM_OPEN_WIRE_SIZE ||
-        data[36] > 1u || data[37] != 0u || data[38] != 0u || data[39] != 0u) {
+        POTA_STREAM_CAP_INACTIVE_WRITE | POTA_STREAM_CAP_DURABLE_ACK |
+        POTA_STREAM_CAP_RELAY;
+    if (data == NULL || open == NULL) {
+        wire_trace(1u);
         return false;
     }
+    if (size != POTA_STREAM_OPEN_WIRE_SIZE) {
+        wire_trace(2u);
+        return false;
+    }
+    if (data[36] > 1u) {
+        wire_trace(4100u + (uint32_t)data[36]);
+        return false;
+    }
+    if (data[38] != 0u || data[39] != 0u) {
+        wire_trace(4200u + (uint32_t)data[38] * 10u + (uint32_t)data[39]);
+        return false;
+    }
+    if (data[37] != 0u && (read_le32(&data[8]) & POTA_STREAM_CAP_RELAY) == 0u) {
+        wire_trace(4300u + (uint32_t)data[37]);
+        return false; /* reserved byte is only meaningful for relay OPENs */
+    }
     if ((read_le32(&data[8]) & ~known_capabilities) != 0u) {
+        wire_trace(4400u);
         return false;
     }
 
@@ -42,6 +69,7 @@ bool pota_stream_open_decode_le(const uint8_t *data, uint32_t size,
     open->total_size = read_le32(&data[28]);
     open->package_crc32 = read_le32(&data[32]);
     open->package_mode = data[36] != 0u;
+    open->relay_node = data[37];
     memcpy(open->identity, &data[POTA_STREAM_OPEN_IDENTITY_OFFSET],
            sizeof(open->identity));
     memcpy(open->package_hash, &data[POTA_STREAM_OPEN_PACKAGE_HASH_OFFSET],
@@ -65,6 +93,9 @@ uint32_t pota_stream_open_token(const pota_stream_open_t *open)
     write_le32(&data[28], open->total_size);
     write_le32(&data[32], open->package_crc32);
     data[36] = open->package_mode ? 1u : 0u;
+    data[37] = (open->capability_mask & POTA_STREAM_CAP_RELAY) != 0u
+                   ? open->relay_node
+                   : 0u;
     memcpy(&data[POTA_STREAM_OPEN_IDENTITY_OFFSET], open->identity,
            sizeof(open->identity));
     memcpy(&data[POTA_STREAM_OPEN_PACKAGE_HASH_OFFSET], open->package_hash,

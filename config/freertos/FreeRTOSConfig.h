@@ -1,4 +1,4 @@
-﻿#ifndef FREERTOS_CONFIG_H
+#ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
 #define configUSE_PREEMPTION                    1
@@ -10,7 +10,17 @@
 #define configMINIMAL_STACK_SIZE                256
 /* Keep the initialization baseline generous while collecting board watermarks.
  * Heap reduction is gated by measured task/heap high-water evidence. */
+/* V2 factory candidate adds the durable journal/stream surfaces and needs a
+ * slightly smaller heap to fit the RAM region; v1_compat keeps the measured
+ * 106 KiB baseline. */
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+/* 97 KiB: the 12 KiB storage evidence window (three 4 KB groups) is restored so
+ * the 15-sample TDMA recorder fits again; the 4 KiB comes out of this heap,
+ * whose measured free floor at idle was 5.4 KiB (SYST:RTOS:STAT?). */
+#define configTOTAL_HEAP_SIZE                   (97 * 1024 - 64)
+#else
 #define configTOTAL_HEAP_SIZE                   (106 * 1024)
+#endif
 #define configMAX_TASK_NAME_LEN                 16
 #define configUSE_16_BIT_TICKS                  0
 #define configIDLE_SHOULD_YIELD                 1

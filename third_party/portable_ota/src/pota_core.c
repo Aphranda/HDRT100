@@ -225,13 +225,14 @@ static pota_error_t pota_program_target(pota_context_t *context,
     const bool partial_page = page_offset != 0u || (size % page_size) != 0u;
     const bool use_read_modify_write =
         partial_page && page_size > POTA_MAX_DATA_BLOCK_SIZE;
-    const uint32_t program_size = use_read_modify_write
-                                      ? page_size
-                                      : pota_align_up(size, page_size);
-    uint8_t program_buffer[POTA_MAX_DATA_BLOCK_SIZE + POTA_MAX_FLASH_PAGE_SIZE];
-    uint32_t program_offset = image_offset;
+    uint8_t page_workspace[POTA_MAX_FLASH_PAGE_SIZE];
+    uint8_t *workspace =
+        (context->program_workspace != NULL &&
+         context->program_workspace_size >= page_size)
+            ? context->program_workspace
+            : page_workspace;
 
-    if (!is_final && program_size != size && !use_read_modify_write) {
+    if (!is_final && (size % page_size) != 0u && !use_read_modify_write) {
         pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
         return POTA_ERR_BAD_ARGUMENT;
     }
@@ -240,38 +241,114 @@ static pota_error_t pota_program_target(pota_context_t *context,
         /* Configurations with 256-byte transport blocks still target
          * 512-byte flash pages.  Merge a partial block into the existing
          * page before programming so adjacent bytes are preserved. */
-        program_offset = image_offset - page_offset;
+        const uint32_t program_offset = image_offset - page_offset;
         if (context->platform.ops.flash_read == NULL ||
             !context->platform.ops.flash_read(context->target_offset + program_offset,
-                                              program_buffer, page_size)) {
+                                              workspace, page_size)) {
             pota_core_set_failed(context, POTA_ERR_READBACK);
             return POTA_ERR_READBACK;
         }
-        memcpy(&program_buffer[page_offset], data, size);
-    } else {
-        memset(program_buffer, 0xFF, program_size);
-        memcpy(program_buffer, data, size);
+        memcpy(&workspace[page_offset], data, size);
+        if (!context->platform.ops.flash_program(context->target_offset + program_offset,
+                                                 workspace, page_size)) {
+            pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
+            return POTA_ERR_FLASH_PROGRAM;
+        }
+        /* A stream ACK is durable only after the programmed bytes are read back. */
+        if (context->platform.ops.flash_read == NULL ||
+            !context->platform.ops.flash_read(context->target_offset + program_offset,
+                                              workspace, page_size) ||
+            memcmp(&workspace[page_offset], data, size) != 0) {
+            pota_core_set_failed(context, POTA_ERR_READBACK);
+            return POTA_ERR_READBACK;
+        }
+        return POTA_ERR_NONE;
     }
 
-    if (!context->platform.ops.flash_program(context->target_offset + program_offset,
-                                             program_buffer,
-                                             program_size)) {
-        pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
-        return POTA_ERR_FLASH_PROGRAM;
+    /* Fast path: the transport already delivers page-aligned blocks, so a
+     * single flash_program call lets FlashTransactionAO park core1 once for
+     * the whole block instead of once per 256 B page (measured 3.8 s -> ~0.2 s
+     * per 4 KiB block).  Readback verification still walks pages. */
+    if (page_offset == 0u && (size % page_size) == 0u) {
+        if (!context->platform.ops.flash_program(
+                context->target_offset + image_offset, data, size)) {
+            pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
+            return POTA_ERR_FLASH_PROGRAM;
+        }
+        for (uint32_t done = 0u; done < size; done += page_size) {
+            const uint32_t chunk =
+                (size - done) < page_size ? (size - done) : page_size;
+            if (context->platform.ops.flash_read == NULL ||
+                !context->platform.ops.flash_read(
+                    context->target_offset + image_offset + done, workspace,
+                    chunk) ||
+                memcmp(workspace, data + done, chunk) != 0) {
+                pota_core_set_failed(context, POTA_ERR_READBACK);
+                return POTA_ERR_READBACK;
+            }
+        }
+        pota_feed_watchdog(context);
+        pota_yield_or_delay(context);
+        return POTA_ERR_NONE;
     }
 
-    /* A stream ACK is durable only after the programmed bytes are read back. */
-    if (context->platform.ops.flash_read == NULL ||
-        !context->platform.ops.flash_read(context->target_offset + program_offset,
-                                          program_buffer, program_size) ||
-        (use_read_modify_write
-             ? memcmp(&program_buffer[page_offset], data, size)
-             : memcmp(program_buffer, data, size)) != 0) {
-        pota_core_set_failed(context, POTA_ERR_READBACK);
-        return POTA_ERR_READBACK;
+    /* Whole pages are staged through the workspace one page at a time: the
+     * caller block may be an unaligned transport buffer, and the flash
+     * programming routine expects an aligned source window. */
+    const uint32_t aligned = size - (size % page_size);
+    for (uint32_t done = 0u; done < aligned; done += page_size) {
+        const uint32_t chunk =
+            (aligned - done) < page_size ? (aligned - done) : page_size;
+        memcpy(workspace, data + done, chunk);
+        if (!context->platform.ops.flash_program(
+                context->target_offset + image_offset + done, workspace, chunk)) {
+            pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
+            return POTA_ERR_FLASH_PROGRAM;
+        }
+        if (context->platform.ops.flash_read == NULL ||
+            !context->platform.ops.flash_read(
+                context->target_offset + image_offset + done, workspace, chunk) ||
+            memcmp(workspace, data + done, chunk) != 0) {
+            pota_core_set_failed(context, POTA_ERR_READBACK);
+            return POTA_ERR_READBACK;
+        }
+        /* One 4 KiB block is 16 page program+readback round trips; without a
+         * feed between them the 3 s core0 supervisor budget expires. */
+        pota_feed_watchdog(context);
+        pota_yield_or_delay(context);
+    }
+    if (aligned < size) {
+        const uint32_t tail = size - aligned;
+        memset(workspace, 0xFF, page_size);
+        memcpy(workspace, data + aligned, tail);
+        if (!context->platform.ops.flash_program(
+                context->target_offset + image_offset + aligned, workspace, page_size)) {
+            pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
+            return POTA_ERR_FLASH_PROGRAM;
+        }
+        if (context->platform.ops.flash_read == NULL ||
+            !context->platform.ops.flash_read(
+                context->target_offset + image_offset + aligned, workspace, page_size) ||
+            memcmp(workspace, data + aligned, tail) != 0) {
+            pota_core_set_failed(context, POTA_ERR_READBACK);
+            return POTA_ERR_READBACK;
+        }
     }
 
     return POTA_ERR_NONE;
+}
+
+bool pota_core_set_program_workspace(pota_context_t *context,
+                                     uint8_t *buffer,
+                                     uint32_t size)
+{
+    if (context == NULL || buffer == NULL ||
+        size < (uint32_t)POTA_MAX_FLASH_PAGE_SIZE) {
+        return false;
+    }
+    context->program_workspace = buffer;
+    context->program_workspace_size = size;
+    return true;
 }
 
 bool pota_init(pota_context_t *context, const pota_platform_t *platform)
