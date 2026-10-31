@@ -487,3 +487,23 @@ offset 0 重放 ⇒ 帧挤满 16 深 TX 队列 ⇒ 实测 `queue_full` 261–425
   或 DIAG 字段 + 环停/环跑的 A/B 对照），再决定：OTA 期间暂停环（维护窗）还是修 park 时序。
 
 证据：`out/night/m4/result.json`、`out/night/m4_console.log`。
+
+### 9.15 M4 A/B：擦除在“环停”下同样卡住——不是 park/环问题，疑为维护流依赖被全局打开（2026-11-01 05:00，build `20261031193724`）
+
+本轮做了两组对照（都在**环停**状态，排除环/park 干扰）：
+
+| 组 | 命令 | 结果 |
+|---|---|---|
+| 直连 + 整包 | `ota_stream_send <pkg> --package --package-whole --port COM4` | `DATA 0` 立即 `<timeout>`；目标回 IDLE |
+| 直连 + 切片包 | `ota_stream_send <pkg> --package --port COM4` | **`durable_offset=512` 成功**，随后 `DATA 512` 超时（AO 停在擦除） |
+| 直连 + 切片包（90 s） | 同上，观察更久 | 目标进入擦除后 **USB CDC 失去响应**（`serial.Serial('COM4')` 打开阻塞 >120 s）；几分钟后自行恢复为 `IDLE`、`PROG?=0,0,0`（疑似看门狗复位） |
+
+- **结论 1**：切片包在**直连**下是被接受的（`durable 512`），所以 §9.13 的 `BAD_HEADER` 只在 relay 路径出现 —— relay 与直连对 package 的解析口径不同，属新发现，需单列。
+- **结论 2（修正上一轮的怀疑）**：擦除卡死**与环无关**（环停时同样卡）；不是 park ACK 问题。
+- **新假设（待验证）**：启用 v2 bridge 的构建在 `ota_tdma_v2_bridge_app_init()` 里无条件调用
+  `ota_ao_set_tdma_maintenance_required(true)`；若该标志让 AO 在擦除/写入时等待“维护窗口”，
+  那么在**环没跑**的直接 USB 会话里就会永远等不到 ⇒ 擦除不结束。P3 Step 4 之前是在
+  **bridge 关闭**的构建上跑的，所以能过。
+- **下一轮**：把该标志改成“bridge 会话活跃时才置位、结束即清”，并用 `bridge OFF` 构建做对照 A/B 确认。
+
+证据：`out/night/direct_ota.log`、`out/night/direct_ota2.log`、`out/night/direct_ota3.log`。

@@ -23,6 +23,17 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-125 - M4 A/B：环停时擦除同样卡住（修正 park 假设）；疑为 maintenance_required 被全局置位
+
+- 环停直连对照：切片包 `durable_offset=512` 成功，随后 `DATA 512` 超时（AO 停在擦除）；
+  90 s 观察中目标 USB CDC 失去响应（串口打开阻塞 >120 s），数分钟后自行恢复 `IDLE`、`PROG?=0,0,0`（疑似看门狗复位）。
+- 直连+整包立即 `<timeout>`（直连期望切片包）⇒ `BAD_HEADER` 是 relay 特有，relay 与直连的 package 口径不一致（新发现）。
+- 修正：擦除卡死与环/park 无关（环停同样卡）。新假设：v2 bridge 构建在 init 里无条件
+  `ota_ao_set_tdma_maintenance_required(true)`，使 AO 在环没跑时等不到维护窗口 ⇒ 擦除不结束；
+  P3 Step 4 之前跑在 bridge 关闭的构建上。
+- 下一步：该标志改为“bridge 会话活跃才置位”，并用 bridge OFF 构建做对照；同时单列 relay/直连 package 口径差异。
+- 台架：四板 build `20261031193724`、IDLE、环停（COM4 已自愈）；代码未提交（待 M5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-124 - M4 首测：环 tx==rx/bad=0 健康；阻塞转为“erase 在运行中的环上不结束”
 
 - 整包 relay（300 s 计划）：环侧 `tx==rx` 同步增长、`bad=0` ✅；目标 8.6 s `ERASE_SLOT`
