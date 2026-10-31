@@ -23,6 +23,23 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-085 - 目标 flash 失败码定为 COMPLETION(22)，且本地 SCPI stream 同样复现 → 非 TDMA 专属
+
+- 诊断加固：`portable_ota_core_port.c` 的 `s_flash_execute_stage` 改为 `200 + completion.error`；
+  上板 token = **2222** = `2000 + (200 + 22)` → `FLASH_TRANSACTION_ERROR_COMPLETION(22)`。
+- 关键对照实验：同一 build `20261031091955`、同一目标板 COM4，用**本地 USB SCPI stream**
+  发同一 package（`--package`）——同样 `durable_offset=512` 后下一块 DATA 超时（工具 20 s 超时；
+  板端 SCPI handler 正在“等 core 离开 ERASE_SLOT”，最长 300 s）。
+- 结论：**不是 TDMA/relay 专属问题**。目标侧首块（package header，512 B）落地后，core 进入
+  erase，`flash_transaction_ao_execute` 返回 FAILED/COMPLETION，擦除无法收敛；本地与 TDMA
+  两条入口一致复现。
+- COMPLETION 的来源（`flash_transaction_fb.c`）：completion lease 校验/retain/append 失败
+  （L456-458、L664-667、L675-678）。下一个候选差异：
+  `ota_journal_completion_program` → `ota_journal_region_program` 的“读-改-写”页（L128-140）
+  在事务进行中读回失败，或 factory 空白 BCB 下 completion journal 槽位未就绪。
+- 下一轮：①在 completion append 失败点加 reason（retain/valid/append/page-read）；
+  ②对比 legacy 路径（同样用 flash 事务但走 ota_fb）为何可通过；③定位后修 stream 擦除路径。
+
 ### OTA-TDMA-PROGRESS-20261031-084 - N2 目标侧 OTA admission 缺口修复；flash 事务仍 FAILED（需 error 码）
 
 - 先排除“训练锁”：环运行期间 `SYSTem:RESource:TRAINing? = 0,0`（COM5/COM4 均如此），
