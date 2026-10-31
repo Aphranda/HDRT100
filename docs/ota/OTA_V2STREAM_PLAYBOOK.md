@@ -565,3 +565,19 @@ USB 会话也恒为真 ⇒ AO 在擦除/写入时把“维护流可用”当成�
   (b) park 请求提升为可抢占 TDMA 席位；两者都要按 C1 与 §6 预算重新评审。
 
 证据：`out\night\m4b_console.log`（环跑失败）、`out\night\direct_4k_long.out`（环停成功）。
+
+### 9.19 决策请求（M4 前置，需要人拍板）
+
+**机制**（代码已核对）：core0 擦写前走 `drv_flash_lockout_begin(budget)` 等 core1 的 park ack；
+core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core1_lockout_poll()`。
+环运行时 core1 周期被 TDMA 占满，ack 在 core0 的预算内到不了 ⇒ `PARK_TIMEOUT` ⇒ OTA 侧 `FLASH_ERASE`。
+
+| 方案 | 做法 | 代价 | 风险 |
+|---|---|---|---|
+| **(a) OTA 擦写期停环**（维护窗） | 擦除/编程前 `RING:STOP`（走既有 stop 握手），完成后重启环 | 环中断数秒；OTA 窗口内链路不可用 | 低：复用既有 STOP/START 路径，不动实时席位 |
+| **(b) park 可抢占 TDMA 席位** | core1 在周期内检查 park 请求并让位 | 不中断环 | 高：动 core1 实时调度与席位预算，需 EXE-SEAT-01 级评审 |
+
+**建议**：先做 (a)（改动小、可回退、与 P3 的“环停跑 OTA”一致），把 M4 打通拿到端到端证据；
+(b) 作为后续性能项单独立项。
+
+**需要你回复**：选 (a) 还是 (b)；若选 (a)，是否接受“OTA 期间环中断数秒”。

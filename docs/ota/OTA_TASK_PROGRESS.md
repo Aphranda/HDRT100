@@ -23,6 +23,16 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-129 - M4 决策请求：core1 park 在环运行时拿不到（方案 a 停环 / b 抢占）
+
+- 机制核对：core0 擦写前 `drv_flash_lockout_begin(budget)` 等 core1 park ack；core1 在
+  `app_runtime.c:191-208` 每周期调 `drv_flash_core1_lockout_poll()`。环跑时 core1 周期被 TDMA 占满，
+  ack 超出 core0 预算 ⇒ `PARK_TIMEOUT` ⇒ OTA `FLASH_ERASE`；环停时同路径正常（856 576 B/180 s）。
+- 方案 (a)：OTA 擦写期间停环（复用既有 STOP/START），改动小、可回退；代价是环中断数秒。
+- 方案 (b)：park 可抢占 TDMA 席位，不中断环；但动 core1 实时调度，需 EXE-SEAT-01 级评审。
+- 建议先 (a) 打通 M4 端到端，(b) 单独立项。等待用户选择后继续；在此之前不再无人值守改 flash/park。
+- 台架：四板 build `20261031202200`、IDLE、环停；代码未提交（待 M5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-128 - M4 硬阻塞（C1）：环运行时 erase 直接 FLASH_ERASE，环停则正常
 
 - 同构建 `20261031202200` 对照：环停+直连 4 KB 块 → 擦除成功、写入 856 576 B/180 s；
