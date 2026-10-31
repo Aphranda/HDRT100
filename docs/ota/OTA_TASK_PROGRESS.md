@@ -23,6 +23,22 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-103 - 维护注入有两条路径（TX/RX）；trn03 静态环下两条都未触发
+
+- TX 侧（`tdma_pio_spi_ring_adapter_tx.c:927-948`）：需要
+  `returned_view.payload_size >= (local_slot_id+1)*TDMA_FLIGHT_SHORT_SLOT_SIZE`，
+  满足才向 runtime 取维护帧并塞进本板 short slot。
+- RX 侧（`tdma_pio_spi_ring_adapter_rx.c:195-206`）：`!has_flight_tx && maintenance_mailbox != NULL`
+  时用维护帧替代 ring payload（maintenance beacon）。
+- 实测：trn03 process-image 静态环下 `window_open` 增长、`mailbox_calls=0` ⇒ **两条路径都未进入**
+  （TX 侧视图不足；RX 侧 `has_flight_tx` 为真或该路径未被调度）。
+- 结论：在当前 ring profile 下，维护流没有稳定的承载槽位。需要设计层面的选择：
+  ①在 ring profile 中给维护流固定槽位/配额（TX 侧视图按 slot 数补齐）；
+  ②OTA 期间暂停训练（回到 legacy 行为）；
+  ③新增独立于 flight 槽位的 OTA 承载（需门①登记）。
+- 下一轮：先按①做最小验证（补齐 TX 侧 `payload_size` 或让 `has_flight_tx` 周期性为假），
+  以 `mailbox_calls>0` 为判据。
+
 ### OTA-TDMA-PROGRESS-20261031-102 - 维护注入条件定位：`returned_view.payload_size ≥ (slot+1)*SHORT_SLOT` 不满足
 
 - 代码锚点：`components/tdma/src/tdma_pio_spi_ring_adapter_tx.c:927-948`
