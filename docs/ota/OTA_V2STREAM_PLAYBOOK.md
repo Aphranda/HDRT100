@@ -375,3 +375,28 @@ ABORT 只在 `ota_tdma_v2_bridge_app_release()` 里发（`ota_tdma_v2_bridge_app
   M4（1.14 MB 包、块级 stop-and-wait）需按实测调 `OTA_TDMA_RELAY_STALL_MS`，不得沿用 5 s 断言。
 
 证据：`out/night/m2b_console6.log`。
+
+### 9.10 M3 首块打通：块 ACK 截止时间是队列风暴的根因（2026-11-01 03:20，build `20261031185850`）
+
+**根因（本轮首次定量确认）**：relay 的块 ACK 截止时间原为 **200 ms**，而一个 512 B 块在维护流上需要
+8 帧 × 7 chunk ≈ 56 chunk ≈ **0.6 s**（实测排空 ~90 chunks/s）。截止时间在块传完前就到期 ⇒ 每个块都从
+offset 0 重放 ⇒ 帧挤满 16 深 TX 队列 ⇒ 实测 `queue_full` 261–425 次/s、目标 `stage` 冻结在 128 B。
+
+**最小修复**：`ota_tdma_binding_relay_start()` 的 pump 参数从 `(attempts=150, timeout=200 ms)` 改为
+`(attempts=20, timeout=2000 ms)`——截止时间必须覆盖“一个块 + 目标 flash program”；
+20 次尝试把死链上界压到 40 s，且更早由 relay 停滞看门狗兜底。
+
+**实测（45 s relay，build `20261031185850`）**：
+
+| 指标 | 修复前（`20261031184407`） | 修复后（`20261031185850`） |
+|---|---|---|
+| 源 `queue_full` | +10440（≈345 次/s） | **+403** |
+| 目标 `stage_len` | 冻结 128 B | 64 B → **512 B（t≈6.3 s）** |
+| 目标 `recv` | 128 | 512（整块） |
+| 目标状态 | 一直 RECEIVING 但不动 | 6.3 s 块到齐 → **8.4 s `ABORTED`** |
+
+**结论**：M3 的吞吐判据“512 B 首块 ≤10 s 收满”**已达成（6.3 s）**；但块交给 AB 管线后目标 ~2 s 即
+`ABORTED`，会话无法继续 ⇒ M3 仍未收口。下一轮查该 ABORT 的 reason（`SYST:OTA:STAT?` 的 error_code
+与 vector.state），并按需对齐 `OTA_EVENT_MAX_DATA_SIZE` / 块大小。
+
+证据：`out/night/m3_console3.log`、`out/night/m3/result.json`。

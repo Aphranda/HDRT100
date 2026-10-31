@@ -23,6 +23,17 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-120 - M3：块 ACK 截止 200 ms→2000 ms 打通首块（6.3 s 收满 512 B）；随后目标 ABORT
+
+- 根因：200 ms 的块 ACK 截止短于“一个 512 B 块”的线路时间（8 帧 × 7 chunk ≈ 56 chunk ≈ 0.6 s），
+  每块在传完前就超时重放，帧挤满 16 深队列 ⇒ `queue_full` 261–425 次/s、目标 stage 冻结 128 B。
+- 修复：`ota_tdma_binding_relay_start()` pump 参数 `150 次/200 ms` → `20 次/2000 ms`（build `20261031185850`）。
+- 实测：`queue_full` 10440 → **403**；目标 `stage_len` 64→**512 B（t≈6.3 s）**、`recv=512`（整块到齐）；
+  但 8.4 s 目标 `ABORTED`，会话无法继续 ⇒ M3 只达成吞吐判据，未收口。
+- 下一步：查该 ABORT 的 error_code/vector.state（块交给 AB 管线后约 2 s 失败），必要时对齐
+  `OTA_EVENT_MAX_DATA_SIZE` 与块大小；并复核停滞看门狗 30 s 与 20 次×2 s 的组合。
+- 台架：四板 build `20261031185850`；代码未提交（待 M5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-119 - M2 收口：源侧停滞看门狗让 host 8.2 s 报错（原 122.6 s）
 
 - 目标侧 ABORT 不可靠已证（§9.8）：`ota_tdma_v2_adapter_abort()` 先拆 bridge，排队 ABORT 发不出去；
