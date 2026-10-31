@@ -526,3 +526,21 @@ USB 会话也恒为真 ⇒ AO 在擦除/写入时把“维护流可用”当成�
 再谈 M4 的端到端。
 
 证据：`out\night\direct_ab2.out`、`out\night\direct_ab2.log`。
+
+### 9.17 吞吐标定：块大小决定速率（2026-11-01 05:50，build `20261031200639`）
+
+直连 + 切片包，同一构建，只改块大小：
+
+| 块大小 | 180 s 内 `durable_offset` | 折算（含擦除） |
+|---|---|---|
+| 512 B | 41 472 @120 s | ≈0.5 KB/s |
+| **4096 B** | **856 576 @180 s** | **≈4.7 KB/s（擦除后 ≥6 KB/s）** |
+
+- 结论：0.4–0.5 KB/s 不是 AO/flash 的极限，而是**每块一次 ACK 往返**在 512 B 粒度下的开销。
+- 参照：P3 直连 2.28 MB 约 80 s（≈28 KB/s），走的是 `ota_workflow.py`（默认 4 KB 块），与上表同量级偏快。
+- 对 M4 的含义：relay 目前按 **512 B 块 ACK**（`OTA_TDMA_INGRESS_STAGE`），线路本身又只有 ~0.9 KB/s，
+  1.14 MB 需 ≈20 min、2.28 MB 需 ≈40 min。要么把 relay 的 ACK 粒度提到 4 KB，要么接受长跑。
+- 下一轮：评估把 `OTA_TDMA_INGRESS_STAGE`/relay 块粒度提至 4 KB（要核算 RAM 与 ACK 语义），
+  或直接按“长跑 40 min”排一次 M4 端到端。
+
+证据：`out\night\direct_4k_long.out`、`out\night\direct_ab2.out`。

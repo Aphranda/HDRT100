@@ -23,6 +23,14 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-127 - 吞吐标定：512 B 块 ≈0.5 KB/s，4 KB 块 ≈4.7 KB/s（擦除后 ≥6 KB/s）
+
+- 同一构建 `20261031200639`、直连+切片，只改块大小：512 B → 41 472 B/120 s；4096 B → **856 576 B/180 s**。
+- 结论：低速率来自“每块一次 ACK 往返”，不是 AO/flash 极限；P3 直连（4 KB 块）≈28 KB/s 同量级偏快。
+- 对 M4：relay 仍按 512 B 块 ACK，线路 ~0.9 KB/s ⇒ 1.14 MB ≈20 min、2.28 MB ≈40 min。
+  下一轮评估把 relay ACK 粒度提到 4 KB（需核算 RAM 与 ACK 语义），或直接排一次 40 min 长跑。
+- 台架：四板 build `20261031200639`、IDLE、环停；代码未提交（待 M5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-126 - 擦除卡死根因修复：maintenance_required 改会话作用域；写入速率 0.4 KB/s 成新瓶颈
 
 - 根因：`ota_tdma_v2_bridge_app_init()` 无条件 `ota_ao_set_tdma_maintenance_required(true)`，
