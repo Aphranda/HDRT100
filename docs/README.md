@@ -94,6 +94,7 @@ docs/
 | ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向 Distributed Hard Real-Time Trigger System 的产品系统架构特化，服从 HAOFV 顶层约束。 |
 | ARCH/FUTURE | `arch/ARCH_FUTURE_APPLICATION_PLAN.md` | 当前产品完成后的应用场景、跨平台移植、版本分层和开源生态路线图。 |
 | ARCH/SYNCCORE | `arch/ARCH_SYNC_STANDARD_CORE_DESIGN.md` | 分布式同步核心规范第一版条款清单（甜区：通用 MCU 上 10-100 ns 级相位与触发同步）；草稿，未登记为契约。 |
+| ARCH/OTA-TDMA | `arch/ARCH_OTA_TDMA_STREAM_DESIGN.md` | OTA TDMA 流式升级设计说明（静态维护态 v1，`OTA-TDMA-001` 评审稿）：park 时序、帧草案、失败矩阵、C1/C2 判定；草稿，未登记为契约。 |
 | SYNC_IO | `sync/SYNC_IO_ARCHITECTURE.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TDMA | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件主域，定义上/下行 TDMA、payload registry、adapter、ring runtime、completion evidence 和 HAOFV system node 边界。 |
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | 状态机与底层实时资源域，定义 PIO SM、DMA/FIFO、上下行控制和资源仲裁边界。 |
@@ -126,6 +127,7 @@ docs/
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md` | 状态机资源迁移、PIO SM 重构和底层实时验证记录写入本文件。 |
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_TODO.md` | 状态机域可执行任务、退出门禁和后续迁移工作写入本文件。 |
 | OTA | `ota/OTA_TODO.md` | OTA HAOFV 任务状态、依赖和退出门禁。 |
+| OTA | `ota/OTA_V2STREAM_PLAYBOOK.md` | V2 流式 OTA / TDMA relay 交接记录：已完成、现场命令、踩坑、债务与下一步。 |
 | OTA | `ota/OTA_TASK_PROGRESS.md` | OTA 代码、构建、A/B HIL、失败与回退证据。 |
 | WATCHDOG | `watchdog/ARCH_WATCHDOG_TODO.md` | Watchdog 子域任务、故障注入、五板 P3 和 OTA/reset/commit 验收写入本文件。 |
 | WATCHDOG | `watchdog/ARCH_WATCHDOG_TASK_PROGRESS.md` | Watchdog 构建、测试、P3、五板 OTA 和失败证据写入本文件。 |

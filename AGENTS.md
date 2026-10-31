@@ -1,6 +1,6 @@
 # Agent 常设命令（Codex / Claude / AI 助手）
 
-Last updated: 2026-10-25
+Last updated: 2026-10-30
 
 本仓库采用「文档自回归体系」治理文档。**任何 AI 助手（Codex / Claude / DSH）在本仓库工作前，必须先阅读 §0 理解该体系，再动手改文档。** 违反体系约束会被 git pre-commit 门禁拦截。
 
@@ -64,6 +64,22 @@ Last updated: 2026-10-25
     `git restore`、`rm`/`git rm`、`Remove-Item` 等会丢弃已有工作的操作；确需撤销/移除时，
    **只能归档**——移动到对应域的归档目录并写明理由与时间戳，或先以 `git stash create` +
    `refs/wip/<tag>` 做完整快照。任何撤销类操作必须先取得用户明确同意，且可随时完整恢复
+11. **未提交改动闸门（积压上限 40）**：`git status --porcelain` 的待提交条目（被跟踪文件的
+   修改/删除/重命名 + 未被忽略的新建源码/文档；`out/`、`artifacts/`、`build/` 下的运行产物
+   不计）**超过 40** 时，立即冻结新增改动，先对当前工作树做一次完整硬件验收：
+   `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`
+   （等价 `python tools/hardware_acceptance/p3_hardware_acceptance.py run`），凭证必须覆盖
+   当前源码指纹且 scope 为 FULL。验收未通过前**不得叠加新改动**（先归因，再决定修还是
+   按 §2.10 归档回退）；通过后按 §2.7 分域提交收口——P3 凭证绑定 staged 源码指纹，
+   `check-staged` 要求工作区无未暂存源码差异，因此同一凭证覆盖的改动应作为**一个**代码
+   提交落地，拆批即需重新验收。目的：控制改动面，避免积重难返。计数示例：
+   `(git status --porcelain | Where-Object { $_ -notmatch '^\?\? (out|artifacts|build)/' }).Count`
+   **临时豁免（2026-10-30，用户授权）**：并行会话的 NO.1 工厂刷写 + COM5 stream OTA 任务
+   （2026-10-30 14:57 起，证据 `out/ota_workflow/run-20`）在收口前不受本条冻结约束。豁免
+   只覆盖该任务自身的改动与其提交批次，**不覆盖**新开任务，也不覆盖其它会话在同一工作树上
+   追加的无关改动；§2.10 禁回滚/禁删除仍然有效。有效期至该任务结束、且不晚于 2026-11-02，
+   到期未收口即自动失效。该任务收口时必须对当时工作树补一次 `--profile full` 验收，并把本条
+   标记为 expired——不得静默保留。
 
 **文档格式范围**：文档语料为 `docs/**`。`.agents/skills/**` 下的 `SKILL.md`、配套说明与评审文本
 不属于该语料，不适用第 1、3、5 项的五字段元数据、文档命名、总索引和 `Last updated` 格式要求。

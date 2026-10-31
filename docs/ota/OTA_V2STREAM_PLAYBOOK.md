@@ -1,0 +1,181 @@
+# OTA V2 Stream / TDMA Relay Handoff Playbook
+
+Status: Active
+Domain: OTA
+Canonical: `docs/ota/OTA_V2STREAM_PLAYBOOK.md`
+Related: `docs/ota/OTA_TASK_PROGRESS.md`, `docs/ota/OTA_TODO.md`, `docs/arch/ARCH_OTA_TDMA_STREAM_DESIGN.md`
+Last updated: 2026-10-31
+
+## 0. 本文件用途
+
+V2 部署（map=2 / DIRECT_AB）上 TDMA 流式 OTA 的**交接记录**：已完成、进行中、
+现场状态、复跑命令、踩坑与下一步。新会话接手先读本文件，再读
+`OTA_TASK_PROGRESS.md` 最新条目（065–068）。
+
+## 1. 目标（当前 active）
+
+在四板 V2 上完成：①本机 stream OTA 闭环；②N2 环 relay（NO.1→NO.2 达
+READY_TO_REBOOT、环不损坏）；③N3 resume/重复/drop/回滚矩阵；④N4 四板滚动与
+单口产品形态；⑤ ARCH-OTASTREAM-01 转 active + C11 复核；关闭 OTA-HAOFV-010–014；
+在定稿固件上重跑 P3 凭证。
+
+## 2. 已完成（有证据）
+
+| 项 | 证据 |
+|---|---|
+| V2 本机 stream OTA 全链路（OPEN→包头→数据→CLOSE→READY→commit→boot→active 切换，A↔B 双向） | `out/ota_workflow/run-31/32`；`SLOT?` 显示 active 切到目标槽、`RESult="APPLIED"` |
+| manifest finalize 栈溢出根因 | manifest `load`/`txn_begin` 大结构体沉到 2 KiB 余量栈 → static 化后收尾通过 |
+| `ota_stream_send --boot-and-commit` 顺序错误 | 原在 commit 前 reboot/校验 build；改为 commit→复位→重枚举→校验 |
+| workflow commit/reboot/verify 语义 | commit 只写 pending；reboot 等重枚举；verify 校验 active==target |
+| P3 V2（`--preset pico2-v2-factory-candidate --tdma-only`） | `PASS_WITH_WARNINGS`，证据 `out/HardwareAcceptance/20261030/p3-195940/` |
+| 过程镜像四板环 | trn03 `--no-record --hold-s` + `close_persistent_connections`，环 running `tx≈rx`、SCPI ~0–20 ms |
+| relay OOM | ctx/relay 静态化、relay window 2 KiB、SD 窗口 8 KiB（见 §6 债务） |
+
+## 3. N2 relay 目标开流：阻塞点已定位（2026-10-31）
+
+**阻塞点**：源端 relay 的 OPEN 描述符指针悬垂。`ota_tdma_binding_relay_start()` 在 SCPI 任务栈上
+构造 88 B wire，`ota_tdma_relay_open()` → `ota_tdma_session_init_source()` 只保存指针
+（`session->open_wire`）；OPEN 实际由 `ota_tdma_relay_tick()` 在 AO service 栈编码，此时该栈帧已被
+后续 SCPI/USB 处理覆盖 → 目标 decode 得到全零/垃圾描述符（map_version=0 → `MISMATCH`；或
+`data[36]>1` → decode false）。
+
+- 修复：`ota_tdma_relay_t` 自持 `open_wire[88]` 副本，`relay_open()` memcpy 后以副本初始化会话
+  （`components/ota_manager/{inc,src}/ota_tdma_relay.*`；+88 B .bss，无堆、无 API 变化）。
+- 回归：`tests/unit/test_ota_tdma_relay.c` 新增生命周期用例——`relay_open()` 后覆写调用方 buffer 再
+  `relay_tick()`，断言发出的 OPEN 仍是原描述符；旧代码失败、修复后通过。
+- 历史误判：`s_relay_wire_code` 与 phase `700000+…` 在**构造时**取值，不能证明**发送时**内容正确。
+- 状态：host 8 套 TDMA 用例 + `run_host_unit_tests.ps1` 全绿；P3（build `20261031054904`，
+  `out/HardwareAcceptance/20261031/hawf-134835`）**PASS_WITH_WARNINGS / ERROR 0 / 凭证已写**。
+  **上板 N2 复测（relay 目标 `READY_TO_REBOOT`、durable 递增、环 `tx≈rx`）仍未执行**，N2 按未完成记。
+- P3 现场（2026-10-31，`out/HardwareAcceptance/20261031/hawf-085223`）：步骤 0–23 全 PASS；step 24 在
+  **开启板载 recorder** 时启动 barrier 超时（关掉 recorder 同构建可起环）。已排除动作超时/barrier 时长/
+  short-open/OTA 侧 delta（禁用 app OTA service 的变体仍失败），旧构建同样失败 → 台架级 recorder↔ring
+  时序问题，需冷启动或单独立项，不归因于 relay 修复。
+
+## 3.1 历史现场记录（2026-10-30，含已被 §3 推翻的判读）
+
+> 以下按时间倒序保留原始判读与诊断码，仅作证据；decode/重组方向已被 §3 的指针悬垂根因取代。
+
+现象链（按持久 phase 读回）：
+
+- 源 `phase=73`（relay started），目标 `phase=203`（`on_frame` 返回 false，REJECTED）；
+- 目标 `phase=252`（250+total=2）：**两片 OPEN 都收齐**；
+- 已修：重复分片不再 reset 重组、窗口关闭视为瞬态、目标容忍 DATA 先于 OPEN；
+- 最新在查：`300/301/302/303/304` 系列 trace（decode/ingress_open/开流）—— 已加
+  弱钩子 `ota_tdma_trace()`（binding 定义 → `drv_watchdog_mark_ota_phase`），
+  并让 binding 在 300 系列存在时**不覆盖**失败码。
+
+下一步判读：目标 phase 若为 **301**=decode 失败，**303**=ingress_open 拒绝，
+**304**=开流成功（再看 durable 是否推进）。
+
+**最新（079）**：给 `ota_tdma_open_reassembly_step` 增加两项防御——拒绝空 payload 分片、
+要求分片累计覆盖恰好 88 字节。host roundtrip 仍通过；上板复测目标仍 decode 出
+全零 OPEN（DIAG[6..9]=0,0,0,0；平台 map_version=2；错误码 MISMATCH=3）。
+说明：目标侧拿到的 payload 内容在拷贝时为全零（非空长度），根因仍未定位；
+剩余轮次不足以继续上板二分，N2 按 fail-closed 记为未完成。
+
+**最新（078）**：在 decode 成功路径即刻快照（reset 之前）：
+目标 DIAG[6..9] = 0,0,0,0（decoded map_version/dest/total/caps 全 0），
+DIAG[10] = 2（平台 map_version 正确）。结论：目标 decode 得到的是**全零 OPEN 描述符**，
+因此 `session_open` 以 MISMATCH 拒绝（0 != 2）。源端 wire 正确、host roundtrip 正确、
+源状态机正确（都已有证据）。剩余未解：**为什么目标重组出全零 88 字节缓冲**。
+候选：`ota_tdma_open_reassembly_step` 的完成判据在 total/received 边界、
+或 `frame->payload` 与维护帧缓冲的生命周期（decode 值拷贝后再被覆盖）。
+
+**最新（077）**：真实错误码通道确认 `pota_stream_session_open` 返回
+`POTA_STREAM_RESULT_MISMATCH`（目标 DIAG[23]=3），且目标重组缓冲 `buffer[12..15]`
+=0（源 wire 应为 `02 00 00 00`）。即目标 decode 收到的是**全零描述符**
+（全零可通过 decode 的白名单校验，随后因 `map_version=0 != 2` 被 MISMATCH 拒绝）。
+怀疑 `ota_tdma_open_reassembly_step` 在 `total==0/received==0` 时会“假完成”
+（`all=(1<<0)-1=0 == received`），使 `reassembly.length` 被置 88 而缓冲仍为 0。
+下轮先跑 host 单测验证该边界（无需台架）。
+
+**最新（073）**：离线核对 `refmem_cmd_load_service()` → `tdma_second_class_parser_dispatch(
+stream_id, frame, frame_size)` → `ota_tdma_binding_handle_maintenance_frame()`：
+parser 收到的是 `tdma_maintenance_runtime_take()` 取出的帧，**没有额外包头**，
+与“+16 偏移”假设矛盾。因此 072 的偏移结论可能来自**诊断取值本身错位**
+（s_diag/step_diag 采集点或结构布局），需先在 handler 入口记录
+`size` 与 `payload[0..3]` 验证，再下结论。
+
+**最新（072）**：新增永久诊断命令 `SYST:OTA:TDMA:DIAG?`（16 值：trace,
+wire[36..39], crc, received, total, failure, buffer 前 32 字节的 8 个 hex 字, length）。
+实测（环 running、relay 超时后未重启读取）：
+`4102, 0, 758240, 3, 2, 3, 0x07070707, 0x08080808, 0x09090909, 0x10101010, 0x11111111, ...`
+即目标重组缓冲并不是源发出的 OPEN wire（源 wire[0..3] 应为 `44 33 22 11`），而是
+“每字节重复 4 次”的异常模式 → 说明**目标侧写入的并不是 wire 内容**（指向
+frame->payload/指针或诊断读取本身的缺陷）。host roundtrip 通过（codec 正常）。
+下一步：在 `ota_tdma_open_reassembly_step` 内记录 `seq/frame->payload_len/offset`
+到 DIAG，确认 memcpy 来源；并检查 `ota_tdma_decode` 的 frame->payload 与
+`ota_tdma_open_reassembly_step` 读取的是否为同一份对象（是否有值拷贝/悬垂指针）。
+
+**最新（070）**：弱钩子恢复生效，decode 失败点已定位到 `data[36] > 1`
+（wire trace=403，说明 relay 重建的 OPEN 描述符第 36 字节非法）；下一步用
+`pota_wire_trace(4100 + data[36])` 取实际值（已实现，待一次干净运行）。
+**操作纪律**：刷写与起环必须分步——刷完等四板 IDNA 全部可见再起环，否则 trn03
+会因端口未枚举而失败并把端口占住。
+
+**回归（069）**：统一到含“启动哨兵”的构建后，目标只能读到哨兵 phase=991，
+维护帧似乎不再进入 `handle_maintenance_frame`；而更早的构建曾读到 203/243/1323。
+需用二分法定位是哪一处改动（session trace/弱钩子/本地校验/哨兵）导致帧不再投递。
+排查建议：先只保留哨兵、撤掉 600000 编码与 411–414 检查复测；再逐项加回。
+
+**最新（068）**：复合码 `100000+trace*1000+received*100+total*10+failure` 显示
+`trace=301`（decode false）、received/total=两片齐；session 内复制的 4 条 wire 校验（411–414）
+均通过。另有现场风险：**UF2 写 slot A 但 active 可能仍是 slot B**，导致刷写“看似成功但跑旧固件”；
+验证新固件前必须先对齐 active 槽（读 `SYST:OTA:SLOT?`）。
+
+## 3.2 卡死板恢复（2026-10-31 遇到，留给下一班）
+
+现象：`SYST:OTA:STREAM:STAT?` 第 1 字段 `source=6`（越界）、OPEN 恒 `-200,"STREAM_OPEN_5"`；
+`SYST:OTA:JOUR?` 有旧 checkpoint 但 `--resume` 与手头任何 package 都不匹配；`STREAM:ABORt 0/1`
+返回 -200（source 不匹配），legacy `OTA:BEGIN/DATA/END` 也卡在 RECEIVING。软件复位会从 journal 恢复，
+不能清除。
+
+恢复阶梯（按序，前一步失败再下一步）：
+1. 现场：`picotool reboot --ser <uid> -f -u` 进 BOOTSEL → `picotool load <同 build app.uf2> -t uf2 -v` → `picotool reboot`。
+   注意本仓库 V2 preset 只产出 `DHRT100_BOOT.uf2` 与 `DHRT100_V2_CANDIDATE_FACTORY.uf2`，没有独立 app UF2。
+2. 无 app UF2 时：刷 factory UF2（会清标定/BCB，P3 会重做标定；远程刷写中途失败会停在 BOOTSEL，需现场插拔）。
+3. 恢复后先读 `SYST:OTA:SLOT?`/`FW:BUILD?` 对齐槽位，再起环/跑 P3。
+
+## 4. 现场与命令
+
+- 板卡：COM5=NO.1 `0010071E65B5CB38`、COM4=NO.2 `FB276192BEF9CCE1`、
+  COM3=NO.3 `2BD5090FE009FA2A`、COM6=NO.4 `A1E549202D18ED6A`；V2 `map=2`、`DIRECT_AB`。
+- 构建：`cmake --build out/build/pico2-v2-factory-candidate --parallel`
+- 刷写（无 CS）：`python tools/picotool_flash/picotool_flash.py --serial-number <uid> out/build/pico2-v2-factory-candidate/DHRT100_V2_CANDIDATE_FACTORY.uf2`
+- 卡死/BOOTSEL 收尾：`picotool reboot --ser <uid> -f`（可再 `-u` 进 BOOTSEL）；
+  若设备滞留 BOOTSEL：`picotool load <uf2> -t uf2 -v && picotool reboot`。
+- 本机 OTA：`python -m tools.ota.ota_stream_send.ota_workflow out/build/pico2-v2-factory-candidate/DHRT100_V2_CANDIDATE_UPDATE.pkg --port COM5 --attempt-dir out/ota_workflow/run-XX`
+- 起环（过程镜像、静态维护、无 DPLL、留窗口）：
+  `python tools/calibration_ring_validate/trn03_closed_loop.py --board-id <4 ids> --config out/HardwareAcceptance/20261030/p3-195940/trn03-matrix.json --expected-build <build> --level 7 --cycles 4096 --stage process-image --clock-evidence enabled --leave-running --no-record --diagnostic-continue --hold-s 300`
+- 环状态：`SYST:TDMA:RING:STATus?`（`[enabled,nodes,...]`）、`SYST:TDMA:LONGframe:STATus?`
+- relay：`python tools/ota/ota_stream_send/ota_stream_send.py <img> --port COM5 --relay-node 1 --block-size 512`
+- 持久 phase：`SYST:WATCHdog:OTA:PHase?`（复位后仍在）
+
+## 5. 踩坑清单（务必看）
+
+1. **不要并发刷写**：两个后台任务同时刷四板会导致板卡滞留 BOOTSEL/recovery。
+2. 刷写后**等 10–15 s** 再起环，否则 `boards not found`。
+3. **build id 是 CMake 缓存**：重建不变，不能当源码指纹；trn03 的 `--expected-build` 要按板上实际值传。
+4. 环在 trn03 退出后被停：relay 必须在其 `--hold-s` 窗口内做（hold 前已释放串口句柄）。
+5. 开 DPLL（`--dpll-provisional`）会把 SCPI 饿死（USB 写超时），静态维护阶段不要开。
+6. recovery/BOOTSEL 恢复用 `picotool reboot -f`，不要依赖 CS 短接。
+
+## 6. 未收口债务（必须跟踪）
+
+- ~~**SD 整文件写窗口 12 KiB→8 KiB**~~（2026-10-31 关闭）：8 KiB 让 TDMA 录制器在 ~10/15 样本处
+  `OVERFLOW`，P3 step 24 被 startup barrier 拒绝。已恢复 `3*4096`，并从 V2 FreeRTOS 堆让出 4 KiB
+  （`101→97 KiB`，空闲堆 1,344 B）。后续若要再压 RAM，应改为流式写（边写 SD 边算 CRC），而不是压窗口。
+- relay 相关改动（静态 ctx、OPEN 重传、重复分片容忍、窗口瞬态）尚未经过
+  host 单测与 FULL P3；本机 OTA 已实测通过。
+- N3/N4、ARCH-OTASTREAM-01 active + C11、OTA-HAOFV-010–014 未动。
+- §11 临时豁免到期前必须补一次 `--profile full` 验收并提交。
+
+## 7. 建议的下一步顺序
+
+1. 读目标 phase 区分 decode(301)/ingress(303)：若是 decode，对比 `pota_stream_open_decode_le`
+   的字段校验（capability/relay_node/reserved）；若是 ingress，检查
+   `pota_stream_session_open` 的 destination slot / size / package hash 校验。
+2. 修好后重跑 N2 判据：目标 `READY_TO_REBOOT`、环 `tx≈rx` 不损坏、`durable` 递增。
+3. 之后进入 N3 矩阵（resume/drop/rollback），再 N4 滚动与单口形态。
+4. 最后统一补 FULL P3 验收并收口提交。

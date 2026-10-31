@@ -4,7 +4,7 @@ Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_TODO.md`
 Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TASK_PROGRESS.md`, `docs/arch/HAOFV_FLASH_TODO.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-31
 
 本文维护 OTA 域当前主线、稳定任务 ID、状态和退出门禁。历史完成清单与单次验证快照已迁入 `docs/legacy/ota/`；实现证据只追加到 `OTA_TASK_PROGRESS.md`。
 
@@ -50,6 +50,7 @@ Last updated: 2026-09-06
 | P2 非阻塞 scan | BCB scan 每 tick 推进一个有界步骤，执行预算生效。 | OtaFB 返回 BUSY/DONE/FAILED，满 lane 仍不阻塞 AO。 |
 | P3 owner/Vector 收敛 | BCB append 由 FlashTransactionAO typed intent 执行；SCPI 只读 Vector。 | raw writer/link gate、seqlock snapshot、无查询时 Flash IO。 |
 | P4 发布验收 | 完整 fault/power-cut/stack/HIL/P3 证据。 | 当前源码指纹的 acceptance receipt 和 C11 审核。 |
+| M5 TDMA 流式 OTA（跨域，2026-10-29 重新规划） | 静态维护态下，经 TDMA 环把镜像流式装到从板 inactive slot（升级期间只启动 TDMA）。 | G1–G3 决策门全部通过 + `ARCH-OTASTREAM-01` 转 `active` + C11；详见下节。 |
 
 ## 分阶段任务表
 
@@ -65,10 +66,164 @@ Last updated: 2026-09-06
 | OTA-HAOFV-008 | 移除旧同步 App scan、selection service hook 和完成定位后的临时 fault instrumentation。 | DONE | 主 App pending 路径仅走 HAOFV step/async owner；临时 fault/page trace 已移除；portable/RTOS build 与 COM7 A/B 通过。非主线历史同步 wrapper 保留在兼容边界并单独审计。 |
 | OTA-HAOFV-009 | 建立 stack-usage、CRC 等价、BCB 满 lane/GC/torn 和查询无 IO 回归门禁。 | DONE | OTA HAOFV static gate、固定 workspace 栈帧 gate、portable BCB/FlashTransaction/Journal reset matrix、CRC/BCB tests、query wiring 全部通过。 |
 | OTA-HAOFV-010 | 执行 COM7 多轮 A/B、负向矩阵、power-cut 边界和仓库 P3 hardware acceptance。 | IN PROGRESS | 当前源码构建、COM7 positive/negative matrix、NO1–NO4 UF2 和 P3 staged 检查通过；真实 power-cut、正式 P3 receipt/C11 尚未闭合。 |
+| OTA-HAOFV-011 | 隔离 `pota_program_target()` 的大栈缓冲，并按新水位重算 OTA 任务栈。 | IN PROGRESS | `program_buffer` 不再占用任务栈（AO 私有 workspace 或调用方提供）；`APP_OTA_TASK_STACK_WORDS` 依据实测水位重算；`SYSTem:RTOS:STATus?` 的 `ota` free words 达到书面门限；host 用例与 build 回归通过。已实现：整页按页暂存（对齐安全）、块大小帧消失；实测峰值 1428 words（全包传输后 high-water），任务栈 1921→**1792 words**（+25% 余量），`ota` free=364 words。**注意**：曾按公式压到 1152 words，P3 四板 OTA 在 BEGIN/erase 阶段全部溢出复位，已回退（见 `OTA-TDMA-PROGRESS-20261029-005`）。 |
+| OTA-HAOFV-012 | 为 `RECEIVING`/`ERASE_SLOT` 增加无进展超时，并自动清理会话与 OTA admission。 | IN PROGRESS | 超时后确定进入 `FAILED`（带 reason）、释放 admission，下一次 `BEGIN` 可被接受；host 用例覆盖“主机中断后重连”和“无进展超时”两条路径。已实现 `ota_progress_watch` + `NO_PROGRESS` reason + “先 abort 会话再置 FAILED”的收尾顺序；host 单测覆盖超时判定/回绕/禁用/erase 进度，**待 HIL 证明 FAILED 后 BEGIN 可再接受**（见 `OTA-TDMA-PROGRESS-20261029-002`）。 |
+| OTA-HAOFV-013 | 修正 `SYSTem:OTA:DATA` 在拒绝路径上未消费 arbitrary block 的顺序缺陷。 | IN PROGRESS | RUN/ARMED、stream-active 和参数错误分支都在解析数据块之后返回（静态顺序断言）；行为级用台架负向证明：RUN 态下发 DATA 后，下一条查询应答不被污染。host 侧因整行缓冲 + libscpi 跳过未消费参数，症状不可复现（详见 `OTA-TDMA-PROGRESS-20261029-001`）。 |
+| OTA-HAOFV-014 | 收敛主机 OTA 工具的等待预算与吞吐策略。 | IN PROGRESS | `ota_send` 能区分“块被拒/块未消费/链路断”并对失败立即 `ABORT`；CAP 查询失败不再静默退回兼容块大小；单板与四板 OTA 在既有验收窗口内完成或明确失败并保留原始证据。已实现：`OtaTransferError` 分类（`capability_unavailable`/`open_rejected`/`open_timeout`/`block_rejected`/`block_not_consumed`/`link_lost`）+ 失败即 `SYST:OTA:ABOR`（尽力而为并记 `abort_status`）+ CAP 失败默认 fail-closed、需 `--allow-compat-block-size` 显式覆盖。四板实测：P3 运行 `20261030/p3-001332` 的 `ota-four-board` 4/4 通过、175.95 s；P3 最终凭证被 DPLL 外置示波器窗口未命中阻塞（台架，非 OTA 路径）。 |
+
+## TDMA 流式 OTA 里程碑（M5，2026-10-29 重新规划：决策门 + 台架夜次）
+
+### 0. 目标与非目标
+
+**目标**：单一上位机串口下，协调者板读取 package，经 `TDMA_PAYLOAD_CLASS_OTA_BULK` / `TDMA_TRAFFIC_RELIABLE_BULK` 把镜像流式装进从板 inactive slot；A/B 安装、pending/confirm/rollback 仍由既有 `pota_stream_session` + `portable_ota_port` 负责。
+
+**非目标**：`ARCH-OTASTREAM-01` 的其余本地 transport（USBTMC/UART/RS485/SD）；Recovery 分发；产线量产门禁；与实时流量共存。
+
+### 1. 前提（用户 2026-10-29 裁定，不可协商）
+
+1. **OTA 是静态动作**：升级期间只启动 TDMA 环，不启动 DPLL/VDC，不做测量/T2/校准；结束重启后按正常流程恢复并复测 P3/T2。
+2. **owner 不变**：`TdmaSchedulerAO` 独占 gate/window/adapter，`OtaAO` 独占 session/distribution，`FlashTransactionAO` 独占 durable write。
+3. **C1 不变**：erase/program 只由 core0 发起、core1 park ACK 有效；core1 侧不得触碰 flash API。
+4. **先 2 板再四板**：四板、单口与契约都在 G1/G2 通过后才做。
+
+### 2. 现状账（2026-10-29 只读核对，快照，非事实源）
+
+| 面 | 现状 | 结论 |
+|---|---|---|
+| session / A-B | `pota_stream_session` / `pota_stream_ingress` 与 transport 无关；source 仅作准入/诊断；durable offset、checkpoint/journal、pending/confirm/rollback 齐备 | 可直接复用 |
+| 接收入口 | `portable_ota_port_stream_write(source, offset, data, size, has_crc32, crc32)` 是唯一入口，`source_mask` 覆盖全部 source | 加一个 TDMA 源即可 |
+| 环可靠通道 | `tdma_maintenance_runtime` 已有分片、按 target/required mask 的 ACK、超时/重试/重复计数（现用于 REFMEM 命令分片） | v1 载体；每帧载荷很小 |
+| TDMA 服务 | `tdma_component_core1_service()` 在 `ota_ao_is_active()` 时整段返回 | 必须改为“静态态只服务维护流” |
+| OTA bulk 生产/消费 | 无 `TdmaOtaIngress`、无 producer、无 distribution；`TDMA_PAYLOAD_CLASS_OTA_BULK` 仅有类与常量预留 | 本里程碑主体 |
+| host 工具 | `--method tdma` 是预留位，`method_reserved()` 在 Step 3/4 直接失败 | 需实现 |
+| 契约 | `ARCH-OTASTREAM-01` = `pending` | 最后收口 |
+
+### 3. 形态结论（计划为什么这样切）
+
+flash program/erase 期间 core1 必须 park（`drv_flash_lockout_core1_poll()` 进入 spin），core1 上的 TDMA 在写窗口内必然停摆。因此：
+
+- 传输 = **分块 + 容忍停车**：收块入 RAM → park 写 → 解锁 → 回 durable ACK → 下一块；
+- **stop-and-wait 是 v1 的正确选择**（写 flash 时间主导）；credit/窗口只在吞吐不足时启用；
+- 静态态下没有实时流量要保护，②门退化为“升级期间确实没起 DPLL/VDC”（可 SCPI 读回）；
+- 既有 maintenance stream 可直接承载 v1 的块，吞吐受“每帧载荷很小 + stop-and-wait”限制，只作可行性证明；v2 再评估 long frame（`TDMA_PROFILE_DEFAULT_LONG_CAPACITY`）与窗口化 ACK。
+
+### 4. 三个决策门（每门可独立失败）
+
+| 门 | 要回答的问题 | 通过判据 | 失败处理 |
+|---|---|---|---|
+| **G1 可行性** | 停车窗口内环协议是否仍成立？2 板能否装完？ | park 时长与 `schedule_miss` 增量有量化；2 板装好 inactive slot 到 `READY_TO_REBOOT`；环不损坏 | 反复重同步/数据损坏 → 判**不可行**，契约保持 `pending` |
+| **G2 可重复** | 连续多次、断链/掉电/回滚是否可恢复？ | 连续 N 次通过；drop/duplicate/reset/超时注入后能续传或明确 abort；回滚可复现 | 收窄到已知可恢复集，未过项不得进 G3 |
+| **G3 产品形态** | 单口四板、reference 迁移、契约 | 四板滚动成功、每节点可观测、同指纹凭证、C11 复核 | 停在 2 板形态，不宣称“单口可升级” |
+
+### 5. 夜次编排（每晚只推进一个门的一步；白天写代码与评审）
+
+| 夜次 | 目标 | 前置 | 判据 | 失败分支 |
+|---|---|---|---|---|
+| **N1 探针** | 不改产品代码：1–2 次现有 OTA，采集 park/miss/吞吐 | 离场前置全绿 + 恢复演练完成 | 三个数齐全且可复算 | 数值离谱 → 先改设计，不进 N2 |
+| **N2 G1** | 2 板最小闭环：降级服务 + codec + ingress + stop-and-wait | N1 可行；host 用例绿 | 2 板 `READY_TO_REBOOT`，环不坏 | 失败按签名表处置，不硬刷 |
+| **N3 G2** | 重复性与故障注入 + 回滚 | N2 通过 | 连续多次 + 恢复矩阵 | 未过项收窄，不进 G3 |
+| **N4 G3** | 单口四板 + reference 迁移 | N3 通过、四板在位 | 四板滚动 + 证据包 | 停在 2 板形态 |
+
+### 6. 任务表
+
+| ID | 门 | 内容 | 依赖 | 退出判据 |
+|---|---|---|---|---|
+| OTA-TDMA-000 | 前置 | 关闭 `OTA-HAOFV-010`–`014`（011 栈隔离、012 无进展超时、013 DATA 拒绝路径消费、014 host 等待预算） | — | 010 收口、011–014 DONE |
+| OTA-TDMA-001 | G1 | 设计说明（初稿见 `docs/arch/ARCH_OTA_TDMA_STREAM_DESIGN.md`）：静态态 TDMA/flash 时序、park 边界、失败与恢复、C1/C2 逐条判定（不落代码） | 000 | 设计说明 + 用户审核记录 |
+| OTA-TDMA-002 | G1 | `tdma_component_core1_service()` 改为“静态态只服务维护流”（VDC/RefMem/T2 仍按既有门退出） | 001 | host 静态断言；2 板环保持 running。**已实现**（2026-10-30）：早退条件改为 `ota_ao_is_active() && !ota_ao_tdma_maintenance_allowed()`，后者只在 stream 会话（静态维护传输）为真；legacy raw-data 会话保持原行为（环空闲、lockout poll 紧凑）。core1 仍不触碰 flash API（静态断言）；build `20261029163715`。**待两板 HIL**验证环在 OTA 期间保持 running |
+| OTA-TDMA-003 | G1 | 探针与环协议验证：park 时长、`schedule_miss` 增量、帧完整性（`SYSTem:PROTection:STATus?` / `TDMA:RING:STATus?`） | 002 | 数据齐全 + 环不损坏 |
+| OTA-TDMA-004 | G1 | 四帧 codec：`OPEN/DATA/ACK/CLOSE`（golden + overflow + 未知 flags fail closed） | 002 | host roundtrip + fuzz。**已实现**（2026-10-30）`components/ota_manager/{inc,src}/ota_tdma_codec.*`：帧上限 80 B（= 维护流单帧上限）、OPEN 按 76 B 分 2 片（可乱序、重复即重置）、DATA 载荷 ≤68 B、ACK/CLOSE/ABORT 定长，编码器容量不足或参数非法返回 0；golden vectors + 20k 随机解码 + 5k 往返 fuzz 通过。**待 005/006a 接入后**台架复验 |
+| OTA-TDMA-005 | G1 | `pota_stream_ingress_source_t` 加 TDMA 源；`TdmaOtaIngress` 只调 `portable_ota_port_stream_write` | 004 | host 契约；不复制 session。**已实现**（2026-10-30）：`POTA_STREAM_INGRESS_TDMA` 入枚举；`components/ota_manager/{inc,src}/ota_tdma_ingress.*` 只做 offset 期望校验 + 转发 + durable 镜像，端口返回错误即映射为 `REJECTED`、不推进期望；host 用例覆盖 open/转发/offset 失配/坏帧/端口拒绝/close 失败保持 open/状态镜像；build `20261029163141`。**待 006a 接入载波后**台架复验 |
+| OTA-TDMA-006a | G1 | durable ACK + stop-and-wait（ACK 在 program + readback 后回） | 005 | 2 板装 slot 到 `READY_TO_REBOOT`。**源侧已实现**（2026-10-30）`ota_tdma_pump`：单帧在途、只认本帧覆盖的 durable offset、陈旧 ACK 忽略、越界/拒绝 fail closed、超时重发同帧、次数用尽 FAILED、末帧 ACK 后发 CLOSE；host 用例覆盖 happy path/重试耗尽/陈旧与越界 ACK/发送失败。**待 002 载波接入 + 两板 HIL**。目标侧 ACK 已实现（2026-10-30）：`ota_tdma_ingress_ack_ready` 只在 durable ≥ 已接收字节时为真，`ota_tdma_ingress_encode_ack` 用当前 durable 编码 ACK；host 回环用例（pump→帧→ingress→伪会话→ACK→pump）20 B 三分片全部走通；并新增 `ota_tdma_session`（角色会话：source 发 OPEN+DATA、target 收 OPEN 开 ingress 并回 durable ACK、CLOSE/ABORT 收口），两会话经队列传输的 host 联调用例通过；载波接缝 `ota_tdma_carrier` 已实现（submit/take/ack 注入，submit 每次换 generation，poll 分发后回帧级 ACK），host 用例覆盖发送/代数递增/超长拒绝/ACK 推进/坏帧 NACK（2026-10-30）。**已知 v1 简化**：`tdma_maintenance_runtime_take()` 不返回 source_slot，两板载波用固定 `peer_slot`，多目标分发需 TDMA 侧扩展该 API。AO 入口 `ota_tdma_carrier_service()` 已实现（有界 drain + 重发推进，不阻塞/不碰 flash）；固件绑定 `application/src/ota_tdma_binding.c` 已接线（`app_ota_service` 仅在 stream 会话下调、v1 限 2 节点、状态放 FreeRTOS 堆以避开 RAM 上限），host 用例覆盖 slot→peer/mask、越界 slot 拒绝、OPEN/DATA/CLOSE 全链与 ack 计数（2026-10-30） |
+| OTA-TDMA-013 | G1 | 夜间执行器：状态机 + 超时 + 重试预算 + resume + `attempt-XX/` 证据包 + `--recover` | 000 | host 覆盖四类恢复；到点安全收尾。**部分完成**（2026-10-30）：`tools/ota/ota_stream_send/night_runner.py` 实现 attempt 目录/`result.json`/`summary.json`、wall-clock 预算、失败即恢复钩子与 `--recover` CLI、runner 异常记录；host 5 用例通过。**待** resume 语义与真实 transfer 串联（需要 N2）。已串 relay：`tdma_night.py`（dry-run/attempt/预算/恢复），见 `OTA-TDMA-PROGRESS-20261030-027` |
+| OTA-TDMA-014 | G1 | host `--method tdma` 最小实现（单口 → 协调者 → 环，不并行） | 005 | 与 2 板 HIL 同批跑通。**部分完成**（2026-10-30）：`ota_stream_send.py --relay-node 0..31`——OPEN 置 `CAP_RELAY` + 描述符字节 37，协调者据此转发；禁与 `--resume`/`--boot-and-commit` 组合；host 用例 15 passed。**待** 2 板实跑（`--recover` 已由 `tdma_night` 提供） |
+| OTA-TDMA-006b | G1 | 源侧 relay：host 经既有 STREAM 把包发给协调者；`OPEN.destination_slot != 本板` 时协调者不写自身 flash，按 68 B 分帧转发到环；host consumed 以目标 durable ACK 为准（设计 §4.1） | 005/006a | 2 板 ≥300 KB relay → 目标 `READY_TO_REBOOT`、环不损坏、协调者擦写计数不增长；失败回 ABORT 并走既有分类。**host 已实现**（2026-10-30）`ota_tdma_relay`：4 KiB 单块窗口 + 64 B 分帧（窗口必须是 chunk 整数倍，否则拒绝）、整块 durable 才收下一块、durable 映射；host 用例 3×256 B 全链 + 非连续块拒绝通过。**SCPI 已接线**（2026-10-30）：`STREAM:OPEN` 按 `destination_slot != 本板槽` 进入 relay（binding 内 heap 分配），`DATA`→`relay_feed`、`CLOSE`/`ABORT` 收口、`STREAM:STAT?` 上报 relay durable/state；build `20261029171950`。**待** 两板 HIL。路由字段已定稿（2026-10-30）：`POTA_STREAM_CAP_RELAY`(bit2) + 描述符字节 37 = 节点号；SCPI OPEN 按该字段分流、目标侧只接受本节点 OPEN；wire 解码/编码与 host 用例已覆盖。剩余前置：`RING:STARt` 停机态返回 `-200`，环需由标定/剖面流程带起，当前仍缺“起环后注入 relay”的台架入口 |
+| OTA-TDMA-006c | G1 | maintenance RX 单一 owner：runtime 完成队列 + `register_sink(stream_id)`；REFMEM/OTA/SCPI 迁移到 sink；`take()` 只弹队列 | 006a | 三方并发零丢帧（host 注入）；目标板无本地会话时可被 OPEN 打开（设计 §4.3）。**已按解析器注册实现**（2026-10-30）：REFMEM 任务仍是唯一 drainer，`0x4F` 分发到 OTA；binding 不再调用 `take()`；host 用例走 `handle_maintenance_frame` 路径。**待** 并发注入 HIL |
+| OTA-TDMA-007 | G2 | resume：journal + readback 重建 durable offset | 006a | 两板 reset / 掉电重放 |
+| OTA-TDMA-009 | G2 | 两板全链：装 slot → boot/confirm/revert → 重入环 | 007 | 同指纹凭证 + 两板摘要 + 升级后 P3/T2 恢复 |
+| OTA-TDMA-015 | G2 | 重复性 soak + 注入矩阵（drop/duplicate/超时/park） | 007 | 连续 N 次通过；失败可分类。**host 矩阵已实现**（2026-10-30）：`tools/ota/ota_stream_send/tdma_matrix.py`（计划 JSON `OTA_TDMA_MATRIX_PLAN_V1`、`clean`×3 + `drop-1/3/8` 分类、可注入 `SYST:REFMEM:CMD:DROP`）+ `tests/python/test_ota_tdma_matrix.py` 4 项通过；**待** HIL 实跑（依赖 N2）。 |
+| OTA-TDMA-006b | G3 | credit/背压（仅当 G1/G2 吞吐不足时启用） | 006a | 零信用 / gate closed 用例 |
+| OTA-TDMA-008 | G3 | `OtaDistributionFB`：per-node 向量、stage-all→verify→cohort commit、reference 先迁移 | 006b 或 006a | host 状态机 + 三/四板负测 |
+| OTA-TDMA-010 | G3 | 四板滚动：每节点可观测、失败隔离、掉线重加入 | 009、008 | 四板 HIL + 每节点证据 |
+| OTA-TDMA-011 | G3 | 单口产品形态：协调者单口发起、四板全部升级（REFMEM 单口收敛后的唯一通道） | 010 | 机器捕获（`port` + 四板 build 回读）+ 失败路径留证 |
+| OTA-TDMA-012 | G3 | 契约收口：`ARCH-OTASTREAM-01` 转 `active` | 011 | C11 独立复核；六类 transport 证据边界写清 |
+
+**进度（2026-10-30）**：`OTA-HAOFV-011–014` 代码均已落（见 `OTA_TASK_PROGRESS.md` 条目 001–014）；**正式 P3 QUICK 凭证已产出**（`config/hardware_acceptance/p3_acceptance_receipt.json`：build `20261029165133`、`d3997aa9…`/1632 files、`passed=true`、`strict_gates_passed=false`、DPLL PASS、OTA 四板 4/4 174 s）——这是本批改动的同指纹凭证；`010` 的 power-cut 与提交仍未闭合（提交被工作区里与本批无关的 T2 工具改动阻塞，见 `OTA-TDMA-PROGRESS-20261030-015`）。
+
+**N2 阻塞点（2026-10-31）**：relay 目标开流失败根因 = OPEN 描述符指针悬垂——`relay_start()` 的
+88 B wire 位于 SCPI 栈，`ota_tdma_session_init_source()` 只存指针，OPEN 在 `relay_tick()` 的另一任务栈
+编码时栈帧已被复用，目标 decode 得到全零/垃圾 → `MISMATCH`。已改为 relay 自持副本，并加 host 生命周期回归
+（见 `OTA-TDMA-PROGRESS-20261031-080`）；**上板 N2 判据（目标 `READY_TO_REBOOT`、durable 递增、环不坏）
+尚未复测**，`OTA-TDMA-006b` 仍按未完成记。
+
+### 7. 夜间执行规则（配 `OTA-TDMA-013`）
+
+**离场前置（任一不满足不启动）**：台架锁（确认无其它 T2/P3/OTA 在跑）→ 四板 STOP、VDC/DPLL 未启动、环 STOP、`ABORt` 清会话 → package sha256/build 写 `preflight.json`（夜间不重构建）→ host 用例绿 + 执行器 dry-run → 端口按 UID/VID-PID 绑定 → 证据目录与日志上限 → 恢复演练完成。
+
+**运行循环**：一轮 = 一次可判定尝试，必须有 PASS/FAIL(reason) 与独立目录；每轮先读状态再决定；`--wall-clock` 到点即收尾（写 `final.json`、全 STOP、释放锁）；同一时刻只允许一块板写 Flash。
+
+**失败签名 → 处置**：
+
+| # | 签名 | 处置（有界） | 立即停 |
+|---|---|---|---|
+| 1 | `BEGIN` 无应答 | 重开端口 + `ABORt`，重试 1 次 | 连续 2 次 |
+| 2 | `FAILED,1,"INVALID_STATE",4` | `ABORt` → `BEGIN`，重试 1 次 | `ABORt` 失败 |
+| 3 | 中段停滞（块未消费） | `ABORt` → 按 durable offset 续传；无 resume 则重开 | 同一 offset 两次 |
+| 4 | 维护帧 ACK 超时 | 退避重发；用尽 `TDMA_MAINTENANCE_MAX_ATTEMPTS` 判失败 | 同一帧 3 轮 |
+| 5 | 环掉线/节点缺失 | 重读；必要时 `ARM→TRAIN→START`（≤2 次） | 两次失败 → 隔离该板 |
+| 6 | 重启后 build 未变/回滚 | 只读 boot result 与槽位，不重刷 | 保留现场并停 |
+| 7 | 任意命令无响应 | 恢复梯子（见下） | USB 不可见 |
+| 8 | 串口消失/重枚举 | 按 UID 重扫，限时 | 超时 |
+| 9 | 执行器崩溃 | supervisor 拉起 + resume，同阶段 ≤2 次 | 第三次 |
+| 10 | 同错在等待/降温后重复 | 记录并停 | 立即 |
+| 11 | 标定 generation 变化 | 立即停并标注 | 立即 |
+| 12 | 证据写入失败 | 立即停 | 立即 |
+
+**恢复梯子（picotool，允许但有界）**：台架已验证可强制进 BOOTSEL（`out/picotool_reset_a.json`）。顺序：串口可答 → `SYSTem:OTA:ABORt`；串口不答但 USB 在 → `picotool reboot -f -u`；已在 BOOTSEL → `picotool load` 同 build **app UF2**；USB 不可见 → 停（物理 BOOTSEL 属人工）。四条红线：① 只刷 app UF2，禁止 factory 镜像与 `--full-erase`（丢标定）；② 必须同被测 build；③ 每次写 `recovery.json`（原因/命令/前后 build/标定 generation/槽位/BCB/耗时），恢复不计 PASS、不掩盖原失败；④ 每板每晚 ≤2 次，第 3 次或与 preflight 不符即停。
+
+**夜间硬禁止**：factory 镜像与 `--full-erase`；`--full-bench`（TRN-03 预算必失败）；夜间改产品代码后继续刷写；靠放大 timeout 或改终态判断“让测试通过”（`EXE-OTA-01`）；并行刷两块板；跳过 STOP 与恢复。
+
+**晨间判读**：只回答三件事——park 时长分布、重试是否集中在 erase 窗口、吞吐是否随轮次退化；结论只允许“可行 / 需调参（写参数与依据）/ 不可行（写判据）”；`attempt-XX/` 与 `final.json` 以紧凑条目进 `OTA_TASK_PROGRESS.md`。
+
+### 8. 硬门禁与不可行判据
+
+**硬门禁**（任一不成立不得进入下一阶段，不得降级为 ⚠️）：
+
+1. **C1**：erase/program 只由 core0 `FlashTransactionAO` 发起，core1 park ACK 有效，临界区内无 XIP/USB/SD/LCD；core1 调 flash API 判失败。
+2. **C2**：不改 raw tick 回写与 `int32_t` 回绕安全语义。
+3. **②**：升级期间只启动 TDMA（SCPI 读回为证），不得在测量/实时负载运行中发起 OTA；结束后按正常流程恢复并复测。席位/相位改动仍须工具核算 + `EXE-SEAT-01`。
+4. **③**：三 owner 边界不变（见 §1 第 2 条）。
+5. **④**：新失败路径有 reason/计数/快照，F0–F3 成立；gate closed 时保持 session，不形成重试风暴。
+6. **⑤**：wire 版本/layout/DeploymentGate CRC/错误码段同步；契约未转 `active` 前不得出现“已支持流式 OTA”。
+7. **⑥**：每阶段凭证绑同源码指纹；旧 build 与 scope 不覆盖的凭证不得充当本轮证据。
+
+**不可行判据（fail-closed）**：若 G1 证明 park 窗口长到环无法维持协议（反复重同步或数据损坏），或 codec 无法在既有 payload class 与 `REFMEM-260B-01` 容量约束内成立，则判不可行，契约保持 `pending`，不降级验收、不以逐板接串口冒充“单口支持”。
+
+### 9. 影响面
+
+REFMEM 统一控制面按单串口收敛后，从板不再有独立升级串口；本里程碑是该形态下四板升级的唯一通道。未落地前，四板升级必须逐板接串口（`ota_multi_update`）或用 picotool（丢已存标定），不得写成“单口可升级”。
 
 ## 当前阻塞项
 
-`OTA-HAOFV-010` 剩余真实 power-cut 控制、当前源码指纹的正式 P3 acceptance receipt 和 C11 独立审核；已有 host/reset matrix、COM7 negative HIL 与 NO1–NO4 UF2 证据不能替代这些门禁。
+`OTA-HAOFV-010` 剩余真实 power-cut 控制、当前源码指纹的正式 P3 acceptance receipt 和 C11 独立审核；已有 host/reset matrix、COM7 negative HIL 与 NO1–NO4 UF2 证据不能替代这些门禁。另有 2026-10-29 评审发现的会话稳定性待办 `OTA-HAOFV-011`–`014`；这些条目关闭前，四板 OTA 的绕行通过不得计为稳定性完成。
+
+TDMA 流式 OTA（M5，`OTA-TDMA-000`–`015`）是新增工作线，按 G1 可行性 → G2 可重复 → G3 产品形态推进；其 G1 前置同为 `OTA-HAOFV-010`–`014`；在该线落地前，"单口四板升级"属能力缺口，不得用逐板接串口或 picotool 的结果替代。
+
+## 2026-10-29 稳定性评审记录（评审快照，非契约）
+
+- 范围：只读 `out/n8/*.log`、`out/n8/com5_state.txt`、`out/HardwareAcceptance/20261029/`、`docs/refmem/REFMEM_TASK_PROGRESS.md` 与 OTA 代码；未上板、未改固件。
+- 结论：OTA 主链功能在（四板并发可达 `READY_TO_REBOOT`，见 `out/n8/ota_multi_n57/summary.json`、`out/n8/ota_multi_n85/summary.json`，快照）；失败集中在会话状态、拒绝路径和等待预算，不是镜像、CRC 或 Bootloader 功能缺失。
+- 失败签名（原始日志，快照）：
+
+| 签名 | 证据 | 判读 |
+|---|---|---|
+| `PBEGIN` 后长时间无任何应答（`last response` 为空） | `out/n8/ota_com4.log`、`out/n8/ota_com3.log` | 会话未建立，或 SCPI 解析已失步 |
+| `"FAILED",1,"INVALID_STATE",4` | `out/n8/diag_ota_com4.log` | 上一会话停在 `RECEIVING`，被 `ota_fb_state_accepts_begin()` 拒绝 |
+| 传输中段停止且无错误行 | `out/n8/ota_com5_n84.log`（停在 627‰） | 单个 DATA 块未被消费；主机卡在 `wait_for_received_offset()` |
+
+- 现场约束（快照，非事实源）：单板 2.2 MB 级 package 的传输耗时为分钟级（见 `out/n8/ota_multi_n57/summary.json` 的 `elapsed_s`）；台架当轮以 `--skip-pre-reboot --settle 2.0 --block-size 512` 绕行，见 `REFMEM_TASK_PROGRESS.md` 的 20261029-005/006/007 条目。
+- 静态定位（代码符号，非契约）：`pota_program_target()` 的 `program_buffer` 由 `POTA_MAX_DATA_BLOCK_SIZE + POTA_MAX_FLASH_PAGE_SIZE` 决定且位于任务栈；`APP_OTA_TASK_STACK_WORDS` 由 `APP_OTA_TASK_BASE_STACK_WORDS` 加块大小增量构成；`ota_fb_state_accepts_begin()` 只接受 `IDLE/ABORTED/FAILED/COMMITTED`；`scpi_cmd_ota_data()` 在解析任意块之前做 RUN/stream 判定。
+- 待办：`OTA-HAOFV-011`–`014`。
 
 ## 统一完成定义
 

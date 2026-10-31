@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_TODO.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/storage/SD_TODO.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-29
 
 本文只跟踪 Flash v2 的实现、迁移和验证。架构语义以 `HAOFV_FLASH_ARCHITECTURE.md` 为准；
 v1 OTA 历史设计已迁入 `docs/legacy/ota/`；当前 OTA 域状态与证据分别由
@@ -686,6 +686,8 @@ TODO 只保留可独立验收的状态项和证据索引。
 ## 八、M5 TDMA 流式 OTA
 
 目标：在不影响 VDC/RefMem 硬实时预算的前提下增加可靠批量分发。
+
+执行序与 OTA 侧判据（`OTA-TDMA-000`–`012`：共存门、wire、durable ACK/credit、resume、DistributionFB、两板/四板/单口 HIL、契约收口）见 `docs/ota/OTA_TODO.md`；本节只保留跨域勾选状态，不复制其细化表。
 
 ### M5-01 Wire/parser
 
