@@ -23,6 +23,21 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-097 - 找到真门控：维护传输在 AB 会话激活后停摆；修复后 DATA 首次进入 staging（128 B）
+
+- **根因（本轮新证据）**：`ota_ao_tdma_maintenance_allowed()` 只返回
+  `portable_ota_port_stream_is_active()`。v2 bridge 不打开 stream 会话，因此 **AB 会话一进入
+  激活态，维护传输就被关掉**，DATA 帧不再到达——这解释了“帧在 IDLE 期到达、进入 OTA 后消失”。
+  `DIAG[23]=9(FAILED)/ready=0` 与此一致。
+- 修复：新增 `ota_ao_set_tdma_maintenance_required(bool)`，bridge app 初始化时置 true；
+  `ota_ao_tdma_maintenance_allowed()` 改为 `stream_active || required`。
+- 修复后上板：目标 `stage_len=128 / received=128`（**DATA 第一次进入 bridge staging**），
+  但随即因小窗口停摆：ACK 超时“整块从块首重放”在窗口只放行 ~2 帧时永远到不了块尾。
+- 再修 pump：超时改为**游标续传 + 每第 3 次整块重放**（兼顾小窗口推进与静默丢帧修复）；
+  host 49/49 绿（`test_ack_timeout_replays_block_from_start` 已按新策略更新）。
+- 台架残余：最新构建的验证被“trn03 报 left_running 但板上 `RING:STATus? en=0/up=0`”阻塞
+  （环启动后未保持运行），已停环清理；下一轮先解决环保持问题再复跑。
+
 ### OTA-TDMA-PROGRESS-20261031-096 - 门控输入可观测（DIAG[23]=vector state / [24]=ready）；台架复跑被环启动失败阻塞
 
 - 新增：`ota_tdma_v2_bridge_app_stats()` 扩到 9 项，增加 **最近一次门控看到的 vector state** 与
