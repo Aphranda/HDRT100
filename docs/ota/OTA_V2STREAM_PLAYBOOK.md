@@ -421,3 +421,27 @@ offset 0 重放 ⇒ 帧挤满 16 深 TX 队列 ⇒ 实测 `queue_full` 261–425
   与 relay 的 `encode_abort` 调用点，再决定是“容忍重放”还是“修正 ACK 归属”。
 
 证据：`out/night/m3b/result.json`、`out/night/m3b_console.log`。
+
+### 9.12 M3 现状（二）：AO 从未写入，ABORT 与“截断包”高度相关（2026-11-01 03:50，build `20261031191406`）
+
+**为验因临时关掉目标侧 ABORT 看门狗**（`ota_tdma_binding.c` 里 `if (false && ota_tdma_v2_bridge_app_service())`），
+让 AO 的真实状态能留在 `SYST:OTA:STAT?` 上。0.2 s 粒度采样结果：
+
+| t | `SYST:OTA:STAT?` | `SYST:OTA:PROG?` |
+|---|---|---|
+| 0.4 s | `"IDLE",2,"NONE",0` | 0,0,0 |
+| 1.4 s | `"RECEIVING",2,"NONE",1` | **0,1140392,0** |
+| 9.4 s | `"ABORTED",2,"ABORTED",5` | 0,1140392,0 |
+| 10.0 s | `"RECEIVING",2,"NONE",1` | 0,1140392,0 |
+| 15.0 s | `"ABORTED",2,"ABORTED",5` | 0,1140392,0 |
+
+- `received_size` **全程为 0** ⇒ AO 从未消费过任何一个块（不是“写了失败”，而是“没写就被 ABORT”）。
+- 5.6 s 周期性的 RECEIVING↔ABORTED 说明源侧在反复重开会话。
+- **首要候选根因（待验证）**：host 的 `--package` 走 `selected_package_object()`，只把
+  `原 512 B 头 + 1 个对象`（共 1,140,392 B）发出去，而头里的 `package_size` 仍是 **2,280,616**、
+  `image_count` 仍是 2 ⇒ 头/载荷不一致，目标解析包头即拒绝。旁证：目标 `expected_size=1140392`
+  （BEGIN 用的是切片后的长度）而包头声明的是 2.28 MB。
+- **下一轮**：读 `pota_package.c` 的头校验（`package_size`/`image_count`/表项范围），
+  再用“自洽单镜像包”（重写包头 size/count/表项）或“整包 2.28 MB”二选一复测。
+
+证据：`out/night/m3c/result.json`、`out/night/m3c_console.log`。

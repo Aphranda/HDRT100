@@ -23,6 +23,18 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-122 - M3 现状（二）：AO 从未写入；ABORT 与“截断包（头声明 2.28 MB、载荷 1.14 MB）”高度相关
+
+- 诊断构建 `20261031191406` 临时关闭目标侧 ABORT 看门狗，0.2 s 采样：1.4 s `RECEIVING`
+  （`PROG?=0,1140392,0`）→ 9.4 s `ABORTED`（`received_size` 仍为 0）→ 10.0 s 又 `RECEIVING` →
+  15.0 s 再 `ABORTED`。**AO 从未消费任何块**，不是写失败。
+- 首要候选：host `--package` 经 `selected_package_object()` 只发“原头 512 B + 1 个对象”
+  （1,140,392 B），而头里 `package_size=2280616`、`image_count=2` ⇒ 头/载荷不一致。
+  旁证：目标 `expected_size=1140392`（切片后长度），与包头声明不符。
+- 下一轮：读 `pota_package.c` 头校验规则，改发“自洽单镜像包”或整包 2.28 MB 复测。
+- 台架：四板 build `20261031191406`、IDLE、环停；代码未提交（含临时关闭看门狗的诊断改动，
+  下一轮必须复原或明确取舍）。
+
 ### OTA-TDMA-PROGRESS-20261101-121 - M3 现状：首块 6.3 s 到齐后目标收到显式 ABORT（非写失败）
 
 - 0.6 s 粒度采样目标：1.5 s `RECEIVING`（stage 0）→ 8.9 s `"ABORTED",2,"ABORTED",5`（bridge 已复位，
