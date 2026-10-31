@@ -23,6 +23,23 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-083 - N2 pump 部分窗口续传修复：目标首个 512 B 块 durable，随后 flash 执行阶段 102 失败
+
+- 定位（082 遗留）：目标 ingress `stage=0/stage_len=64/expected=64/count=50`——窗口每次只放行 1 帧，
+  pump 重试却总从块首重发，块头被反复重传、目标永远停在 64 B。根因在 `ota_tdma_pump_send_block`：
+  未按块内游标续传，且 `sent_offset/sent_length` 被逐 chunk 覆盖，导致 ACK 期望与重试判据都错位。
+- 修复（`components/ota_manager/src/ota_tdma_pump.c` + `.h`）：
+  ① 新增 `send_cursor`（块内首个未发送 chunk），部分发送后重试从游标续传；
+  ② `sent_offset/sent_length` 恢复为 **块语义**（`send_data` 不再逐 chunk 覆盖），块 ACK 恒与块尾对齐；
+  ③ 窗口关闭且一帧未发出时保留原状态（可重入），部分发出则进入 `WAIT_ACK` 由重试定时器续传；
+  ④ ACK 超时且整块已发完时把游标复位到块首重放。
+- Host：新增 `test_partial_window_resumes_at_cursor`（预算 1 帧/次）；全量 host 单测 **47/47 绿**。
+- 上板（build `20261031084017`，四板 factory + 静态维护环）：目标首个 512 B 块 **durable=512**
+  （`STREAM:STAT? = 5,6,512,2102,5`），较 082 的 durable=0 实测前进；随后会话 FAILED，
+  token `2102` = `2000 + s_flash_execute_stage`，即 **bounded FlashTransaction 步骤 102 失败**。
+- 结论：pump/窗口层已打通；剩余阻塞转到目标侧 flash 执行步骤（与 082 的“擦除窗口”同源：首块
+  package header 落地后 core 进入 permission/erase，下一块写入/提交落在该窗口内）。
+
 ### OTA-TDMA-PROGRESS-20261031-082 - N2 首次打通 relay OPEN：目标进入 TDMA RECEIVING（durable 仍 0）
 
 - 固件：`n2final` build `20261031075103`（含 stream 平台恢复：OPEN 前 ensure init + force_reset 保留 journal sink），
