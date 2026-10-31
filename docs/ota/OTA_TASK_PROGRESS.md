@@ -23,6 +23,22 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-101 - 维护快照实测：`mailbox_calls=0/chunks=0/frames=0` —— 维护流根本没注入
+
+- 说明：`SYSTem:TDMA:LONGframe:STATus?` **早已存在**（`scpi_node_snapshot_commands.c:60`，
+  命令行表 `scpi_system_snapshot_commands.h:577`），上轮“需要新增命令”的前提不成立（证伪）。
+- 实测（四板重启基线 → trn03 起环 → relay 失败）：
+  - 重启基线：`tx_sent=0/window_open=0/cycle=0/mailbox_calls=0`；
+  - 起环后：`window_open_count≈253/274`、`cycle_count≈16k/17k`，但 `mailbox_calls=0/chunks=0/frames=0`，
+    `rejects≈5.7k/6.4k`；
+  - relay 后：`window_open_count≈679/727`、`cycle≈43k/46k`，仍 `mailbox_calls=0/chunks=0/frames=0`，
+    `rejects≈32.7k/17.2k`；两端 `DIAG stage=0/type=0`（**连 OPEN 都没到目标**）。
+- 结论：维护窗口在开（window_open 增长），但**维护帧从未注入 mailbox**（mailbox_calls=0），
+  即 `tdma_pio_spi_ring_adapter` 的 maintenance mailbox 注入条件未满足（历史上该注入依赖
+  flight process image 的 `returned_view.payload_size ≥ (local_slot+1)*SHORT_SLOT`）。
+- 下一轮：核对 process-image（flight）是否真正在 returned view 中、以及 maintenance mailbox
+  注入条件；必要时在 OTA 期间显式开启维护帧注入。
+
 ### OTA-TDMA-PROGRESS-20261031-100 - 维护窗口参数核对：period=64/window=8 cycles；第二类 slot 与 process-image 共享
 
 - 代码核对（`middleware/scpi_port/src/scpi_system_snapshot_commands.c:231-235`）：
