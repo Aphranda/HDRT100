@@ -23,6 +23,21 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-094 - 帧级诊断：DATA 帧到达但**首帧 offset=0 缺失**（末帧 64/128），staging 恒为 0
+
+- 新增帧级可观测：adapter 记录 `last_type/last_offset/last_length`，binding 映射到
+  `DIAG[20]=类型 / [21]=offset / [15]=payload_len`（bridge 模式下）。
+- 上板读数（两轮一致）：`last_type=2(DATA)，last_off=64 或 128，last_len=64`，
+  同时 `stage_off=0 / stage_len=0 / received=0` ⇒ **offset=0 的首帧从未到达目标**，
+  后续帧因不连续被 bridge 丢弃。
+- 已修一处真实缺陷：pump 的 `send_block` 在**续传**时也会重置 ACK deadline，
+  导致 relay 每 tick 的 `resume` 不断把超时往后推、**整块重放永远不触发**
+  （静默丢头帧无法修复）。现在只在“块首”装载 deadline；pump host 用例仍全绿。
+- 但修后上板仍 `last_off=64`、`received=0` ⇒ 需查**源端是否真的发出 offset=0**：
+  下一轮加源端统计（pump 已发送的 offset/attempts/replay 次数）与目标侧对照，
+  判断是“源端未发 0”还是“0 被维护窗口丢弃”。
+- host：**49/49** 绿。
+
 ### OTA-TDMA-PROGRESS-20261031-093 - 目标 bridge 统计上板：`stage/received=0`——DATA 根本没进 staging
 
 - 本轮加固：pump 在 **ACK 超时**时改为**整块从块首重放**（此前按游标续传，遇到维护窗口静默丢帧会
