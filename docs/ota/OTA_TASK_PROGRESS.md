@@ -23,6 +23,16 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-114 - RX 健康计数入 SCPI（19 字段）；环复跑被“混 build”挡住
+
+- 代码：`scpi_node_snapshot_commands.c` 的 `SYST:TDMA:LONGframe:STATus?` 追加两个只读字段
+  `rx_restarts`/`rx_duplicate_chunks`（来自 `tdma_maintenance_runtime_get_diag`），
+  用于区分“交错重启”与“CRC 坏块”。固件编译通过（package 2,282,784）。
+- 台架：build id 现在**每次构建都变**（`20261031162743`），而 COM3/COM6 仍是 `20261031153032`，
+  trn03 的 `--expected-build` 一致性检查失败（`build mismatch`）⇒ 环起不来。
+  修复方式（下一轮）：同一轮里四板统一刷同一 build，再起环。
+- 结论：计数工具就绪，但本轮的根因归因实验被混 build 阻断，未取得 restart/duplicate 增量。
+
 ### OTA-TDMA-PROGRESS-20261101-113 - 下行恢复后：目标完成 297 个维护帧但 chunk reject +1682，bridge 仍只进 2 帧
 
 - 本轮起环后目标维护服务在跑（`window_open=270→452, cycle=17277→28872`），下行恢复；
