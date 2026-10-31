@@ -23,6 +23,26 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-102 - 维护注入条件定位：`returned_view.payload_size ≥ (slot+1)*SHORT_SLOT` 不满足
+
+- 代码锚点：`components/tdma/src/tdma_pio_spi_ring_adapter_tx.c:927-948`
+  ```c
+  if (adapter->maintenance_mailbox != NULL &&
+      returned_view.payload_size >=
+          (adapter->config.local_slot_id + 1u) * TDMA_FLIGHT_SHORT_SLOT_SIZE) {
+      ... maintenance_mailbox(...) ...   // 只有这时才会向 runtime 取维护帧
+  }
+  ```
+  `mailbox_calls=0` ⇒ 该条件每周期都为假：process-image（trn03 静态环）返回的
+  `returned_view.payload_size` 不足以覆盖本板槽位的 short slot。
+- 与 101 的关系：窗口在开（window_open 增长）但注入分支从未进入 ⇒ 维护帧根本不进
+  `tdma_maintenance_runtime` 的 TX 队列，OTA 的 OPEN/DATA 全部发不出去。
+- 结论：TDMA 维护流在“process-image 静态环”配置下**没有可用的 flight 槽位**承载维护帧；
+  要么让 process-image 视图覆盖本板 short slot，要么为 OTA 定义一个不依赖 flight 槽位的
+  维护承载方式（需按 HAOFV 门①登记）。
+- 下一轮：核对 trn03 矩阵/process-image 的 slot 数与 `returned_view.payload_size`，据此选择
+  配置修正或新增承载方式；验证 `mailbox_calls>0`。
+
 ### OTA-TDMA-PROGRESS-20261031-101 - 维护快照实测：`mailbox_calls=0/chunks=0/frames=0` —— 维护流根本没注入
 
 - 说明：`SYSTem:TDMA:LONGframe:STATus?` **早已存在**（`scpi_node_snapshot_commands.c:60`，
