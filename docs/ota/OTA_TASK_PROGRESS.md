@@ -23,6 +23,20 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-089 - V2-B 核心：维护帧→bridge 适配器（OPEN 重组→begin、DATA→背压、CLOSE→end、ABORT）
+
+- 新增 `components/ota_manager/inc/ota_tdma_v2_adapter.h` + `src/ota_tdma_v2_adapter.c`：
+  - OPEN 分片重组 → `pota_stream_open_decode_le` → `bridge_begin(total_size, crc32, package_mode)`；
+  - DATA：offset 连续校验；重复块忽略（不重复投递）、在途块背压时返回 true（让 pump 重传）；
+  - **ACK 时机**：只有既有管线消费完块（`ota_tdma_v2_adapter_release`）后才回 ACK，
+    与“数据先进 AO、再确认 durable”的 v2 语义一致；
+  - CLOSE → `bridge_end` + ACK；ABORT → `bridge_abort` 回 IDLE；ACK 帧不消费。
+- host 测试 `tests/unit/test_ota_tdma_v2_adapter.c`（全流程/背压/重复/abort/拒绝），
+  已加入聚合 runner：**49/49 绿**。
+- 固件编译通过（`out/build/v2adapter`，package 2,279,896 B）。
+- 下一步：binding 侧 feature 开关接入 adapter（sink → 现有 OTA event；AO 消费后回调 release），
+  先本地单板跑通 `SYST:OTA:STAT` 的 `BEGIN→ERASE→WRITING→VERIFY→READY_TO_REBOOT`。
+
 ### OTA-TDMA-PROGRESS-20261031-088 - V2-A/B 起步：TDMA→既有 OTA 管线 bridge（单块在途 + 背压），host 绿
 
 - 新增 `components/ota_manager/inc/ota_tdma_bridge.h` + `src/ota_tdma_bridge.c`：
