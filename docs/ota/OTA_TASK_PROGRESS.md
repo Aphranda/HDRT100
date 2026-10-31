@@ -23,6 +23,20 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-086 - 擦除粒度澄清与方向：复用正常 flash 流程 / REFMEM 控制面
+
+- 更正 085 的假设：`pota_core.c:171 pota_erase_one_step()` **按扇区（flash_sector_size）逐步擦除**，
+  不是一次性擦整槽；因此“大擦除被拒”不成立。
+- 失败点仍是事务内的 **completion journal**（`completion.error=COMPLETION(22)`），
+  与 `ota_journal_completion_append` → `ota_journal_region_program` 的页读改写/嵌套 journal 有关。
+- 对照：正常 AB 路径（`ota_fb.c` → `portable_ota_port_core_begin/write`）用的是**同一个 port 的同一套
+  flash 操作**且能通过；stream 路径（`pota_stream_session_write`）在同板上失败，说明差异在
+  事务的 completion lease/journal 状态而非擦除粒度。
+- 方向（按用户指示）：stream 的 flash 擦除/编程**复用正常流程**（REFMEM 统一控制面调用正常 flash
+  流程），而不是在 stream port 里另起一套事务语义；下一步优先验证“stream 图像事务不挂 completion
+  lease（改由 stream 自身的 checkpoint journal 保证持久性）”是否与正常流程一致。
+- 目标提醒：TDMA 流式 OTA 的最终目标是**只用一个端口升级所有板卡**；当前 N2 是单跳（NO.1→NO.2）。
+
 ### OTA-TDMA-PROGRESS-20261031-085 - 目标 flash 失败码定为 COMPLETION(22)，且本地 SCPI stream 同样复现 → 非 TDMA 专属
 
 - 诊断加固：`portable_ota_core_port.c` 的 `s_flash_execute_stage` 改为 `200 + completion.error`；
