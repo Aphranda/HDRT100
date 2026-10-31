@@ -4,13 +4,14 @@ Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_V2STREAM_PLAYBOOK.md`
 Related: `docs/ota/OTA_TASK_PROGRESS.md`, `docs/ota/OTA_TODO.md`, `docs/arch/ARCH_OTA_TDMA_STREAM_DESIGN.md`
-Last updated: 2026-10-31
+Last updated: 2026-11-01
 
 ## 0. 本文件用途
 
 V2 部署（map=2 / DIRECT_AB）上 TDMA 流式 OTA 的**交接记录**：已完成、进行中、
 现场状态、复跑命令、踩坑与下一步。新会话接手先读本文件，再读
-`OTA_TASK_PROGRESS.md` 最新条目（065–068）。
+`OTA_TASK_PROGRESS.md` 的 `## 当前 checkpoint` 之后的最新条目。夜间无人值守
+里程碑与运行规则见 §9。
 
 ## 1. 目标（当前 active）
 
@@ -223,3 +224,55 @@ frame->payload/指针或诊断读取本身的缺陷）。host roundtrip 通过�
 **当前基线备注**：`ota_send.py` 的 raw 镜像模式在 V2 上会命中 `SIGNATURE_INVALID`
 （`require_signature` 且非 package 模式），AB 基线验证必须走 package 模式；
 本次 COM4 上 legacy 尝试即因此失败，且残留 stream 会话需先复位清除。
+
+## 9. 夜间无人值守里程碑（M0–M6，2026-11-01 起）
+
+### 9.1 完成定义（DoD，整个目标的唯一口径）
+
+四板 V2 上完成**一次真实 package** 的 TDMA relay 端到端 OTA：目标 `durable` 单调递增 →
+`READY_TO_REBOOT` → commit → 重启后 `SYST:FW:BUILD?` 变为新 build，且环 `tx≈rx` 未损坏；
+该源码指纹取得 **scope=FULL** 的 P3 凭证（`check-staged` 通过）；契约 `ARCH-OTASTREAM-02`
+按门禁条件（durable 递增证据 + 覆盖指纹的 P3 + `HAOFV_FLASH_ARCHITECTURE.md` §7.2/§7.4 同步）
+转 `active`。任一条不满足即为**未完成**，不得以“基本可用”收口。
+
+### 9.2 编排方式
+
+本会话目标 `goal-e436e968`（已 armed，自动续轮）。每轮顺序固定：①AGENTS §8 第 0 段复议上轮
+“下一步”并核验前提 → ②按 M0→M6 推进，**前置里程碑未过不得跨阶** → ③每轮结束执行 9.4 台架
+卫生 → ④按 §8 六段 + 六门 + C1/C2 汇报。
+
+### 9.3 里程碑
+
+| 里程碑 | 入口判据 | 关键动作 | 退出判据（全部可测） | 证据路径 | 门禁/凭证 |
+|---|---|---|---|---|---|
+| **M0 台架基线复位**（每轮可重复） | 串口 COM3–COM6 存在 | `SYST:BOOT:RESET` 四板 → 等重枚举 → 校验 build/OTA/环状态 | 4/4 build 一致且等于目标 build；`SYST:OTA:STAT?`=IDLE；`RING:STATus?` `enabled=0` | `out/night/<ts>/m0.json` | 仅只读+复位，无凭证需求 |
+| **M1 维护流可观测性** | M0 通过 | `SYST:TDMA:LONGframe:STATus?` 追加只读字段 `rx_chunk_rejects`/`tx_retries`/`tx_fail`/`queue_full`（`tdma_maintenance_runtime_diag_t` 已有，不新增状态） | 23 字段可读；relay 12 s 增量自洽：`chunks ≥ rx_chunk_rejects`，`rejects ≈ tx_fail + rx_chunk_rejects + queue_full`（偏差 <5%）；host 单测同集全绿 | `out/night/<ts>/m1.json` | 固件改动，**提交前必须 P3**；夜间只做上板验证不提交 |
+| **M2 relay 会话可通（package 模式）** | M1 通过 | 让 relay 的 88 B OPEN 描述符携带 package_mode（§8 备注：raw 必挂 `SIGNATURE_INVALID`，`.pkg` 走 raw 必挂 `IMAGE_TOO_LARGE`） | 从 IDLE 发起 relay：目标 `SYST:OTA:STAT?` 进入 RECEIVING/WRITING（非 FAILED）；`stage_len>0`；host `consumed>0`；失败时 host 在 ≤5 s 内拿到 `ABORT`/错误码 | `out/night/<ts>/m2.json` | 固件改动，同 M1 |
+| **M3 吞吐归因与修复（P0-W 定论）** | M2 通过 | 用 M1 字段 + bridge `stage/vec/ready` 计数测 OTA DATA 帧/s；判定瓶颈属于“窗口配额 / 帧级 ACK 时延与重传 / AO 消费”；只改被证据指认的一处 | 512 B 首块在 ≤10 s 内收满并进入 AO（`stage_len` 达 512）；给出“增量→结论”归因表；修复后同条件复测不退化 | `out/night/<ts>/m3.json` | 固件改动，同 M1 |
+| **M4 四板 relay 端到端（V2-C）** | M3 通过 | NO.1→NO.2 relay 真实 `.pkg`（2 280 616 B） | 目标 `durable` 单调至 100% 且 `READY_TO_REBOOT`；环 `tx≈rx`、`ring_last_error=0`；协调者擦写计数 0；commit 后重启 build 变化 | `out/night/<ts>/m4.json` | 该指纹的 P3 前置证据 |
+| **M5 硬件验收（P3）** | M4 通过 | 统一 build（含 M1–M4）→ 四板 flash → `p3_hardware_acceptance.py run`（或 workflow `--profile full`）；处理 OTA 二刷 2/4 与 Step 29 `exit 2` | 凭证 `scope=FULL`、指纹覆盖 staged 源码、ERROR 0、`check-staged` 通过 | `out/HardwareAcceptance/<date>/<run>/` | P3 凭证 |
+| **M6 契约与文档收口** | M5 通过 | `ARCH-OTASTREAM-02` 转 active（durable 递增证据 + P3 + FLASH §7.2/§7.4 同步）；进度日志条目；C11 复核记录 | §5 文档门禁全绿；登记表状态与证据一致；代码/文档分离提交 | `docs/check/DOCS_REGISTRY.md`、`docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | 文档门禁 + C11 |
+
+### 9.4 无人值守运行规则（每轮强制执行）
+
+1. **台架卫生**：每轮开始与结束都跑 `out/night/bench_restore.py`；结束态必须为
+   “环 `enabled=0`、四板 `OTA:STAT?` 非 WRITING、无残留 relay 进程”。不得把环留在 running 过夜。
+2. **时间盒与重试**：单次起环 ≤180 s 超时；单次 relay ≤60 s；同一动作最多重试 2 次；
+   同一失败连续 3 轮复现 → 记 `blocked` 并停，不得无限重试刷台架。
+3. **证据只追加**：每轮写 `out/night/<UTC+8 时间戳>/`，失败也写（含 `trn03.log`、`relay.log`、
+   增量 JSON）；禁止覆盖历史证据目录。
+4. **禁止项**：并发刷写两台以上；`git checkout -- / reset --hard / restore / rm`（AGENTS §2.10）；
+   在 RUN 态改 active 配置；用旧 build / 旧指纹 / scope 不覆盖的凭证充当本轮证据；绕过门禁提交。
+5. **改动分域**：`out/night/**` 为台架产物（不计 §2.11 闸门）；固件改动必须同一指纹单批提交，
+   提交前 `check-staged` 核验 P3；文档改动单独提交并跑 §5 门禁。
+6. **每轮汇报**：§8 六段 + 六门逐条 + C1/C2，任一门 ❌ 即停在本里程碑内修，不跨阶。
+
+### 9.5 当前阻塞（M2 入口，2026-11-01 实测）
+
+- relay 以 raw 模式打开 `.pkg`：目标 BEGIN 即 `FAILED / IMAGE_TOO_LARGE`
+  （`pota_core.c` 非 package 模式用单槽 `size` 比 `begin->size`），证据 `out/n2/attr4/`。
+- 目标拒绝后 host 20 s 内未收到任何错误回传（`out/n2/attr4/relay.log` 只有 OPEN 头），
+  与 9.3 的 M2 退出判据“失败 ≤5 s 回传”冲突，属同一里程碑内待修项。
+- 线路级实测：维护流在 4 板上可稳定完成 ~15 帧/s（12 s `+201`、20 s `+302` 完成帧，
+  `restarts` ≤4、`dups 0`），与历史“0.07–0.2 帧/s”相差两个数量级 ⇒ M3 的定论必须重新测量，
+  不得沿用旧结论。
