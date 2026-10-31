@@ -23,6 +23,21 @@ Last updated: 2026-10-31
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261031-091 - V2 上板首测：TDMA 帧已进既有 OTA 管线（BEGIN 被接受），块未收满 + NO_PROGRESS
+
+- 接线完成：`ota_tdma_v2_bridge_app`（application）+ binding `PROJECT_OTA_TDMA_V2_BRIDGE=1`
+  （维护帧走 adapter，sink → `ota_ao_post_event`，AO 消费后 `release` → ACK）；
+  `ota_ao` 新增 data-done hook；CMake 源清单补 3 个文件；为容纳 512 B staging 把 FreeRTOS 堆
+  从 `97*1024-64` 调到 `97*1024-448`（RAM 曾溢出 380 B）。
+- 上板（build `20261031101949`，四板 factory + 静态维护环）：目标 `SYST:OTA:STAT?` 变为
+  **FAILED / NO_PROGRESS(4)**，说明 **既有 AB 管线确实接住了 BEGIN**（架构 v2 目标已打通一半）；
+  `TDMA:DIAG? count=9`（OPEN 2 片 + 7 个 DATA 帧）→ 块差最后 1 帧未收满，pump 等不到 ACK。
+- 诊断：适配器新增“开流握手 ACK(0)”（否则源端 pump 不会发 DATA）；目前卡在
+  **块收满 + 10 s NO_PROGRESS**：`OTA_PROGRESS_WATCH_DEFAULT_TIMEOUT_MS = 10000`，
+  而 relay 的维护窗口丢 1 帧后 pump 只有 3 次重试（100 ms/次），块迟迟不齐。
+- 下一步：①提高 relay 的块重试次数/窗口（或按帧 ACK 的 v2 语义改造 pump）；②首块延迟与
+  10 s 无进展窗口的冲突（BEGIN 后到首块 durable 的时间预算）；③复跑后进 V2-C 判据。
+
 ### OTA-TDMA-PROGRESS-20261031-090 - V2-B 收敛：bridge 按“flash 可写块”聚合（512/256），ACK 与块边界对齐
 
 - 问题：适配器初版按 64 B 帧逐块投递并逐帧 ACK，与 pump 的“块级 ACK”（首块 512、其后 256）不一致，
