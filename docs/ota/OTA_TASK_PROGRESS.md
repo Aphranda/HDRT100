@@ -23,6 +23,16 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-136 - submit 拒绝令牌=0（请求其实被接受）；下轮改用“按状态”令牌定位
+
+- 给 `flash_transaction_fb_submit()` 加了四种拒绝原因令牌（4000+reason）后重测环跑 relay：仍 `2000`
+  ⇒ `submit_reject == 0`，**提交被接受**，“准入被拒”的推断也不成立。
+- 现存确定事实：`completion.error=22`、`completion_site=0`（未命中任何已标注的 COMPLETION 调用点）
+  ⇒ 仍有一条 `flash_transaction_fail(context, <变量>)` 把 22 带进来，站点标注覆盖不到。
+- 下一步：令牌改为 `5000 + 10*vector.state + 站点号`，直接报“事务死在哪个状态”（状态枚举即阶段划分），
+  不再逐个标注调用点。
+- 台架：四板 build `20261101052619`、IDLE、环停；工作树 37 条（<40），代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-135 - 令牌按终态判定后仍 2000：读的是陈旧 vector，真凶是 submit（准入）被拒
 
 - build `20261101051614`：令牌逻辑改为“未达终态 → 3000+state；达终态 → 按错误类”，环跑 relay 仍得 `2000`。

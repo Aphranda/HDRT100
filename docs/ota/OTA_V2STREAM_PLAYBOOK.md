@@ -686,3 +686,17 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 **下一步（D1 收尾，唯一待测点）**：给 submit 拒绝加确定令牌（`4000 + 准入原因`，
 例如 policy/resource/mode/tdma_training_active/calibration_active），重测环跑 relay；
 拿到原因后就能判断是“OTA 准入门被别的所有者占用”还是“策略拒绝”，再对症处理。
+
+### 9.26 submit 拒绝令牌=0（提交其实被接受）——下一步改用“按状态”令牌（2026-11-01 13:45）
+
+给 `flash_transaction_fb_submit()` 的四种拒绝（空参/owner 占用/platform 无效/复用终态 job id）加了
+`4000 + reason` 令牌后重测：令牌仍是 **`2000`**，即 **`flash_transaction_submit_reject() == 0`**——
+**提交是被接受的**，之前“准入被拒”的推断也不成立。
+
+现在的确定事实只有两条：`completion.error == 22`（COMPLETION）、`completion_site == 0`（没有命中任何
+已标注的 COMPLETION 调用点）。说明还有一条 `flash_transaction_fail(context, <变量>)` 的路径把 22 传进来，
+而变量值来自更上游，站点标注覆盖不到。
+
+**下一步（不再追站点）**：令牌改成 **`5000 + 10*vector.state + 站点号`**——直接报“事务死在哪个状态”，
+状态枚举本身就是阶段划分（ACQUIRE/PARK/ERASE/PROGRAM/VERIFY/RELEASE/COMPLETE），比错误码更能定位；
+同时保留 error 类作为附加字段。这样一轮就能定位，不必再逐个标注调用点。
