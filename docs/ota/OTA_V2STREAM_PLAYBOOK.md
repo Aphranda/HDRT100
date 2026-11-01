@@ -593,3 +593,27 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 - 台架当前仍跑诊断镜像 `20261031204000`（预算 50M），下一轮先统一刷回。
 
 证据：`out\night\m4c_console.log`。
+
+### 9.21 REFMEM 停环窗口（首版实现）与日间里程碑（2026-11-01 11:20）
+
+**已实现（未验证生效）**：`flash_transaction_ao.c` 在 park 首次失败时调用弱符号 `app_flash_park_pause_ring()`
+（application 实现 → `distributed_refmem_tdma_ring_stop()`），成功后重试一次 park；会话结束时
+`app_flash_park_resume_ring()` → `distributed_refmem_tdma_ring_start()`。弱符号默认 no-op，
+`nm` 已确认强符号覆盖（`T app_flash_park_pause_ring`）。
+
+**实测（build `20261101024938`，环跑 + relay 150 s）**：仍 `FLASH_ERASE`，且 `ring_tx` 一路增长
+（27683→28906）⇒ **环从未停下**，说明要么钩子没被调用（park 其实成功过），要么
+`distributed_refmem_tdma_ring_stop()` 在该上下文返回 false。**擦除失败的真实分支尚未确认**。
+
+**日间里程碑（D1–D6）**
+
+| # | 任务 | 退出判据 | 证据 |
+|---|---|---|---|
+| **D1** | 定位擦除失败的真实分支：lockout `request_seq/ack_seq/timeout_count`、erase 的 range/align、回读校验 | 能指出失败发生在 park / erase / verify 三者之一，并给出环跑/环停对照 | flash tx 向量或 DIAG + 两组日志 |
+| **D2** | 让 REFMEM 停环窗口生效（必要时把停环请求经 AO 事件发，而不是直接在 flash 上下文调用） | 环跑时擦除成功；窗口内 `ring_tx` 冻结、窗口后恢复 | `out/day/d2/` |
+| **D3** | OTA 状态入 REFMEM 控制面（state/durable/窗口事件），环恢复后同步 | 停环窗口内 host 仍能读到“擦除中/进度到哪” | `out/day/d3/` |
+| **D4** | M4 端到端：durable 单调 → `READY_TO_REBOOT` → commit → 新 build | DoD §9.1 前三条 | `out/day/d4/` |
+| **D5** | P3 FULL 凭证（含 OTA 二刷 2/4、`vdc_priority_joint_capture` exit 2） | `check-staged` 通过、ERROR 0 | `out/HardwareAcceptance/…` |
+| **D6** | 契约与文档收口（`ARCH-OTASTREAM-02`、FLASH §7.2/§7.4、进度日志） | §5 门禁全绿、登记表与证据一致 | `docs/check/DOCS_REGISTRY.md` |
+
+**规则**：D1/D2/D3 未过不进 D4；每个 D 项按 §9.4 做台架卫生并按 AGENTS §8 汇报。

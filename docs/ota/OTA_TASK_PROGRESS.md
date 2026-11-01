@@ -23,6 +23,17 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-131 - REFMEM 停环窗口首版：钩子已接、实测环未停（擦除仍失败）；日间里程碑 D1–D6 立项
+
+- 实现：`flash_transaction_ao.c` park 失败 → 弱符号 `app_flash_park_pause_ring()`（application 侧调
+  `distributed_refmem_tdma_ring_stop()`）→ 重试 park；会话结束 `app_flash_park_resume_ring()` 恢复环。
+  `nm` 确认真符号覆盖（`T app_flash_park_pause_ring`）。
+- 实测 build `20261101024938`（环跑 + relay 150 s）：仍 `FAILED/FLASH_ERASE`，`ring_tx` 27683→28906
+  **持续增长** ⇒ 环从未停 ⇒ 钩子未被调用或 `ring_stop()` 在该上下文返回 false；擦除失败分支未定。
+- 日间任务已写入 playbook §9.21（D1 定位失败分支 → D2 停环窗口生效 → D3 状态入 REFMEM →
+  D4 M4 端到端 → D5 P3 → D6 契约收口），D1–D3 未过不进 D4。
+- 台架：四板 build `20261101024938`、IDLE、环停；代码未提交（待 D5 P3 同批）。
+
 ### OTA-TDMA-PROGRESS-20261101-130 - 方案 (c) 证伪：park 预算放大 50× 仍 FLASH_ERASE（core1 根本不轮询）
 
 - 诊断构建 `20261031204000` 把 `DRV_FLASH_LOCKOUT_DEFAULT_WAIT_LOOPS` 提到 50 000 000（≈500 ms），
