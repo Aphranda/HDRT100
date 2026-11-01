@@ -23,6 +23,16 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-134 - 自我纠错：失败令牌不可靠（陈旧 vector.last_error），D1/D2 的 COMPLETION 结论作废
+
+- 事务级停环窗口已实现并实测生效（窗口内 `ring_tx` 冻结），但失败仍是 `FLASH_ERASE`。
+- 给 7 处 COMPLETION 站点加序号（内容锚定）+ `completion` 零初始化后，令牌变 `2000`（site=0）：
+  **没有站点被命中**却被报成 COMPLETION ⇒ 该错误来自 `flash_transaction_ao_execute` 循环里
+  拷入的**陈旧 `vector.last_error`**；事务实际是“16 步内未达终态”。
+- 因此 D1/D2 的“COMPLETION/journal 写”结论**作废**；事务级停环窗口也随之改成直通（未启用）。
+- 下一步：令牌改为优先按 `vector.state` 判定（未达终态 → `3000+state`），重测后再定 park/停放路线。
+- 台架：四板 build `20261101050557`、IDLE、环停；工作树 37 条（<40 闸门），代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-133 - D2 判别：环跑 + 直连正常（durable 512），失败是 relay 独有的 journal 写
 
 - 对照（同 build `20261101031742`）：环跑 + 直连 OTA 到 `durable_offset=512` 持续运行，无 COMPLETION；

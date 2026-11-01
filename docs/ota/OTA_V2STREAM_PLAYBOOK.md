@@ -652,3 +652,24 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 （`flash_transaction_ao_execute()` 包一层：事务开始前停环、结束后恢复），覆盖 erase/program/verify
 以及 journal 完成记录；恢复前必须记录“原来是开着的”，避免把本来停着的环拉起来。
 粒度 = 每个块一次窗口（512 B 或 4 KB 块），符合“短暂停机”的约定。
+
+### 9.24 自我纠错：失败的“错误类别”令牌不可靠，D1/D2 结论需重测（2026-11-01 13:30）
+
+**做了什么**：实现事务级停环窗口（`flash_transaction_ao_execute` 外包，窗口内 `ring_tx` 实测冻结，
+说明停环生效），失败仍是 `FLASH_ERASE`。随后给 7 处 COMPLETION 站点加序号（内容锚定，
+避免第一次行号错位的问题），并把 `completion` 结构体**零初始化**。
+
+**结果**：令牌变成 `2000`（= 2000 + site 0）——**没有任何一个 COMPLETION 站点被命中**，
+但 `completion.error` 仍显示 22（COMPLETION）。
+
+**原因（读码确认）**：`flash_transaction_ao_execute` 的循环体在事务进入终态时把
+`vector.last_error` 拷进 `completion.error`；而 `vector` 是**上一条事务的粘性状态**。
+当事务在 16 步预算内**没有到达终态**时，函数返回 false，`completion` 里带的是**上一次的旧错误**。
+⇒ D1/D2 里“COMPLETION / journal 写”的结论**不成立**，真实情况更可能是“事务停在中间态（未达终态）”。
+
+**下一步（必须做）**：令牌优先按 `vector.state` 判定——
+`state` 不在 COMPLETE/FAILED/ABORTED 时记 `3000 + state`（停滞），否则再按错误类解码；
+用这个确定性令牌重测环跑 relay，再决定是 park/停放还是 journal。
+
+**当前代码状态**：事务级窗口已改成直通（未启用）；park 钩子保留但不会触发；
+站点序号与零初始化保留（诊断用）。
