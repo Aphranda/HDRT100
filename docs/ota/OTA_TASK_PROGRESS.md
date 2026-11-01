@@ -23,6 +23,14 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-142 - 身份加 generation 仍冲突（疑 generation 恒 0）；记录缓存已撤回、堆恢复 −576
+
+- 按 §9.31 把 `transaction_generation` 纳入 durable identity，复测仍 9113（reason=3）⇒ 冲突双方 generation 相同。
+- 最可能 generation=0；也可能同一事件被 append 两次且两次载荷不同。
+- 已撤回无效的记录缓存（省 RAM），FreeRTOS 堆恢复为 97 KiB−576。
+- 下一轮：先确认 generation 是否恒 0，或改用“终态事件只发布一次”的闸门（不放宽 fail-closed）。
+- 台架：四板 build `20261101064459`、IDLE、环停；工作树 37 条（<40），代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-141 - 冲突真因：journal 的 durable identity 跨事务碰撞（request_fingerprint 短路了 job/generation）
 
 - 加“按 event 复用首次记录字节”缓存后仍 9113（reason=3）⇒ 冲突不在同一事务内。

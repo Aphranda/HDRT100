@@ -771,3 +771,16 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 1. 首选：让 durable identity 同时包含 `transaction_generation`（或 job_id），即“同一请求的不同代次是不同记录”；
 2. 或：OTA 重试时更换 `request_fingerprint` 的输入（例如带 job id），从源头避免碰撞；
 3. 不改 fail-closed 策略本身（载荷不一致仍必须拒绝）。
+
+### 9.32 身份加入 generation 后仍冲突：两条记录的 generation 相同（疑为 0）（2026-11-01 15:45）
+
+按 9.31 的方案把 `transaction_generation` 纳入 durable identity（并撤回无效的记录缓存、恢复 FreeRTOS 堆 −576），
+复测仍 **`9113`**（reason=3）⇒ 冲突双方连 generation 都相同。
+
+- 最可能：`vector.transaction_generation` 在该路径上为 **0**，于是“加 generation”等价于没加；
+- 也可能：同一次事务在同一事件上被 appends 两次，且两次之间 `result/error/processed/verified` 变了。
+
+**下一轮两选一（都能在不放宽 fail-closed 的前提下收口）**：
+1. 先确认 generation 是否恒 0（令牌或 DIAG 输出该字段）；
+2. 或在发布侧做**一次性闸门**：终态事件只发布一次（`completion_terminal_published` 在**尝试前**置位，
+   失败则回滚并把失败原因保留在向量里），彻底消除“同一事件第二次 append”。
