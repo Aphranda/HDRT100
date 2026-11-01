@@ -23,6 +23,16 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-135 - 令牌按终态判定后仍 2000：读的是陈旧 vector，真凶是 submit（准入）被拒
+
+- build `20261101051614`：令牌逻辑改为“未达终态 → 3000+state；达终态 → 按错误类”，环跑 relay 仍得 `2000`。
+- 组合（终态 + error 22 + 站点 0）只能说明：本次请求**根本没提交**（`flash_transaction_ao_submit()` 被拒后提前返回，
+  不填 completion、不改 vector），端口读到的是上一条事务遗留状态。
+- 即“erase 失败”链条上先失败的是 **flash 事务准入**，不是擦写本身。
+- 下一步：给 submit 拒绝加确定令牌（`4000+准入原因`：policy/resource/mode/tdma_training_active/calibration_active），
+  重测即可对症。
+- 台架：四板 build `20261101051614`、IDLE、环停；工作树 37 条（<40），代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-134 - 自我纠错：失败令牌不可靠（陈旧 vector.last_error），D1/D2 的 COMPLETION 结论作废
 
 - 事务级停环窗口已实现并实测生效（窗口内 `ring_tx` 冻结），但失败仍是 `FLASH_ERASE`。

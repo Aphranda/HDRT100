@@ -673,3 +673,16 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 
 **当前代码状态**：事务级窗口已改成直通（未启用）；park 钩子保留但不会触发；
 站点序号与零初始化保留（诊断用）。
+
+### 9.25 令牌改为“按终态判定”后仍然 2000 —— 说明读的是**陈旧 vector**（2026-11-01 14:00）
+
+把令牌改成“事务未达终态 → 3000+state；达终态才按错误类解码”后（build `20261101051614`），
+环跑 relay 仍读到 **`2000`**：即 vector **处于终态**、`completion.error=22`、但**没有任何 COMPLETION 站点被命中**。
+
+这个组合只有一种解释：**当前这次请求根本没跑起来**（`flash_transaction_ao_submit()` 被拒 → 提前 return，
+既不填 completion 也不改 vector），端口随后读到的是**上一条事务遗留的终态与错误码**。
+也就是说：“erase 失败”这条链上，真正先失败的是 **submit（准入）**，而不是擦写本身。
+
+**下一步（D1 收尾，唯一待测点）**：给 submit 拒绝加确定令牌（`4000 + 准入原因`，
+例如 policy/resource/mode/tdma_training_active/calibration_active），重测环跑 relay；
+拿到原因后就能判断是“OTA 准入门被别的所有者占用”还是“策略拒绝”，再对症处理。
