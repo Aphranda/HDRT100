@@ -632,3 +632,23 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 
 **日间计划调整**：原地 D2“让停环窗口生效”降级为后续优化（等 COMPLETION 修好后再评估是否需要停环）；
 新 D2 = 定位并修复“环跑时会话反复重启导致 journal 租约失效”。
+
+### 9.23 D2 判别实验：环跑不是根因，失败在“journal 完成记录”的写入（2026-11-01 12:45）
+
+**对照实验**（同一 build `20261101031742`）：
+
+| 场景 | 结果 |
+|---|---|
+| **环跑 + 直连**（`out/day/d2_probe.py`） | 环 `enabled=1/up=1`；直连 OTA 到 `durable_offset=512` 并持续运行，**无 COMPLETION、无 FLASH_ERASE** |
+| 环跑 + relay | `512,2280616,0,420` → `COMPLETION`（D1 结论） |
+
+- 结论：**环本身不破坏 flash 事务**（直连在环跑时正常）。失败是 **relay 路径独有**的。
+- 结合代码：7 处 `FLASH_TRANSACTION_ERROR_COMPLETION` 全部落在
+  `flash_transaction_completion_append()`（把 PROGRAMMED/COMMITTED 记录写进 OTA journal）上下；
+  journal 的 program 发生在 **core1 已经解除 park 之后**——环又在跑，于是这次 flash 写失败 ⇒ COMPLETION。
+  直连时环没跑，journal 写不冲突，所以能过。
+
+**决定（按 HAOFV 取最小且可回退的改法）**：把停环窗口从“park 失败时”上移到**整个 flash 事务**
+（`flash_transaction_ao_execute()` 包一层：事务开始前停环、结束后恢复），覆盖 erase/program/verify
+以及 journal 完成记录；恢复前必须记录“原来是开着的”，避免把本来停着的环拉起来。
+粒度 = 每个块一次窗口（512 B 或 4 KB 块），符合“短暂停机”的约定。

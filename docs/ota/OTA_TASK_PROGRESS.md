@@ -23,6 +23,17 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-133 - D2 判别：环跑 + 直连正常（durable 512），失败是 relay 独有的 journal 写
+
+- 对照（同 build `20261101031742`）：环跑 + 直连 OTA 到 `durable_offset=512` 持续运行，无 COMPLETION；
+  环跑 + relay 则 `COMPLETION`（令牌 420）。
+- 结合代码：7 处 COMPLETION 全在 `flash_transaction_completion_append()`（journal 写 PROGRAMMED/COMMITTED）
+  路径；journal 的 program 发生在 core1 解除 park 之后，环在跑 ⇒ 该 flash 写失败 ⇒ COMPLETION。
+  直连时环未跑，故能过。
+- 决定（HAOOV 最小可回退）：停环窗口上移到**整个 flash 事务**（`flash_transaction_ao_execute()` 包裹），
+  覆盖 erase/program/verify + journal 完成记录；恢复前须记录“原本是否开着”，避免误启环。
+- 台架：四板 build `20261101031742`、IDLE、环停；代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-132 - D1 结果：擦除失败类是 COMPLETION（error 22），不是 PARK；停环钩子无机会触发
 
 - 给 `SYST:OTA:PROG?` 追加第 4 个只读字段（`portable_ota_port_flash_stage()`），环跑 + relay 读到
