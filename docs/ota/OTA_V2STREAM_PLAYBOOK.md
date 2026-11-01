@@ -617,3 +617,18 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 | **D6** | 契约与文档收口（`ARCH-OTASTREAM-02`、FLASH §7.2/§7.4、进度日志） | §5 门禁全绿、登记表与证据一致 | `docs/check/DOCS_REGISTRY.md` |
 
 **规则**：D1/D2/D3 未过不进 D4；每个 D 项按 §9.4 做台架卫生并按 AGENTS §8 汇报。
+
+### 9.22 D1 结果：失败类是 COMPLETION（不是 PARK）——停环钩子根本没机会触发（2026-11-01 11:45）
+
+给 `SYST:OTA:PROG?` 追加第 4 个只读字段（`portable_ota_port_flash_stage()`，追加式，不改前三字段），
+环跑 + relay 实测读到 **`512,2280616,0,420`**。
+
+- 解码：`200 + 10*error + state` ⇒ 10*error + state = 220 ⇒ **error = 22 = `FLASH_TRANSACTION_ERROR_COMPLETION`**，state = 0。
+- 含义：`flash_transaction_ao_execute()` 在**开始擦除之前**就失败（vector.state 仍是 IDLE），
+  失败点是 `flash_transaction_completion_retain()` → `lease->retain()` 返回 false（OTA journal 的完成租约）。
+- 这解释了为什么“停环钩子”从未触发：park 从未成为失败点，`ring_tx` 当然不会冻结。
+- 深一层的线索：环跑时 OTA 会话会周期性重启（§9.11 观察到 `RECEIVING↔ABORTED` ≈5.6 s 一轮），
+  journal 租约在重启中失效 ⇒ retain 失败。**下一步（新 D2）先查“环跑为什么让会话反复重启”**。
+
+**日间计划调整**：原地 D2“让停环窗口生效”降级为后续优化（等 COMPLETION 修好后再评估是否需要停环）；
+新 D2 = 定位并修复“环跑时会话反复重启导致 journal 租约失效”。

@@ -23,6 +23,16 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-132 - D1 结果：擦除失败类是 COMPLETION（error 22），不是 PARK；停环钩子无机会触发
+
+- 给 `SYST:OTA:PROG?` 追加第 4 个只读字段（`portable_ota_port_flash_stage()`），环跑 + relay 读到
+  `512,2280616,0,420` ⇒ `200+10*22+0` ⇒ **`FLASH_TRANSACTION_ERROR_COMPLETION`**，vector.state=0。
+- 含义：事务在擦除开始前就失败（state 仍 IDLE），失败点 `completion_retain() → lease->retain()`；
+  与 park 无关 ⇒ 之前“环跑导致 park 超时”的推断被推翻（也解释了 ring_tx 从未冻结）。
+- 线索：环跑时 OTA 会话周期性重启（§9.11 的 5.6 s 周期）⇒ journal 租约失效 ⇒ retain false。
+- 计划调整：停环窗口降级为后续优化；新 D2 = 查“环跑为何让会话反复重启”。
+- 台架：四板 build `20261101031742`、IDLE、环停；代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-131 - REFMEM 停环窗口首版：钩子已接、实测环未停（擦除仍失败）；日间里程碑 D1–D6 立项
 
 - 实现：`flash_transaction_ao.c` park 失败 → 弱符号 `app_flash_park_pause_ring()`（application 侧调
