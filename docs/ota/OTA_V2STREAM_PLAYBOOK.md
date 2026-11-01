@@ -784,3 +784,26 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 1. 先确认 generation 是否恒 0（令牌或 DIAG 输出该字段）；
 2. 或在发布侧做**一次性闸门**：终态事件只发布一次（`completion_terminal_published` 在**尝试前**置位，
    失败则回滚并把失败原因保留在向量里），彻底消除“同一事件第二次 append”。
+
+### 9.33 日间收口与交接（2026-11-01 15:55，round 24/24）
+
+**今日结论（按证据强度排序）**
+
+| 结论 | 证据 |
+|---|---|
+| 环本身不破坏 flash 事务（环跑 + 直连可到 durable 512） | §9.23、`out/day/d2/direct.log` |
+| relay 路径倒在**事务收尾**：RELEASE 的终态 journal 追加 | §9.27、token 7000 |
+| 收尾写记录时曾处于“未 park”状态 → 已修复（写前重新 park） | §9.29、token 9105 → 9131 |
+| 现阻塞：journal 判定“同身份、不同载荷”而 fail-closed（reason=3） | §9.31–§9.32、token 9113 |
+| 把 generation 纳入 identity 无效 ⇒ generation 很可能恒为 0 | §9.32 |
+
+**下一步（按顺序，缺一不可）**
+
+1. **先解 §2.11 冻结**：`git status --porcelain` 已 40 条（上限）。必须先做一次
+   `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`（或等价 P3 run），
+   凭证覆盖当前指纹后**单批提交**；未通过则按 §2.10 归档而非删除。
+2. 再做 D1 收口（一次性发布闸门或确认 generation），**不得**放宽 journal 的 fail-closed。
+3. 然后 D2/D3（REFMEM 停环窗口与状态同步）→ D4（M4 端到端）→ D5（P3）→ D6（契约）。
+
+**台架现状**：四板 `IDLE`、环停、统一 build `20261101064459`；BOARD:NO 1..4 保持一致。
+**代码现状**：40 条未提交（含本次全部固件与 host 工具改动），受 §2.11 冻结。

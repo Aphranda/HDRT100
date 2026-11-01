@@ -23,6 +23,14 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-143 - 日间收口（round 24/24）：D1 未收口、D4–D6 未开始；工作树 40 条触发 §2.11 冻结
+
+- 今日结论：环不破坏 flash 事务；relay 倒在事务收尾的终态 journal 追加；收尾时曾未 park（已修）；
+  现行阻塞是 journal 的“同身份不同载荷”fail-closed（reason=3），把 generation 纳入 identity 无效（疑恒 0）。
+- 工作树 **40 条**（§2.11 上限）⇒ 必须先做 `--profile full` 验收并单批提交，才能继续加改动。
+- 明日顺序：解冻结（P3）→ D1 收口（一次性发布闸门/确认 generation）→ D2/D3 → D4 → D5 → D6。
+- 台架：四板 `IDLE`、环停、统一 build `20261101064459`，BOARD:NO 1..4。
+
 ### OTA-TDMA-PROGRESS-20261101-142 - 身份加 generation 仍冲突（疑 generation 恒 0）；记录缓存已撤回、堆恢复 −576
 
 - 按 §9.31 把 `transaction_generation` 纳入 durable identity，复测仍 9113（reason=3）⇒ 冲突双方 generation 相同。
