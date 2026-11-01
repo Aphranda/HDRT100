@@ -715,3 +715,17 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 
 **下一轮**：给这个分支加站点号 + 把 `flash_transaction_journal_append()` 的失败原因（槽满/擦除/编程/CRC）
 透出为独立令牌；同时在 relay 与直连两侧对比该 append 的入参（event、job id、slot）与返回原因。
+
+### 9.28 定位到具体原因：终态 journal 的 **slot program 失败**（2026-11-01 14:45，build `20261101055327`）
+
+把 `flash_transaction_journal_append()` 的失败分支编号（1 空参/未初始化、3 同身份不同载荷、4 无可用槽且不支持擦除、
+5 槽编程失败）并折进令牌（`7000 + 100*state + reason`），环跑 relay 实测 **`8005`**
+⇒ `100*state + reason = 1005` ⇒ **state = 10（FAILED）、reason = 5（slot program failed）**。
+
+- 失败链：`completion_append()` → `flash_transaction_journal_append()` → slot program → 失败 → COMPLETION → 终态 FAILED。
+- 关键性质：这条 append **只有在事务仍持有 flash 且 core1 已 park 时才能走嵌套 journal 路径**
+  （`flash_transaction_ao_execute_nested_journal` 的准入条件：`occupied && core1_parked && requester==OTA_JOURNAL`）。
+  直连路径的同一事务能成功，说明 relay 路径里这次 append **大概率发生在“所有者已释放 / core1 已解 park”之后**。
+- **下一轮（一步可验证）**：在 append 失败时同时记录 `occupied` 与 `core1_parked` 两个标志
+  （令牌 `9000 + occupied*10 + parked`），确认后把终态 append 挪回持锁窗口内（或让它自己重新 park），
+  而不是放宽准入条件（C1 不允许）。
