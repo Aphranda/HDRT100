@@ -752,3 +752,22 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
   载荷字段发生变化，最可能是时间戳 / 已处理字节），于是第二次被判为冲突。
 - **修法方向（下一轮）**：终态记录只在首次发布时生成一次，重入 RELEASE 时**复用首次的字节内容**（冻结
   `completed_timestamp_ms` 等易变字段）或直接跳过重复发布；不得放宽 journal 的冲突检查（那是数据完整性的最后一道门）。
+
+### 9.31 冲突的真正来源：**durable identity 跨事务碰撞**（2026-11-01 15:20）
+
+按“复用首次记录字节”改了一版（`completion_append` 增加按 event 的字节缓存），复测仍 **`9113`**（reason=3），
+说明冲突**不是**同一次事务内的重复发布。
+
+读 `flash_transaction_journal_identity_equal()` 后确认：
+
+- 当 `request_fingerprint != 0` 时，身份判定**短路**：只比较 `request_fingerprint` + `store_generation` + `event`，
+  **不比较 job_id / transaction_generation / provider_generation**；
+- 而 `request_fingerprint` 对“同一块、同一操作的再次请求”是**相同**的（它就是请求内容的指纹）。
+  ⇒ OTA 重试同一块擦除时，**新事务（新 job id）与上一次事务被视为同一身份**，只要载荷有任何差异就按 fail-closed 拒绝。
+
+这解释了全部现象：直连只做一次、relay 路径会重试，第二次就撞上第一次的完成记录。
+
+**修法（下一轮，按数据完整性与语义权衡）**：
+1. 首选：让 durable identity 同时包含 `transaction_generation`（或 job_id），即“同一请求的不同代次是不同记录”；
+2. 或：OTA 重试时更换 `request_fingerprint` 的输入（例如带 job id），从源头避免碰撞；
+3. 不改 fail-closed 策略本身（载荷不一致仍必须拒绝）。

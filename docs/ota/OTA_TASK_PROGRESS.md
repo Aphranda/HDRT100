@@ -23,6 +23,17 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-141 - 冲突真因：journal 的 durable identity 跨事务碰撞（request_fingerprint 短路了 job/generation）
+
+- 加“按 event 复用首次记录字节”缓存后仍 9113（reason=3）⇒ 冲突不在同一事务内。
+- 读 `flash_transaction_journal_identity_equal()`：当 `request_fingerprint != 0` 时身份只比
+  `request_fingerprint + store_generation + event`，**不比 job_id/transaction_generation/provider_generation**。
+  同一块同一操作的再次请求指纹相同 ⇒ 新事务与旧事务同身份，载荷有差异即 fail-closed。
+- 直连只做一次、relay 会重试 ⇒ 第二次撞上第一次的完成记录。
+- 下一轮修法：durable identity 纳入 `transaction_generation`（或让重试的 fingerprint 带 job id）；
+  保持 fail-closed 不变。
+- 台架：四板 build `20261101063444`、IDLE、环停；工作树 37 条（<40），代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-140 - D1 定论：终态 journal “同身份不同载荷”被拒（reason=3）；parked 修复已生效
 
 - 补错误类编码后复测：令牌 **9113** ⇒ owner_state=11（occupied=1、parked=1）、reason=3（同身份不同载荷）。
