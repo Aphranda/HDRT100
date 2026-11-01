@@ -23,6 +23,15 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-137 - 阶段定位：RELEASE 的“终态 journal 追加”失败（state=FAILED, error=COMPLETION）
+
+- 令牌改按状态编码（`6000+100*state+site`），环跑 relay 读到 **7000** ⇒ state=10（FAILED）、site=0、error=22。
+- 代码核对：`flash_transaction_fb.c` 的 RELEASE 分支里 `completion_append()` 失败会直接写
+  `last_error=COMPLETION`（无站点标记，故 site=0）⇒ **擦写/校验通过，倒在终态 journal 追加**。
+- 与 D2 早期 journal 假设一致，但这次是阶段证据；下一轮给该分支加站点，并把 append 失败原因
+  （槽满/擦除/编程/CRC）透出为独立令牌，对比 relay 与直连两侧。
+- 台架：四板 build `20261101054342`、IDLE、环停；工作树 37 条（<40），代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-136 - submit 拒绝令牌=0（请求其实被接受）；下轮改用“按状态”令牌定位
 
 - 给 `flash_transaction_fb_submit()` 加了四种拒绝原因令牌（4000+reason）后重测环跑 relay：仍 `2000`

@@ -700,3 +700,18 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 **下一步（不再追站点）**：令牌改成 **`5000 + 10*vector.state + 站点号`**——直接报“事务死在哪个状态”，
 状态枚举本身就是阶段划分（ACQUIRE/PARK/ERASE/PROGRAM/VERIFY/RELEASE/COMPLETE），比错误码更能定位；
 同时保留 error 类作为附加字段。这样一轮就能定位，不必再逐个标注调用点。
+
+### 9.27 定位到阶段：RELEASE 状态的“终态 journal 追加”失败（2026-11-01 14:15，build `20261101054342`）
+
+按状态编码的令牌（`6000 + 100*state + site`）实测读到 **`7000`** ⇒ `100*state + site = 1000` ⇒
+**state = 10（FAILED）、site = 0**，且 error 类仍是 22（COMPLETION）。
+
+结合代码：`flash_transaction_fb.c` 在 `FLASH_TRANSACTION_STATE_RELEASE` 里发布终态记录，
+`flash_transaction_completion_append(context, event)` 失败 → 直接写 `last_error = COMPLETION`（**无站点标记**，
+这正是 site=0 的原因）。
+
+⇒ **失败阶段确定：擦写/校验都过了，倒在“终态 journal 追加”**（与 D2 最初的 journal 假设一致，
+但这次是阶段证据，不是猜的）。
+
+**下一轮**：给这个分支加站点号 + 把 `flash_transaction_journal_append()` 的失败原因（槽满/擦除/编程/CRC）
+透出为独立令牌；同时在 relay 与直连两侧对比该 append 的入参（event、job id、slot）与返回原因。
