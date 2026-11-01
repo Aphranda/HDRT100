@@ -23,6 +23,16 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-139 - 证实 occupied=1/parked=0 并修复（终态 append 前重新 park）；失败类随之改变
+
+- 令牌 `9000+owner*10+reason` 实测 **9105** ⇒ occupied=1、parked=0、reason=5 ⇒ 终态 journal 追加确实发生在
+  “已解除 park”的窗口，嵌套 journal 路径被拒。
+- 修复（`flash_transaction_fb.c` RELEASE）：发布终态记录前若未 park 则重新 `park_core1()`（既有 C1 机制），
+  发布后按原逻辑释放。
+- 复测 build `20261101061327`：令牌变 **7000**（`6000+100*state`，state=10 FAILED）⇒ 不再是 COMPLETION，
+  slot-program 失败被消掉；同一阶段出现另一错误类，需在 6000 分支编码错误类（下轮）。
+- 台架：四板 build `20261101061327`、IDLE、环停；工作树 37 条（<40），代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-138 - 具体原因：终态 journal 的 slot program 失败（state=FAILED, reason=5）
 
 - journal append 失败分支编号入令牌（`7000+100*state+reason`），环跑 relay 得 **8005** ⇒ state=10（FAILED）、

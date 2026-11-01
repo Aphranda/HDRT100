@@ -729,3 +729,14 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 - **下一轮（一步可验证）**：在 append 失败时同时记录 `occupied` 与 `core1_parked` 两个标志
   （令牌 `9000 + occupied*10 + parked`），确认后把终态 append 挪回持锁窗口内（或让它自己重新 park），
   而不是放宽准入条件（C1 不允许）。
+
+### 9.29 证实并修复：终态 append 时 **occupied=1 / parked=0**；修复后失败类改变（2026-11-01 14:30）
+
+- 令牌 `9000 + owner_state*10 + reason` 实测 **`9105`** ⇒ owner_state=10（**occupied=1、parked=0**）、
+  reason=5（slot program）。**证实**：终态 journal 追加发生在“仍持有 flash、但 core1 已解除 park”的窗口里，
+  嵌套 journal 路径因此被拒。
+- **修复**：在 RELEASE 发布终态记录前，若 `!core1_parked` 则重新 park（`platform.park_core1()`，
+  即既有 C1 机制，不放宽准入），发布后再按原逻辑释放。
+- 复测（build `20261101061327`）：令牌变为 **`7000`** = `6000 + 100*10` ⇒ state=10（FAILED）、
+  **错误类不再是 COMPLETION**（走了 6000 分支），说明“slot program 失败”已被消掉，
+  但同一阶段出现**另一个错误类**；该分支目前没有编码错误类，下一轮补上（`10000 + error*10 + state`）。
