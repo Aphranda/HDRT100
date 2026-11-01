@@ -740,3 +740,15 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 - 复测（build `20261101061327`）：令牌变为 **`7000`** = `6000 + 100*10` ⇒ state=10（FAILED）、
   **错误类不再是 COMPLETION**（走了 6000 分支），说明“slot program 失败”已被消掉，
   但同一阶段出现**另一个错误类**；该分支目前没有编码错误类，下一轮补上（`10000 + error*10 + state`）。
+
+### 9.30 D1 定论：终态 journal 记录“同身份、不同载荷”被拒（reason=3）（2026-11-01 14:50）
+
+补上错误类编码后复测，令牌 **`9113`** ⇒ `9000 + owner_state*10 + reason` ⇒ **owner_state=11（occupied=1、parked=1）**、
+**reason=3（same identity, different payload）**。
+
+- 含义：重新 park 的修复**已生效**（写记录时确实处于持锁+parked 状态）；
+  现在的失败是 **journal 的幂等性检查**：同一 (transaction, event) 身份已有一条记录，但载荷不同 ⇒ 按设计 **fail-closed**。
+- 直连路径同一事务能过，说明 relay 路径下这个终态记录被**发布了不止一次**（两次 RELEASE 之间
+  载荷字段发生变化，最可能是时间戳 / 已处理字节），于是第二次被判为冲突。
+- **修法方向（下一轮）**：终态记录只在首次发布时生成一次，重入 RELEASE 时**复用首次的字节内容**（冻结
+  `completed_timestamp_ms` 等易变字段）或直接跳过重复发布；不得放宽 journal 的冲突检查（那是数据完整性的最后一道门）。

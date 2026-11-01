@@ -23,6 +23,14 @@ Last updated: 2026-11-01
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261101-140 - D1 定论：终态 journal “同身份不同载荷”被拒（reason=3）；parked 修复已生效
+
+- 补错误类编码后复测：令牌 **9113** ⇒ owner_state=11（occupied=1、parked=1）、reason=3（同身份不同载荷）。
+- 说明：重新 park 的修复已生效；当前失败是 journal 幂等检查——同一 (transaction,event) 已存在记录但载荷不同，
+  按设计 fail-closed。直连能过 ⇒ relay 下该终态记录被发布了不止一次（两次之间易变字段变了）。
+- 修法：终态记录只在首次生成，重入时复用首次字节（冻结时间戳等）或跳过重复发布；不放宽冲突检查。
+- 台架：四板 build `20261101062325`、IDLE、环停；工作树 37 条（<40），代码未提交（待 D5 P3）。
+
 ### OTA-TDMA-PROGRESS-20261101-139 - 证实 occupied=1/parked=0 并修复（终态 append 前重新 park）；失败类随之改变
 
 - 令牌 `9000+owner*10+reason` 实测 **9105** ⇒ occupied=1、parked=0、reason=5 ⇒ 终态 journal 追加确实发生在
