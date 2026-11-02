@@ -4,7 +4,7 @@ Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_TASK_PROGRESS.md`
 Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
-Last updated: 2026-11-01
+Last updated: 2026-11-02
 
 本文只记录 OTA HAOFV 主线的代码、测试、构建、HIL、失败、回退和下一 gate。稳定语义见 Architecture，任务状态见 TODO。
 
@@ -22,6 +22,16 @@ Last updated: 2026-11-01
 - 进行中：`OTA-HAOFV-011` 栈帧已收敛并按实测水位定在 1792 words（曾压到 1152 触发四板 OTA 全崩，已修复）；`OTA-HAOFV-014` 失败分类/CAP fail-closed/失败即 ABORT 已落，待四板窗口实测；`OTA-HAOFV-012` 无进展超时已实现并过 host 单测，待 HIL 证明 FAILED 后可再 `BEGIN`；`OTA-HAOFV-013` 顺序修复已落（行为级证明改为台架负向，host 不可复现）。
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
+
+### OTA-TDMA-PROGRESS-20261102-144 - 硬件验收卡在 OTA 四板：COM4 失败即 D1 的 journal 同身份冲突（令牌 9113）
+
+- `p3_hardware_acceptance.py run --full --preset pico2-v2-factory-candidate`：build `20261102011021` ✅，
+  OTA 四板 ❌（COM3/COM5/COM6 PASS，COM4 FAIL，`failed_count=1`）。
+- COM4 细节：`ota_stream_send → FAIL stream DATA rejected at 512: '<timeout>'`；事后 `SYST:OTA:PROG?`
+  第 4 字段 = **9113**（owner_state=11、journal reason=3），与 relay 路径同因。
+- 已试：用同指纹工厂镜像重刷 COM4 后重跑，仍同位置失败 ⇒ 非陈旧 journal，而是请求重试撞上既有记录身份。
+- 结论：P3 的 OTA 步骤与 D1 同一缺陷；D1 修好前验收无法通过、积压无法按 §2.11 提交。
+- 台架：四板 build `20261102011021`、IDLE、环停。
 
 ### OTA-TDMA-PROGRESS-20261101-143 - 日间收口（round 24/24）：D1 未收口、D4–D6 未开始；工作树 40 条触发 §2.11 冻结
 

@@ -807,3 +807,16 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
 
 **台架现状**：四板 `IDLE`、环停、统一 build `20261101064459`；BOARD:NO 1..4 保持一致。
 **代码现状**：40 条未提交（含本次全部固件与 host 工具改动），受 §2.11 冻结。
+
+### 9.34 硬件验收（2026-11-02 09:10–09:30）：卡在 OTA 四板，COM4 就是 D1 那个 journal bug
+
+`python tools/hardware_acceptance/p3_hardware_acceptance.py run --full --preset pico2-v2-factory-candidate`
+
+- build ✅（`20261102011021`）、OTA 四板 ❌（`failed_count=1`，COM3/COM5/COM6 PASS，**COM4 FAIL**）。
+- COM4 的失败细节（`out/day/ota_fix/COM4`）：`ota_stream_send → FAIL stream DATA rejected at 512: '<timeout>'`。
+- 事后读 COM4：`SYST:OTA:PROG?` 第 4 字段 = **`9113`** —— 与 relay 路径完全相同的令牌：
+  `9000 + owner_state(11)*10 + journal_reason(3)`，即 **“同身份、不同载荷”的 journal 冲突**。
+- 处置尝试：对 COM4 用同指纹工厂镜像重刷（`picotool_flash`，build 与四板一致）后重跑 OTA，
+  **仍然在同一位置失败**（review：不是陈旧 journal，而是该板的请求被重试后与既有记录同身份）。
+- **结论**：P3 的 OTA 步骤与 D1 是**同一个缺陷**；在 D1 修好前，硬件验收无法通过，积压也就无法按 §2.11 提交。
+  3/4 板能过，说明触发条件与“同一次请求是否被重试”有关，而不是四板普适。
