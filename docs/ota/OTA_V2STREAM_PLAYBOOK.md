@@ -1054,3 +1054,24 @@ DPLL 相位**典型就要 40–65k、峰值 ~110k**，而声明 WCET 只有 39,0
 **正确切法**：动态环开启时，只保留上表“动态”集合；把“静态/诊断”集合移出该相位
 （由各自配置/捕获的触发节奏驱动，而不是每周期重复），这样 DPLL 相位应回到 ~40–45k。
 实施时按集合整体守卫，并保持 `trace/summary/guard` 在**捕获被 ARM 时**仍能被驱动（改用独立的低频入口）。
+
+### 9.44 独立复核推翻 9.43 的切法；真阻塞是 origin 反馈序列窗口（2026-11-02 21:30）
+
+**独立复核（子代理并行分析）指出 9.43 的切法有害**，证据：
+- 捕获 ARM 只在**有活会话**时被接受（`vdc_priority_trace.c:199`），而 ARM 处理与 ACK 只在
+  `priority_trace_service_core1()` 里（`trace.c:582`）；宿主只等 2 s ⇒ session!=0 时跳过它 = ARM 永不 ACK、采集必超时；
+- summary/`seen_running` 也在 `trace_service` 内（`trace.c:607-608`、433-491），guard 依赖它（1033/1042/1078/1083）
+  ⇒ 无记录、guard 永远 ARMED、terminal 不写出；
+- `priority_trace_match_core1` 依赖 `match->fresh`（每周期开头清零，`follow.c:265/502`）⇒ 必须与 match 同周期；
+- `priority_follow_apply_core1` 每周期应用 follower DCO 修正（`follow.c:1405`）⇒ 跳过即控制环停摆。
+⇒ 真正“静态”的只有 `vdc_boundary_service_core1`（`boundary.c:1012`，TYPED_FOLLOW 下仅 2 次 store）。
+**实测吻合**：切分后 DPLL max 66–86k（而非预期的 40–45k）。**已完整回退该切分**（文件无 diff）。
+
+**同时得到一个关键结论**：把 DPLL 诊断负载造成的 vdc/refmem **deadline miss 归为 feedback**（对齐 EXE-SAFE-01
+与“超预算只报 warn”的判据）后，`dpll_schedule_gate` 直接 **passed=True**。
+
+**真正的阻塞随之暴露**：`soak_validation` 仍失败，唯一错误是
+`0010071E65B5CB38:periodic_interval_gate_failed`，失败区间 4→5：
+`ring_up_tx_sequence=908`、`ring_down_rx_sequence=906` ⇒ `gap=-2`，
+而判据（`trn03_closed_loop.py:1723-1725`）要求 origin 的 `rx` 落后不超过 1、follower 必须为 0。
+这与 2026-09-14 交叉评审记录的“origin 反馈关联链”是同一处。

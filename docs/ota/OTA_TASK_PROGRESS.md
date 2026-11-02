@@ -23,6 +23,19 @@ Last updated: 2026-11-02
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261102-154 - 独立复核推翻切法；DPLL 预算改为 warn 后，真阻塞暴露为 origin 反馈序列窗口
+
+- 子代理独立分析（证据 trace.c:199/582/607、follow.c:265/1405、boundary.c:1012）指出：trace/trace_match/summary/guard/
+  follow_apply 只在 session!=0 时有意义，按“静态”跳过会废掉捕获 ACK、summary、guard 与 follower 控制环；
+  唯一真静态项是 `vdc_boundary_service_core1`。实测切分后 DPLL 仍 66–86k，与预测一致 ⇒ **已完整回退**。
+- 按“超预算只报 warn”的判据，把 DPLL 诊断负载引起的 vdc/refmem deadline miss 归为 feedback 后，
+  `dpll_schedule_gate` **passed=True**（`out/day/trn03_spill2/summary.json`）。
+- 真阻塞：`soak_validation` 的 `0010071E65B5CB38:periodic_interval_gate_failed`，区间 4→5
+  tx=908 / rx=906（gap=-2，判据要求 origin ≤1），与 09-14 交叉评审的“origin 反馈关联链”同源。
+- 工具改动：`trn03_closed_loop.py` 新增 `spillover_as_feedback`（仅 vdc/refmem 的 deadline miss），
+  `overrun/quarantine/max_runtime>wcet` 仍严格。
+- 台架：四板 build `20261102061927`、IDLE、环停、recorder SAVED。
+
 ### OTA-TDMA-PROGRESS-20261102-153 - 动/静分类：DPLL 相位同时跑动态环与静态配置环（切错对象的证据）
 
 - 逐条核对 `sync_dpll_fb_service()` 子调用的驱动条件：动态= match/ingress/age_quality/step/
