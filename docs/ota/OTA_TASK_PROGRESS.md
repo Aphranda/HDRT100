@@ -23,6 +23,17 @@ Last updated: 2026-11-02
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261102-146 - 受管工作流 0–23 步全过；第 24 步 DPLL 调度门失败（非本次回归）
+
+- `hardware_acceptance_workflow.py --profile full --preset pico2-v2-factory-candidate --full-bench --method ota`：
+  步 0–23 OK，步 24「TDMA process-image/FIFO 闭环」FAIL（`realtime_gate_passed=false`、`closed_loop_passed=false`），
+  步 25–36 未跑、凭证未落盘。
+- 失败判据：`dpll_schedule_gate` 四节点 vdc `deadline_miss_count_grew`（1127 次）、refmem（48 次）。
+- 对比 2026-10-31 五次 + 2026-11-02 两次运行：`dpll_schedule_gate` 全为 False（vdc miss 2683–7994），
+  ⇒ **非本次改动回归**；现有 receipt 一直是 TDMA-only（SKIPPED_TDMA_ONLY）。
+- 结论：§2.11 的 FULL 凭证卡在 VDC/REFMEM 实时 deadline（门②），需单独做实时预算归因。
+- 台架：四板 build `20261102034203`、IDLE、环停。
+
 ### OTA-TDMA-PROGRESS-20261102-145 - 硬件验收 36/37 步通过；仅 DPLL 联合观测因示波器卡死失败
 
 - COM4 的 OTA 失败**不是** journal 缺陷：全片擦除后令牌为 0；真因是单块耗时 >60 s。把

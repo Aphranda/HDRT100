@@ -838,3 +838,21 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
   NORMAL 扫描都正常；但 `:SINGLE` / `:RUN` / `:TRIG:FORC` 之后 `:TRIG:STAT?` **一直停在 WAIT**，
   且测量查询超时 ⇒ **仪器侧卡死**，需要**给示波器断电重上电**（软件无法复位）。
 - 四板 SCPI 错误队列复查：全部 `0,"No error"`（第一轮那条 “error queue not empty” 是瞬态）。
+
+### 9.36 改用受管工作流重跑（2026-11-02 11:41–12:00）：0–23 步全过，第 24 步 DPLL 调度门失败
+
+`python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full --preset pico2-v2-factory-candidate --full-bench --method ota`
+
+- 步 0–23 全部 OK（含构建/刷写/校准/TRN-00–03），步 24「TDMA process-image/FIFO 闭环」**FAIL**，
+  因此步 25–36 未运行，凭证不落盘。
+- 失败判据（`tdma-process-image/summary.json`）：`realtime_gate_passed=false`、`closed_loop_passed=false`，
+  唯一报错是 `dpll_schedule_gate`：
+  - 四个节点 **vdc 相位 `vdc_deadline_miss_count_grew`**（本次 1127 次 deadline miss / 2080 次 start miss）；
+  - 四个节点 **refmem 相位 `refmem_deadline_miss_count_grew`**（48 次）。
+- **不是本次改动引入的回归**：对比 `out/HardwareAcceptance` 下 2026-10-31 的 5 次运行与 2026-11-02 的 2 次运行，
+  `dpll_schedule_gate` **全部为 False**（vdc miss 2683–7994、refmem miss 668–1869），`closed_loop_passed` 也全为 False。
+- 现有 `config/hardware_acceptance/p3_acceptance_receipt.json` 的 scope 是
+  **FOUR_NODE_TDMA_QUICK_DIAGNOSTIC**（`dpll_observation = SKIPPED_TDMA_ONLY`，build `20261031054904`），
+  即历史上拿到的一直是 TDMA-only 凭证；**FULL 从来没有通过过**。
+- 结论：§2.11 要求的 FULL 凭证被 **VDC/REFMEM 相位的实时 deadline 超时**卡住，属门②（core1 预算）问题，
+  需要单独做实时预算归因，不是 OTA 本任务能在当天顺手解决的。
