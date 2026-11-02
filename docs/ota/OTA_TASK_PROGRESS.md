@@ -23,6 +23,15 @@ Last updated: 2026-11-02
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261102-148 - 判别结果：捕获不是原因；DPLL 服务本身 40–110k 周期 vs 声明 39k
+
+- 先修台架卡点：recorder 残留 `state=5(FROZEN)`；`app_record_save()` 要求环已停，停机后四板补 SAVE → `state=8`。
+- `--clock-evidence disabled` 复测（build `20261102034203`）：DPLL max 105,196–110,612、overrun 3,522–4,983、
+  last_rt 39,273–62,948、deadline 3,437–3,516 ⇒ **捕获假设证伪**。
+- 结论：DPLL 相位典型 40–65k、峰值 ~110k，声明 WCET 39,000 差 1.6–2.8 倍（门②合同与现实不符）。
+- 下一轮：路线 A 调合同（需你按 EXE-SEAT-01 审核）/ 路线 B 优化子服务（需分段计时）。
+- 台架：四板 build `20261102034203`、IDLE、环停、recorder SAVED。
+
 ### OTA-TDMA-PROGRESS-20261102-147 - 归因：DPLL 相位实测 max 109,715 周期 vs 声明 WCET 39,000（唯一超预算相位）
 
 - 板端 `SYSTem:TDMA:SCHEDule?`（COM5，周期合同 375,000）：TDMA last 50,016/max 368,469；VDC last 1,303/max 12,658；

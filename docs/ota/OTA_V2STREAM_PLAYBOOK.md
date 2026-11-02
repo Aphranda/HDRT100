@@ -882,3 +882,27 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
   以判定 110k 是“捕获仪表成本”还是“DPLL 服务本身”；据此选择
   （a）把捕获扰动与实时门分开计量（实现那个死参数，属工具修正而非放宽），或
   （b）优化 DPLL 服务成本。
+
+### 9.38 判别结果：**捕获不是原因**，DPLL 服务本身就要 40–110k 周期（2026-11-02 16:40）
+
+先顺手修掉一个台架卡点：终结残留在 `state=5(FROZEN)` 的 recorder——
+`app_record_save()` 要求 `ring.enabled==0 && adapter_started==0 && config_seq==applied_seq`，
+环没停时 SAVE 只会退回 FROZEN。停机后对四板补发 `SYSTem:TDMA:RECord:SAVE`，全部转为 `state=8(SAVED)`。
+
+**判别**（同窗口、同 build `20261102034203`，`--clock-evidence disabled`）：
+
+| 指标 | 捕获开（步 24） | 捕获关（本次） |
+|---|---|---|
+| DPLL max_runtime | 108,111 | **105,196–110,612** |
+| DPLL overrun | 4,170 | **3,522–4,983** |
+| DPLL last_runtime | 78,409 | **39,273–62,948** |
+| DPLL deadline_miss | 3,506 | 3,437–3,516 |
+
+⇒ **捕获仪表被证伪**：关掉捕获后 DPLL 依旧 max ≈110k、`last_rt` 仍普遍 >39k（4 板里 3 板超）。
+DPLL 相位**典型就要 40–65k、峰值 ~110k**，而声明 WCET 只有 39,000 ⇒ 合同与现实差 1.6–2.8 倍。
+
+**这意味着**（下一轮要你拍板，属门②/席位合同变更）：
+- 路线 A：把 `PROJECT_CORE1_PHASE_DPLL_WCET_CYCLES` 提到实测值（≈70k 覆盖典型、110k 覆盖峰值），
+  并从 TDMA 声明的 158k 窗口里让出差额（TDMA 实测 last 50k、峰值 368k，需要重新核算）；
+  这动的是冻结的实时合同/座位预算，须你按 EXE-SEAT-01 审核同意。
+- 路线 B：优化 `sync_dpll_fb_service()` 的 15 个子服务，目标砍 35–65%——需要先做子服务分段计时（下一轮）。
