@@ -23,6 +23,16 @@ Last updated: 2026-11-02
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261102-152 - 澄清：DPLL 超标只记 feedback，真卡门的是 VDC/REFMEM 被拖累；提出 B″ 协作切片
+
+- 读门禁：`validate_dpll_schedule()` 里 dpll `diagnostic_only=True`，strict 的是 vdc/refmem
+  ⇒ **不必把 DPLL 塞进 43.5k，只要不让它拖长周期**。
+- 方案对比：A1 扩窗口（需 EXE-SEAT-01，TDMA 保护变薄）、A2 延长周期（动帧节拍）、
+  **B″ 在 `sync_dpll_fb_service()` 子调用之间加协作检查点、超预算即保存续跑状态返回**（不动合同，直接切断因果链）。
+- 推荐顺序：B″ → A1 → A2。B″ 切点：15 个子调用按成本分组，组间插入 elapsed 检查；续跑状态仅“下一组索引+输入快照”，不新增相位/席位。
+- 仍待用户授权（解冻代码或批准合同变更）；本轮无代码改动。
+- 台架：四板 `20261102052052`、IDLE、环停；工作树 41 条。
+
 ### OTA-TDMA-PROGRESS-20261102-151 - EXE-SEAT-01 决策材料：DPLL 席位预算与现实不符，需授权三选一
 
 - 四板同窗口实测：DPLL max 103–110k（关掉 step 仍 49–66k）vs 声明 39k、窗口 43.5k；VDC/REFMEM 自身 overrun=0。
