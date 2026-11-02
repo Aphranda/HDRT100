@@ -23,6 +23,17 @@ Last updated: 2026-11-02
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261102-153 - 动/静分类：DPLL 相位同时跑动态环与静态配置环（切错对象的证据）
+
+- 逐条核对 `sync_dpll_fb_service()` 子调用的驱动条件：动态= match/ingress/age_quality/step/
+  reference discipline/model_feedback_end/lock declaration；静态= trace/trace_match/summary/guard/
+  boundary/follow prepare/apply/health。
+- 上轮“session==0 才跑前五个”切错：把动态的 match/ingress 一起跳了，静态的 follow/boundary 仍在跑，
+  因此只从 110k 降到 71–85k。
+- 正确切法：动态环开启时只保留动态集合，静态集合改由其配置/捕获节奏驱动；预期 DPLL 相位回到 ~40–45k。
+- 台架：四板 build `20261102061029`（含错误切法的实验版），下一步实施正确切法后重刷。
+- 已按用户授权在 AGENTS §2.11 增加 2026-11-02 豁免条目（为修复验收本身的改动不受冻结）。
+
 ### OTA-TDMA-PROGRESS-20261102-152 - 澄清：DPLL 超标只记 feedback，真卡门的是 VDC/REFMEM 被拖累；提出 B″ 协作切片
 
 - 读门禁：`validate_dpll_schedule()` 里 dpll `diagnostic_only=True`，strict 的是 vdc/refmem

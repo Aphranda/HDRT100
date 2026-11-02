@@ -1023,3 +1023,34 @@ DPLL 相位**典型就要 40–65k、峰值 ~110k**，而声明 WCET 只有 39,0
 `sync_dpll_fb_service()` 现有 15 个子调用，按成本从高到低分组后，在各组之间插入
 `if (elapsed_cycles() > PHASE_DPLL_BUDGET) { save_continuation(); return; }`；
 续跑状态只需“下一组索引 + 该组的输入快照”，不新增相位、不新增席位。
+
+### 9.43 动/静分类（用户判据：DPLL 启动后 VDC/T2 的配置属于动态环）（2026-11-02 20:30）
+
+按“谁驱动”逐条核对 `sync_dpll_fb_service()` 的每个子调用（证据=函数头部的早退条件）：
+
+| 子服务 | 驱动条件（源码证据） | 分类 |
+|---|---|---|
+| `vdc_priority_match_core1` | `s_priority_match_work` 活体 lock 状态（`vdc_priority_follow.c:260`） | **动态**（VDC 证据链） |
+| `vdc_priority_ingress_core1` | TDMA priority RX lane 快照（`vdc_priority_ingress.c:99`） | **动态**（T2/优先级入站） |
+| `vdc_dpll_manager_age_quality_core1` | 最近采样时间 / 挂起标志（`vdc_dpll_manager.c:3161`） | **动态**（质量老化） |
+| `sync_dpll_fb_step` | DPLL 会话与环证据（`vdc_dpll_manager.c:3098`） | **动态**（伺服主步进） |
+| `reference_discipline_service_core1` | `s_reference_discipline_request` 使能 + 活体样本（`vdc_output.c:1209`） | **动态**（使能后每周期） |
+| `model_feedback_end_core1` | `session != 0` | **动态** |
+| `vdc_dpll_manager_commit_lock_declaration_core1` | 依 match 状态声明锁（`vdc_dpll_manager.c:3239`） | **动态**（锁声明） |
+| `priority_trace_service_core1` | capture pool owner / trace ARM（`vdc_priority_trace.c:526`） | **静态/诊断** |
+| `priority_trace_match_core1` | `priority_trace_active()` + schema（`vdc_priority_trace.c:674`） | **静态/诊断** |
+| `priority_summary_service(true)` | capture pool + summary schema（`vdc_priority_trace.c:433`） | **静态/诊断** |
+| `priority_guard_service_core1` | trace guard target（`vdc_priority_trace.c:1028`） | **静态/诊断** |
+| `priority_follow_prepare_core1` | `boundary_request()` 且 mode=`TYPED_FOLLOW`（`vdc_priority_follow.c:777`） | **静态配置** |
+| `vdc_boundary_service_core1` | `boundary_request()` + request（`vdc_boundary.c:1008`） | **静态配置** |
+| `priority_follow_apply_core1` | follow 已绑定/active（`vdc_priority_follow.c:1361`） | **静态配置应用** |
+| `priority_follow_health_service_core1` | follow 健康（`vdc_priority_follow.c:639`） | **静态配置健康** |
+
+**结论**：这一相位**同时跑了两条环**——DPLL 动态环（match/ingress/age/step/reference/model/lock）
+与静态配置环（trace/summary/guard + boundary/follow prepare/apply/health）。
+上一轮我“只在 session==0 时跳过前五个”的做法切错了对象：把动态的 match/ingress 也一起跳了，
+静态的 follow/boundary 反而还在跑，所以只从 110k 降到 71–85k。
+
+**正确切法**：动态环开启时，只保留上表“动态”集合；把“静态/诊断”集合移出该相位
+（由各自配置/捕获的触发节奏驱动，而不是每周期重复），这样 DPLL 相位应回到 ~40–45k。
+实施时按集合整体守卫，并保持 `trace/summary/guard` 在**捕获被 ARM 时**仍能被驱动（改用独立的低频入口）。
