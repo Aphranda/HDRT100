@@ -856,3 +856,29 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
   即历史上拿到的一直是 TDMA-only 凭证；**FULL 从来没有通过过**。
 - 结论：§2.11 要求的 FULL 凭证被 **VDC/REFMEM 相位的实时 deadline 超时**卡住，属门②（core1 预算）问题，
   需要单独做实时预算归因，不是 OTA 本任务能在当天顺手解决的。
+
+### 9.37 归因：DPLL 相位实测 ~110k 周期 vs 声明 WCET 39k（2026-11-02 15:00）
+
+从板端直接读 `SYSTem:TDMA:SCHEDule?`（COM5，字段序 start,end,wcet,last_start,last_rt,max_rt,run,skip,start_miss,overrun,deadline）：
+
+| 相位 | 窗口 | 声明 WCET | last_rt | max_rt | overrun | deadline_miss |
+|---|---|---|---|---|---|---|
+| TDMA | 0–166,500 | 158,000 | 50,016 | 368,469 | 3,477 | 3,628 |
+| VDC | 166,500–218,000 | 47,000 | 1,303 | 12,658 | 0 | 1,991 |
+| **DPLL** | 218,000–261,500 | **39,000** | 29,046 | **109,715** | **1,131,597** | 976,859 |
+| CAL | 261,500–285,000 | 19,000 | 0 | 0 | 0 | 2,688 |
+| SYNC_CAP | 285,000–298,500 | 9,000 | 2,051 | 19,065 | 0 | 306,552 |
+| REFMEM | 298,500–332,000 | 29,000 | 4,630 | 18,762 | 0 | 58,037 |
+
+- 周期合同 = **375,000 周期**（`PROJECT_CORE1_PROFILE_1500US_CYCLES`，1500 µs）。
+- **DPLL 是唯一超预算的相位**：`max_rt 109,715` ≈ 2.8× 其 39,000 预算；`last_rt 29,046` 又落在预算内
+  ⇒ 说明是**部分周期成本暴增**（可疑来源：`sync_dpll_fb_service()` 里的 `priority_trace_*` 采样记录，
+  捕获开启时才做实际工作）。
+- VDC/REFMEM 自己从不超预算（overrun=0），它们的 miss 是**被前序相位拖延**的结果。
+- 工具侧还发现一个缺口：`trn03_closed_loop.py::validate_realtime_phase()` 接受
+  `allow_capture_disturbance` 参数但**函数体里从未使用**（死参数），
+  也就是说“捕获造成的时序扰动”这条既定设计并未真正实现。
+- 下一步判别实验（下一轮）：同一窗口下 `--clock-evidence disabled` 复测 DPLL 相位，
+  以判定 110k 是“捕获仪表成本”还是“DPLL 服务本身”；据此选择
+  （a）把捕获扰动与实时门分开计量（实现那个死参数，属工具修正而非放宽），或
+  （b）优化 DPLL 服务成本。

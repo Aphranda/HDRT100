@@ -23,6 +23,15 @@ Last updated: 2026-11-02
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261102-147 - 归因：DPLL 相位实测 max 109,715 周期 vs 声明 WCET 39,000（唯一超预算相位）
+
+- 板端 `SYSTem:TDMA:SCHEDule?`（COM5，周期合同 375,000）：TDMA last 50,016/max 368,469；VDC last 1,303/max 12,658；
+  **DPLL last 29,046 / max 109,715 / overrun 1,131,597**（WCET 39,000）；CAL 0；SYNC_CAP max 19,065；REFMEM max 18,762。
+- ⇒ DPLL 是唯一自身超预算的相位；VDC/REFMEM 自己 overrun=0，其 miss 由前序相位拖延造成。
+- 工具缺口：`trn03_closed_loop.py::validate_realtime_phase()` 收下 `allow_capture_disturbance` 却**从未使用**（死参数）。
+- 下一轮判别：同窗口 `--clock-evidence disabled` 复测 DPLL，判定 110k 是捕获仪表成本还是 DPLL 服务成本。
+- 台架：四板 build `20261102034203`、IDLE、环停。
+
 ### OTA-TDMA-PROGRESS-20261102-146 - 受管工作流 0–23 步全过；第 24 步 DPLL 调度门失败（非本次回归）
 
 - `hardware_acceptance_workflow.py --profile full --preset pico2-v2-factory-candidate --full-bench --method ota`：
