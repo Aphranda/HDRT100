@@ -906,3 +906,51 @@ DPLL 相位**典型就要 40–65k、峰值 ~110k**，而声明 WCET 只有 39,0
   并从 TDMA 声明的 158k 窗口里让出差额（TDMA 实测 last 50k、峰值 368k，需要重新核算）；
   这动的是冻结的实时合同/座位预算，须你按 EXE-SEAT-01 审核同意。
 - 路线 B：优化 `sync_dpll_fb_service()` 的 15 个子服务，目标砍 35–65%——需要先做子服务分段计时（下一轮）。
+
+### 9.39 归因坐实：DPLL 预算上涨与流式 OTA 改动**无因果关系**（2026-11-02 17:45）
+
+**A. 时间线（每日 DPLL 相位最大运行周期，取自历次 `tdma-process-image/summary.json`）**
+
+| 日期 | DPLL max | 备注 |
+|---|---|---|
+| 09-07 | 42,225 | |
+| 09-09 / 09-11 | 56,378 / 51,010 | |
+| 09-15 | 39,025 | 仍接近合同 39,000 |
+| **09-17** | **117,414** | **跳变点** |
+| 09-18 / 09-20 / 09-21 | 169,258 / 173,992 / 218,046 | |
+| 10-08 … 10-31 | 100k–133k | 稳定在 2.5–3.4× |
+| 11-02（本会话） | 104k–111k | 与 10-31 持平 |
+
+本会话的固件改动最早出现在 **10-31 晚上**（build `2026110103xxxx` 起），而 10-31 **早上**的
+`hawf-085223 / 132407 / 134835` 三次运行已经是 99k–125k。⇒ **上涨早于我们的改动 6 周左右。**
+
+**B. 与 VDC/DPLL 功能提交的对应（`git log -S`）**
+
+| `sync_dpll_fb_service()` 里的子调用 | 引入提交 | 日期 |
+|---|---|---|
+| `vdc_boundary_service_core1()` | `dd8cba15` | 09-16 |
+| `priority_summary_service(true)` | `08af197f` | 09-18 |
+| `reference_discipline_service_core1(session)` | `024915dc` | 09-19 |
+| `priority_guard_service_core1()` | `37ca2351` | 09-19 |
+
+跳变（09-17）与这批提交重合，而相位合同仍停在 34,000+5,000=39,000，没有人同步更新。
+
+**C. 机制上为什么 OTA 改动不可能影响 DPLL 相位**
+
+- DPLL 验收期间**没有 OTA 会话**：`ota_ao_is_active()` 为假；
+- 本会话改动的执行路径全部被 OTA 状态或 flash 事务门控：
+  `tdma_component_core1_service()` 的 OTA 早退、`flash_transaction_fb` 的 park/记录、journal identity、
+  `ota_tdma_binding` / `ota_tdma_v2_bridge_app` 的事件驱动逻辑——**DPLL 验收时一个都不会执行**；
+- 唯一“无条件每周期执行”的新增代码是 `app_realtime_run_once()` 顶部的
+  `drv_flash_core1_lockout_poll()`：一个原子标志检查（数十周期量级），与 60k 的差额差三个数量级。
+
+**D. 残余逐条分析（上一轮 R1–R3 + 本轮新增 R4/R5）**
+
+| 编号 | 残余 | 分析结论 | 处置/闭环判据 |
+|---|---|---|---|
+| R1 | DPLL 超合同 | **不是本次改动**；09-17 起由 VDC/DPLL 功能提交抬升到 100–130k，合同未同步；典型 40–65k、峰值 110–218k | 路线 A（改合同，需 EXE-SEAT-01 审核）或路线 B（profile 后降成本） |
+| R1a | `allow_capture_disturbance` 死参数 | 已证伪“捕获导致”；该参数仍未实现，属工具债 | 与本阻塞解耦，记入 D6 工具债 |
+| R2 | recorder 卡在 `FROZEN` | 根因：`app_record_save()` 要求环完全停止；环未停时 SAVE 只回退；workflow 未传 `--cancel-unsaved-record` | 台架已修（四板 `SAVED`）；建议 workflow 步 24 补该标志（工具债） |
+| R3 | 工作树 40 条 | §2.11 上限，代码无法提交 | 待 FULL 凭证后单批提交 |
+| **R4** | **COM4 USB 不稳定** | 两种表现：① 块超时（512 B 处）；② `ClearCommError PermissionError(13)`；后者会让 COM4 **掉进 RECOVERY**（`*IDN?=RECOVERY`），是 commit 未完成时的 fail-closed 回退 | 每次需工厂刷写恢复（本轮已恢复至 `20261102045137`）；属台架/链路问题，建议查线缆/ hub 或换口 |
+| **R5** | `--diagnostic-continue` 仍过不了步 4 | OTA 属“required objective”，诊断模式不放行；所以台架抖动会直接阻断任何验收 | 先解决 R4，再谈诊断模式 |

@@ -23,6 +23,18 @@ Last updated: 2026-11-02
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261102-149 - 坐实：DPLL 预算上涨与流式 OTA 改动无因果（09-17 的 VDC/DPLL 功能提交抬升）
+
+- 时间线：09-07 42k → 09-15 39k → **09-17 117k 跳变** → 09-18..09-21 169k/174k/218k → 10 月稳定 100–133k → 11-02 104–111k。
+  本会话固件改动最早 10-31 晚，而 10-31 早上的三次运行已是 99–125k ⇒ 上涨早于改动约 6 周。
+- `git log -S` 归属：`vdc_boundary_service_core1`(dd8cba15,09-16)、`priority_summary_service(true)`(08af197f,09-18)、
+  `reference_discipline_service_core1`(024915dc,09-19)、`priority_guard_service_core1`(37ca2351,09-19)；合同仍 39k 未同步。
+- 机制：DPLL 验收期间无 OTA 会话，`ota_ao_is_active()` 为假；我们改动的路径全部被 OTA/flash 事务门控；
+  唯一无条件新增代码是 `drv_flash_core1_lockout_poll()`（原子标志检查，数十周期），与 60k 差三个数量级。
+- 新增残余：R4 COM4 USB 不稳定（块超时 / ClearCommError → 掉 RECOVERY，需工厂刷写恢复）；
+  R5 `--diagnostic-continue` 不能放行 required objective（OTA），台架抖动直接阻断验收。
+- 台架：COM4 已恢复并与其余三板统一到 `20261102045137`。
+
 ### OTA-TDMA-PROGRESS-20261102-148 - 判别结果：捕获不是原因；DPLL 服务本身 40–110k 周期 vs 声明 39k
 
 - 先修台架卡点：recorder 残留 `state=5(FROZEN)`；`app_record_save()` 要求环已停，停机后四板补 SAVE → `state=8`。
