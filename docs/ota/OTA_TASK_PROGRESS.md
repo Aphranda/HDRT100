@@ -23,6 +23,18 @@ Last updated: 2026-11-02
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
 
+### OTA-TDMA-PROGRESS-20261102-145 - 硬件验收 36/37 步通过；仅 DPLL 联合观测因示波器卡死失败
+
+- COM4 的 OTA 失败**不是** journal 缺陷：全片擦除后令牌为 0；真因是单块耗时 >60 s。把
+  `p3_hardware_acceptance.py` 两处 `--timeout 60` 提到 180 s 后 COM4 单独 OTA 成功（durable=1141000）。
+- 四板 OTA 第二次因 USB 串口瞬时错误挂 COM3/COM6，重跑后 4/4 PASS；COM3/COM6 commit 后落进 RECOVERY，
+  已用工厂镜像重刷恢复（build `20261102023509`、BOARD:NO 3/4 保持）。
+- `resume`：P0T/粗校/coded marker/Latency Cal/TRN-00–03/四节点 TDMA 全过，provisional receipt 已写；
+  **DPLL 60 s 联合观测失败**（两次，`scope 12/12 windows missed`）。
+- 示波器 HDO4A244301137：CHAN1 有 7.23 Vpp/1 kHz 信号、触发设置正常，但 `:SINGLE`/`:RUN`/`:TRIG:FORC`
+  后 `:TRIG:STAT?` 恒为 WAIT、测量查询超时 ⇒ 仪器侧卡死，需**断电重启示波器**。
+- 台架：四板 build `20261102023509`、IDLE、环停；工作树 40 条（§2.11 上限）。
+
 ### OTA-TDMA-PROGRESS-20261102-144 - 硬件验收卡在 OTA 四板：COM4 失败即 D1 的 journal 同身份冲突（令牌 9113）
 
 - `p3_hardware_acceptance.py run --full --preset pico2-v2-factory-candidate`：build `20261102011021` ✅，

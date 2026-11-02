@@ -820,3 +820,21 @@ core1 在 `app_runtime.c:191-208` 的实时循环里每周期调 `drv_flash_core
   **仍然在同一位置失败**（review：不是陈旧 journal，而是该板的请求被重试后与既有记录同身份）。
 - **结论**：P3 的 OTA 步骤与 D1 是**同一个缺陷**；在 D1 修好前，硬件验收无法通过，积压也就无法按 §2.11 提交。
   3/4 板能过，说明触发条件与“同一次请求是否被重试”有关，而不是四板普适。
+
+### 9.35 硬件验收第二轮（2026-11-02 10:34–11:35）：36/37 步通过，只剩示波器那一步
+
+**进展（相对 9.34 的修正）**：COM4 的 OTA 失败**不是** journal 缺陷——全片擦除 + 工厂刷写后重测，
+`SYST:OTA:PROG?` 令牌变 `0`（无 flash 失败），真实原因是 **COM4 的单块耗时超过工具默认 60 s**；
+把 `ota_multi_update` 的 `--timeout` 提到 180 s 后，COM4 单独 OTA 到 `durable=1141000` 成功。
+（`tools/hardware_acceptance/p3_hardware_acceptance.py` 两处 `--timeout 60` → `180`。）
+
+- 四板 OTA：第二次跑仍因 **USB 串口瞬时错误**（`ClearCommError PermissionError(13)`）挂掉 COM3/COM6，
+  重跑 `ota_multi_update` 后 `failed_count=0` 全 PASS。
+- 更严重：COM3/COM6 在 commit 后**落进 RECOVERY**（`*IDN?` = `Aphranda,DHRT100,RECOVERY,...`），
+  用 `picotool_flash` 工厂镜像重刷后恢复（build `20261102023509`、BOARD:NO 3/4 保持）。
+- `resume` 续跑：P0T / 粗校 / coded marker / Latency Cal / TRN-00–03 / 四节点 TDMA **全部通过**，
+  已写 provisional receipt；**最后一步 DPLL 60 s 联合观测失败**（两次尝试，`scope 12/12 windows missed`）。
+- 示波器排查（HDO4A244301137）：`:CHAN1` 有信号（Vpp 7.23 V、1 kHz），触发电平 1.5 V、DC、200 µs/div、
+  NORMAL 扫描都正常；但 `:SINGLE` / `:RUN` / `:TRIG:FORC` 之后 `:TRIG:STAT?` **一直停在 WAIT**，
+  且测量查询超时 ⇒ **仪器侧卡死**，需要**给示波器断电重上电**（软件无法复位）。
+- 四板 SCPI 错误队列复查：全部 `0,"No error"`（第一轮那条 “error queue not empty” 是瞬态）。
