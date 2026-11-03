@@ -1,6 +1,6 @@
 # Agent 常设命令（Codex / Claude / AI 助手）
 
-Last updated: 2026-11-02
+Last updated: 2026-11-03
 
 本仓库采用「文档自回归体系」治理文档。**任何 AI 助手（Codex / Claude / DSH）在本仓库工作前，必须先阅读 §0 理解该体系，再动手改文档。** 违反体系约束会被 git pre-commit 门禁拦截。
 
@@ -49,6 +49,8 @@ Last updated: 2026-11-02
      `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`（同一组
      37 个步骤函数；可 `--run <dir>` 续跑，只有所需步骤在同一运行目录、同一源码指纹下按序
      全部运行才写凭证）；pre-commit 用 `check-staged` 按 staged 源码指纹核验 P3 凭证。
+   - **迭代提速（用户要求，2026-11-02）**：若本轮**没有固件改动**（四板已跑同一 build），验收工作流加
+     --reuse-flashed 跳过构建（步 2）与刷写（步 4），直接进校准/TDMA/DPLL；只有源码指纹变化时才重新构建刷写。
    - **测试 / 门禁脚本**（`tests/`、`.githooks/`、`tools/acceptance/`）：不需要台架。提交前执行
      `python tools/acceptance/host_acceptance.py run`（默认跑本批 staged 的 host 用例）并写
      `config/hardware_acceptance/host_acceptance_receipt.json`；pre-commit 用
@@ -85,6 +87,12 @@ Last updated: 2026-11-02
    范围仅限“让 `hardware_acceptance_workflow.py --profile full` 跑通”这一目标所需的改动；与验收修复
    无关的功能开发、重构、清理仍受冻结。§2.10 禁回滚/禁删除仍然有效。豁免在拿到覆盖当前源码指纹的
    FULL 凭证、并把积压按 §2.7 单批提交后自动失效；届时本条改写为 expired 并记录提交号。
+   **临时豁免（2026-11-03，用户授权）**：为**修复 BUG** 而新增/修改的文件（缺陷/故障/卡死超时/数据损坏/
+   fail-closed 误触发等导致的现场或验收阻塞，含其最小回归用例与进度日志记录）**不受本条冻结约束**。
+   目的：打破“BUG 未修 → 验收不通过 → 积压无法提交 → 新改动被冻结 → BUG 无法修”的死锁。
+   范围仅限该 BUG 的定位与修复（含必要的只读取证），与 BUG 无关的功能开发、重构、清理仍受冻结；
+   §2.10 禁回滚/禁删除仍然有效。豁免在该 BUG 修复完成、拿到覆盖当前源码指纹的 FULL 凭证、并按 §2.7
+   单批提交后自动失效；届时本条改写为 expired 并记录提交号。
 
 **文档格式范围**：文档语料为 `docs/**`。`.agents/skills/**` 下的 `SKILL.md`、配套说明与评审文本
 不属于该语料，不适用第 1、3、5 项的五字段元数据、文档命名、总索引和 `Last updated` 格式要求。
@@ -171,6 +179,9 @@ python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged
 
 **硬规则**：
 - **每轮开场先做第 0 段**：缺失、只有复述没有前提核验、或用上轮结论充当证据 → 本轮流程未启动，不得开新改动、不得把任何子项或目标标成完成，须补做后重新汇报。首轮或确无上轮“下一步”时，第 0 段写明“无（首轮）”并给出本轮计划来源，不得留空。
+- **硬件验收工作流每次失败必须开子代理交叉独立排查**（用户要求，2026-11-02）：任何 `hardware_acceptance_workflow.py` /
+  `p3_hardware_acceptance.py` 步骤失败，必须同时起一个只读子代理独立排查（给它失败步骤、报错、相关产物路径；
+  要求它给证据行号与独立结论），主会话再把两者结论交叉对比、记录异同后才允许继续改动。禁止只看主会话自己的判断就下结论。
 - **上轮推荐的偏离必须显式**：修正后执行 / 证伪改道 / 延后都要在第 0 段记录理由，禁止静默偏离；延后项按第 4 段规则记为非完成项。
 - 任一门禁 ❌/未通过 → 不进入下一子项，先归因修正；⚠️ 只用于“已定位、已隔离、有复验判据”的残余，且必须写偏差、影响、闭环里程碑。
 - refactor 类（拆分/迁移/重命名）另须给等价性证据：状态实例数、导出符号集、条件编译组合、段/RAM_TEXT 归属、host 用例同集全绿，必要时给 map diff；缺任一项按未验证处理。
