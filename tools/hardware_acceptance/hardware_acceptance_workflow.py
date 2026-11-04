@@ -51,6 +51,25 @@ FULL_CONFIG = Path("config/hardware_acceptance/p3_bench.json")
 # status as SKIPPED, so an internal-only run cannot be mistaken for a
 # scope-qualified one.
 INTERNAL_CONFIG = Path("out/HardwareAcceptance/p3_bench_internal.json")
+SCOPE_CONFIG = Path("out/HardwareAcceptance/p3_bench_scope.json")
+
+
+def write_scope_config(base: Path) -> Path:
+    """Config copy that actually allows the external scope path.
+
+    ``p3_bench.json`` carries ``dpll_short_force_internal=true`` so a normal
+    FULL run stays internal-only. Selecting ``--monitor scope`` must override
+    that flag, otherwise the option silently qualifies on internal evidence and
+    the receipt records ``external_status=SKIPPED``.
+    """
+    data = json.loads(base.read_text(encoding="utf-8"))
+    data["dpll_short_force_internal"] = False
+    SCOPE_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    if "extends" in data:
+        data["extends"] = str((base.parent / data["extends"]).resolve())
+    SCOPE_CONFIG.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return SCOPE_CONFIG
 
 GROUPS = ((0, "准备"), (8, "拓扑"), (10, "标定"), (13, "时延"), (17, "训练"),
           (24, "TDMA"), (27, "DPLL"), (31, "收尾"))
@@ -158,6 +177,8 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
     config_path = FULL_CONFIG if full else p3.DEFAULT_CONFIG
     if internal:
         config_path = write_internal_config(config_path)
+    elif launch.get("monitor") == "scope":
+        config_path = write_scope_config(config_path)
 
     def path(key):
         return Path(launch[key]) if launch.get(key) is not None else None

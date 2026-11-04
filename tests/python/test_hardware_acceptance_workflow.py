@@ -362,6 +362,17 @@ def test_time_budget_override_is_parsed_and_bounded():
             workflow.parse_time_budget(raw)
 
 
+def test_scope_monitor_disables_forced_internal(tmp_path, monkeypatch):
+    base = tmp_path / "bench.json"
+    base.write_text(json.dumps({"dpll_short_force_internal": True}), encoding="utf-8")
+    monkeypatch.setattr(p3, "DEFAULT_CONFIG", base)
+    ns = SimpleNamespace(full=False, tdma_only=False, diagnostic_continue=False,
+                         monitor="scope")
+    args = workflow.acceptance_args(ns)
+    data = json.loads(args.config.read_text(encoding="utf-8"))
+    assert data["dpll_short_force_internal"] is False
+
+
 def test_tdma_rerun_discards_the_previous_recorder(tmp_path, fingerprint, monkeypatch):
     commands = []
     monkeypatch.setattr(p3, "_run_step", lambda command, root, log, **kwargs: commands.append(command) or 0)
