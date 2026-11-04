@@ -140,9 +140,16 @@ def load_run_output(runtime_entrypoint: Path, *, runtime_module=None):
             # 10 ms for the 16-edge commit window, so the historical
             # 24000/32000/16000 profile (8 ms) is rejected with firmware
             # reject 193 and answers nothing (host sees a 3 s timeout).
-            # 28000/32000/16000 keeps commit/refill unchanged and restores a
-            # 12 ms horizon; measured admitted at 0.09 s on NO.1 (COM5).
-            self.trial_timing = (28000, 32000, 16000)
+            # 28000/32000/16000 kept commit/refill unchanged and restored a
+            # 12 ms horizon, but it leaves the commit horizon at only
+            # commit_ahead - block = 16 ms: the planner can only commit every
+            # 16 ms, every starved snapshot shows commit_waits=5..6, and the
+            # measured runway fell to 5.7 ms, so a single late service pass
+            # drains the FIFO (STARVED / PIO TXSTALL).
+            # 36000/40000/24000 keeps the same 16-edge block and the same 12 ms
+            # prepare horizon while moving the commit horizon to 24 ms, which is
+            # the number the starvation evidence actually points at.
+            self.trial_timing = (36000, 40000, 24000)
             self.trial_timing_applied = False
             self.report["schema"] = "DPLL_LIVE_PIO_RUN_TIMER1_V1"
             self.report["plan"].update(

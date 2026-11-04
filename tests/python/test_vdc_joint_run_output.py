@@ -11,8 +11,10 @@ from tools.workflows.vdc_joint_capture import run_output
 UIDS = ("u1", "u2", "u3", "u4")
 INITIAL = (12000, 16000, 6000)
 # The trial must satisfy (plan_ahead - refill_low) >= (steps + 1) * cycle at
-# the 2.0 ms core1 cycle, i.e. 10 ms for the 16-edge commit window.
-TRIAL = (28000, 32000, 16000)
+# the 2.0 ms core1 cycle, i.e. 10 ms for the 16-edge commit window. The commit
+# horizon (commit_ahead - block) is what the starvation evidence points at, so
+# the trial keeps the 16-edge block and moves that horizon from 16 to 24 ms.
+TRIAL = (36000, 40000, 24000)
 
 
 def fake_phase(events):
