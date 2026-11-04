@@ -513,6 +513,32 @@ bool tdma_service_set_ring_diagnostic_mode(tdma_service_service_t *service,
     return true;
 }
 
+/* STOP-only bootstrap authorization. It permits a no-stage ARM to keep the
+ * flight engine active with fixed phase 1..31; it never writes calibration
+ * and must be cleared before a calibrated product session. */
+bool tdma_service_set_bringup_no_cal(tdma_service_service_t *service,
+                                     bool enabled)
+{
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (service == NULL || !tdma_service_ring_control_lock(service)) return false;
+    if (__atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) != 0u ||
+        !tdma_service_ring_retire_stopped(service) ||
+        !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
+        snapshot.enabled != 0u || snapshot.adapter_started != 0u ||
+        snapshot.config_seq != snapshot.applied_config_seq ||
+        service->ring_staged_config.enabled == 0u) {
+        tdma_service_ring_control_unlock(service);
+        return false;
+    }
+    if (enabled) {
+        service->ring_staged_config.flags |= TDMA_RING_FLAG_BRINGUP_NO_CAL;
+    } else {
+        service->ring_staged_config.flags &= ~TDMA_RING_FLAG_BRINGUP_NO_CAL;
+    }
+    tdma_service_ring_control_unlock(service);
+    return true;
+}
+
 /* Gate policy switch for the reference node's self-excited emission.  This is
  * NOT the physical emission cadence budget (tdma_origin_cadence_t /
  * tdma_origin_cadence_calculate): it only relaxes the on-change publish gate so

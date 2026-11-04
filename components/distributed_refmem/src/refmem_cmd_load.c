@@ -4,6 +4,7 @@
 
 #include "board_identity.h"
 #include "distributed_refmem.h"
+#include "distributed_refmem_internal.h"
 #include "osal.h"
 #include "refmem_cmd_codec.h"
 #include "refmem_cmd_frame.h"
@@ -63,7 +64,8 @@ static bool refmem_cmd_parser(const uint8_t *payload,
     if ((request.target_mask & (1u << local_slot)) == 0u) {
         return true;
     }
-    if (!distributed_refmem_command_try_post(&request, osal_tick_ms())) {
+    if (!distributed_refmem_command_try_post_replacing_complete(
+            &request, osal_tick_ms())) {
         return true;
     }
     s_posted++;
@@ -74,6 +76,17 @@ static bool refmem_cmd_parser(const uint8_t *payload,
     if (take == REFMEM_COMMAND_TAKE_TAKEN) {
         (void)distributed_refmem_command_ack(local_slot, 0u);
         s_acked++;
+        /* This transport (0x52 maintenance frame) posts, takes and acks inside
+         * one call stack, so the local record never rests in POSTED and
+         * distributed_refmem_node_control_service() -- the only other arm
+         * site -- can never observe it.  Arm the wire reply here so the ACK
+         * seat carries a VALID|COMMAND result back to the issuing node;
+         * without it the issuer's reply aggregate stays POSTED even though
+         * this target reports acked. */
+        distributed_refmem_cmd_reply_arm(
+            request.command_seq, request.source_node,
+            (uint32_t)REFMEM_COMMAND_STATE_ACKED,
+            (uint32_t)REFMEM_COMMAND_REASON_NONE);
     }
     return true;
 }

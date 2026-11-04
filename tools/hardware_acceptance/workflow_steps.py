@@ -29,6 +29,12 @@ from itertools import product
 from pathlib import Path
 from typing import Any, Iterable
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):
+    pass
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -2143,6 +2149,40 @@ _DPLL_OUTPUT_REASONS = {
     4: "DEADLINE", 5: "ARGUMENT", 6: "DMA", 7: "EXPIRED",
 }
 
+# VDC_PRIORITY_GUARD_* failure bits (components/vdc_dpll_manager/inc/
+# vdc_priority_trace.h:50-58). Naming the mask turns "STARVED" into the actual
+# stall class, which is what distinguishes an output underrun from a ring gap.
+_DPLL_GUARD_BITS = (
+    (16, "EARLY_FREEZE"), (17, "SUCCESS_GAP"), (18, "COVERAGE"),
+    (19, "RING_READ"), (20, "OUTPUT_READ"), (21, "OUTPUT_IDENTITY"),
+    (22, "OUTPUT_STOPPED"), (23, "OUTPUT_STALE"), (24, "OUTPUT_PROGRESS"),
+)
+
+
+def _dpll_gap_evidence(row: dict[str, Any]) -> str:
+    """Bounded refill/guard evidence for a board that stopped feeding.
+
+    STARVED means the PIO output FIFO underran, so the useful numbers are the
+    guard's failure-bit mask plus the longest service/success gap the internal
+    assessment saw. Best effort: a missing field is simply omitted, never
+    guessed.
+    """
+    pieces: list[str] = []
+    guard = row.get("guard")
+    if isinstance(guard, dict):
+        mask = guard.get("reason_mask")
+        if isinstance(mask, int) and not isinstance(mask, bool):
+            named = [name for bit, name in _DPLL_GUARD_BITS if mask & (1 << bit)]
+            pieces.append(f"mask=0x{mask:x}" + (f"({'+'.join(named)})" if named else ""))
+    assessment = row.get("internal_assessment")
+    if isinstance(assessment, dict):
+        for key, label in (("max_service_gap_s", "svc_gap"),
+                           ("max_success_gap_s", "succ_gap")):
+            value = assessment.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                pieces.append(f"{label}={value:.4f}s")
+    return (" [" + ", ".join(pieces) + "]") if pieces else ""
+
 
 def dpll_capture_failure_detail(joint_dir: Path) -> str:
     """Name the boards that stopped feeding the 60 s window.
@@ -2173,11 +2213,14 @@ def dpll_capture_failure_detail(joint_dir: Path) -> str:
             continue
         reason, edges = fields[3], fields[5]
         if reason == 3:
-            parts.append(f"{uid}: STARVED after {edges / 1000.0:.1f}s")
+            parts.append(
+                f"{uid}: STARVED after {edges / 1000.0:.1f}s"
+                f"{_dpll_gap_evidence(row)}")
         elif edges < 50_000:
             parts.append(
                 f"{uid}: output stopped after {edges / 1000.0:.1f}s "
-                f"({_DPLL_OUTPUT_REASONS.get(reason, reason)})")
+                f"({_DPLL_OUTPUT_REASONS.get(reason, reason)})"
+                f"{_dpll_gap_evidence(row)}")
     samples = report.get("scope_samples") or []
     missed = [row for row in samples if row.get("missed")]
     if missed:
@@ -4888,6 +4931,12 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
     manifest_copy.write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n",
                              encoding="utf-8")
     config["dpll_short_workflow_inputs"] = manifest_copy.relative_to(root).as_posix()
+    # A factory/picotool flash or power cycle restores the product MASTER role;
+    # the joint capture requires NO.2..NO.4 to be FOLLOWER. Repair after the
+    # TDMA stage (ring stopped) so the topology write runs without VDC sessions.
+    print("DPLL-60 acceptance: repairing follower roles before DPLL capture",
+          flush=True)
+    dpll_short_arm_followers(config, board_ids)
     try:
         dpll_summary_path, dpll_summary, dpll_discovery_path = \
             run_four_board_dpll_short(

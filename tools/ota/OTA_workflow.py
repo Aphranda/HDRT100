@@ -40,6 +40,15 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+# Windows console/capture defaults often decode as cp936, which turns the
+# Chinese step labels into mojibake. Emit UTF-8 so both an interactive console
+# and the harness capture render the text correctly.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):
+    pass
+
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / "config" / "hardware_acceptance" / "p3_bench.json"
 LOG_DIR = ROOT / "out" / "HardwareAcceptance"

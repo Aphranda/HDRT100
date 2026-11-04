@@ -214,7 +214,15 @@ def _internal_trace_summary(
     # The endpoint is the envelope of the last estimation window, which spans
     # many decisions; a boundary tail bin holds only the few after the last
     # full interval, so the window is bounded by the last full bin plus it.
-    closing = steady[-2:] if boundary_tail and len(steady) >= 2 else [last]
+    # Two shapes reach here: an extra short terminal bin after the full set
+    # (boundary_tail), or the final bin truncated in place by STOP (PARTIAL).
+    # In both cases the endpoint window also covers the last full bin; judging
+    # it against the truncated bin alone turns a 1 ns truncation edge into a
+    # false failure (p3-cred-2206: endpoint -95 vs last bin -94).
+    last_partial = "PARTIAL" in (last.get("flag_names") or [])
+    closing = (steady[-2:]
+               if (boundary_tail or last_partial) and len(steady) >= 2
+               else [last])
     endpoint_consistent = (
         min(record["residual_min_ns"] for record in closing) <= endpoint["residual_lo"] <=
         endpoint["residual_hi"] <= max(record["residual_max_ns"] for record in closing))

@@ -5,10 +5,24 @@
 #include <stdint.h>
 
 #define TDMA_OPERATING_PROFILE_VERSION 1u
-#define TDMA_OPERATING_PROFILE_COUNT 23u
+
+/* Base levels 0..22 are frozen and keep their existing profile CRCs. The
+ * low-rate group is generated for the 4-node image only (levels 23..25);
+ * node counts above 4 are rejected by the ring slot check. Slot/baud/guard
+ * margins remain data, not hard-coded at call sites. */
+#define TDMA_OPERATING_PROFILE_BASE_COUNT 23u
+#define TDMA_OPERATING_PROFILE_LOWRATE_COUNT 3u
+#define TDMA_OPERATING_PROFILE_LOWRATE_LEVEL_BASE \
+    TDMA_OPERATING_PROFILE_BASE_COUNT
+#define TDMA_OPERATING_PROFILE_COUNT \
+    (TDMA_OPERATING_PROFILE_BASE_COUNT + TDMA_OPERATING_PROFILE_LOWRATE_COUNT)
 #define TDMA_OPERATING_PROFILE_DEFAULT_LEVEL 0u
 #define TDMA_OPERATING_PROFILE_MIN_CYCLE_PERIOD_NS 100000u
-#define TDMA_OPERATING_PROFILE_MAX_CYCLE_PERIOD_NS 2000000u
+#define TDMA_OPERATING_PROFILE_MAX_CYCLE_PERIOD_NS 150000000u
+/* Must match TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES; kept local so the profile
+ * arithmetic also builds in the host unit-test gate without the PIO headers. */
+#define TDMA_OPERATING_PROFILE_MAX_TAIL_BYTES 11u
+#define TDMA_OPERATING_PROFILE_LOWRATE_LOOP_DELAY_NS 1000u
 #define TDMA_OPERATING_PROFILE_FLAG_HIL_VALIDATED 0x00000001u
 
 typedef enum {
@@ -44,6 +58,30 @@ bool tdma_operating_profile_get(uint32_t level,
                                 tdma_operating_profile_t *profile);
 bool tdma_operating_profile_find_baud(uint32_t baud_hz,
                                       tdma_operating_profile_t *profile);
+/* Exact (baud, slot) lookup. A baud may now have more than one entry (4/8
+ * node groups), so find_baud() alone is not sufficient for selection. */
+bool tdma_operating_profile_find_pair(uint32_t baud_hz,
+                                      uint32_t cycle_period_ns,
+                                      tdma_operating_profile_t *profile);
+/* Minimum slot for one node count: frame time plus guard quanta plus an
+ * optional turnaround margin. Returns false on bad input or when the derived
+ * tail exceeds the frozen physical bound. */
+bool tdma_operating_profile_slot_min_ns(uint32_t baud_hz,
+                                        uint32_t node_count,
+                                        uint32_t loop_delay_ns,
+                                        uint32_t guard_quanta,
+                                        uint32_t turnaround_ns,
+                                        uint64_t *slot_min_ns);
+bool tdma_operating_profile_slot_sufficient(uint32_t baud_hz,
+                                            uint32_t cycle_period_ns,
+                                            uint32_t node_count);
+/* Ring admission: legacy 1..50 MHz range stays accepted for existing
+ * configurations; lower rates must select a low-rate catalog pair whose
+ * profile CRC matches and whose slot covers the admitted node count. */
+bool tdma_operating_profile_admitted_for_ring(uint32_t baud_hz,
+                                              uint32_t cycle_period_ns,
+                                              uint32_t operating_profile_crc32,
+                                              uint32_t node_count);
 bool tdma_operating_profile_validate(
     const tdma_operating_profile_t *profile,
     tdma_operating_profile_result_t *result);

@@ -73,6 +73,9 @@ bool tdma_runtime_owner_commit_seat_rotation3(uint32_t priority_share,
                                               uint32_t second_class_share);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);
 bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled);
+bool tdma_runtime_owner_set_bringup_no_cal(bool enabled);
+bool tdma_runtime_owner_set_bringup_topology(uint32_t node_count,
+                                             uint32_t reference_slot);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);
 bool tdma_runtime_owner_set_origin_cadence(bool enabled);
 bool tdma_runtime_owner_set_ring_diagnostic_burst(uint32_t limit);

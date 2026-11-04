@@ -25,6 +25,17 @@ uint64_t tdma_pio_spi_phys_wire_time_ns(uint32_t baud_hz,
                                         size_t packet_size,
                                         size_t packet_header_size);
 
+/* A launched frame is only declared stuck after its nominal wire time plus
+ * two Core1 service periods (the poll interval), with a 1 ms floor. This
+ * keeps long low-rate frames from false-timeout while keeping recovery
+ * bounded. */
+static inline uint64_t tdma_pio_spi_phys_tx_completion_margin_ns(
+    uint32_t cycle_period_ns)
+{
+    const uint64_t twice = (uint64_t)cycle_period_ns * 2ull;
+    return twice > 1000000ull ? twice : 1000000ull;
+}
+
 uint32_t tdma_pio_spi_phys_txstall_mask(uint32_t sm);
 
 #endif

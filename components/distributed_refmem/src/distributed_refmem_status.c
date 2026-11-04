@@ -1238,6 +1238,22 @@ bool distributed_refmem_tdma_ring_arm(void)
                          __ATOMIC_RELEASE);
         return false;
     }
+    const tdma_pio_spi_ring_adapter_t *bringup_adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    const bool bringup_process_image =
+        bringup_adapter != NULL &&
+        bringup_adapter->forwarding_mode ==
+            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE;
+    if ((owner->ring_staged_config.flags & TDMA_RING_FLAG_BRINGUP_NO_CAL) != 0u &&
+        bringup_process_image &&
+        !tdma_runtime_owner_set_bringup_topology(
+            owner->ring_staged_config.node_count,
+            owner->ring_staged_config.reference_slot_id)) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
     if (!tdma_service_ring_arm(owner)) {
         __atomic_store_n(&s_tdma_ring_arm_last_result,
                          DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED,

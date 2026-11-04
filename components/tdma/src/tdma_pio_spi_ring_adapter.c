@@ -611,6 +611,33 @@ bool tdma_pio_spi_ring_adapter_set_calibration_topology(
     return true;
 }
 
+bool tdma_pio_spi_ring_adapter_set_bringup_topology(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t node_count, uint32_t reference_slot)
+{
+    if (adapter == NULL || adapter->started != 0u ||
+        node_count < 2u || node_count > TDMA_RING_NODE_MAX ||
+        reference_slot >= node_count) {
+        return false;
+    }
+    /* Bring-up has no calibration stage, so the directed link map is the
+     * bench wiring order: slot N forwards to slot N+1 and the last wraps.
+     * The reference is the first slot by construction. */
+    (void)reference_slot;
+    tdma_pio_spi_ring_topology_t topology;
+    memset(&topology, 0, sizeof(topology));
+    topology.valid = 1u;
+    topology.node_count = node_count;
+    for (uint32_t slot = 0u; slot < node_count; slot++) {
+        const uint32_t next = (slot + 1u) % node_count;
+        topology.marker_next_node[slot] = next;
+        topology.data_next_node[slot] = next;
+    }
+    adapter->topology = topology;
+    adapter->topology_probe_mode = 0u;
+    return true;
+}
+
 bool tdma_pio_spi_ring_adapter_set_topology_probe_mode(
     tdma_pio_spi_ring_adapter_t *adapter, bool enabled)
 {

@@ -205,6 +205,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--short-open", action="store_true",
                         help="open/close CDC for every command (diagnostic fallback)")
+    parser.add_argument("--bringup", action="store_true",
+                        help=("STOP-only no-calibration ARM authorization: set "
+                              "RING:DIAGnostic 1,0,1 on every board before "
+                              "topology/ARM"))
+    parser.add_argument("--skip-train", action="store_true",
+                        help=("skip the clock-training pass; required for the "
+                              "10 kHz bring-up, which uses fixed phase 2..31"))
+    parser.add_argument("--process-image", action="store_true",
+                        help=("select the process-image forwarding mode "
+                              "(SYST:TDMA:FLIGHT:MODE 1) before ARM"))
+    parser.add_argument("--list", action="store_true",
+                        help="print the numbered step table and exit")
+    parser.add_argument("--step", type=int,
+                        help="run exactly one numbered step")
+    parser.add_argument("--steps",
+                        help="step selection, e.g. '1-3' or '0,2,5-7' or 'all'")
+    parser.add_argument("--full", action="store_true",
+                        help="run the continuous chain (default when no step is selected)")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
 
@@ -485,12 +503,77 @@ def train(board: Board, args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-def main() -> int:
-    args = parse_args()
-    # The ring transaction owns all board I/O, so it can safely reuse the
-    # sessions.  Imported helpers (topology/calibration) must opt in instead
-    # to avoid competing with their independent snapshot readers.
-    args.keep_open = not args.short_open
+STEP_TITLES = {
+    0: "discover and verify boards/build (--dry-run stops here)",
+    1: "STOP all boards",
+    2: "STAGE/APPLY operating level (--level)",
+    3: "write TOPOLOGY (node_count / slot / reference)",
+    4: "set RING:BRINGup (STOP-only; --bringup)",
+    5: "clock training (skipped by --skip-train)",
+    6: "ARM all boards (followers first, reference last)",
+    7: "START all boards (forward slots first, reference last)",
+    8: "wait for adapter_started, verify up/down/counters",
+    9: "write summary.json and verdict",
+}
+STEP_FUNCTIONS = {}
+
+
+def step(number):
+    def register(function):
+        STEP_FUNCTIONS[number] = function
+        return function
+    return register
+
+
+class Context:
+    def __init__(self, args):
+        self.args = args
+        self.acks = []
+        self.records = []
+        self.failures = []
+        self.discovered = False
+        self.dry_run = False
+        self.passed = False
+        self.result = {}
+        self.before_start = {}
+        self.final = {}
+        self.boards = {}
+        self.ordered = []
+        self.start_order = []
+        self.node_count = 0
+        self.out_dir = args.out_dir or (
+            ROOT / "build-rtos-multicore-smoke" /
+            f"tdma_start_ring_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+
+    def log(self, message):
+        print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
+
+    def ack(self, board, response):
+        self.acks.append({board.address: response})
+
+
+def parse_selection(args):
+    if args.step is not None:
+        return [args.step]
+    if args.steps:
+        selected = []
+        for part in args.steps.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "-" in part:
+                first, last = part.split("-", 1)
+                selected.extend(range(int(first), int(last) + 1))
+            else:
+                selected.append(int(part))
+        return sorted(set(selected))
+    return list(range(10))
+
+
+@step(0)
+def step_discover(ctx):
+    args = ctx.args
     try:
         board_ids = resolve_board_ids(args)
     except ValueError as exc:
@@ -516,102 +599,186 @@ def main() -> int:
             if board.build != args.expected_build:
                 raise SystemExit(
                     f"{board.address}: build {board.build} != {args.expected_build}")
-
-    ordered = [boards[address] for address in board_ids]
-    reference = ordered[0]
-    start_order = ordered[1:] + [reference]
-    node_count = len(ordered)
-    result: dict[str, object] = {
-        "reference_id": reference.address,
+    ctx.boards = boards
+    ctx.ordered = [boards[address] for address in board_ids]
+    ctx.start_order = ctx.ordered[1:] + [ctx.ordered[0]]
+    ctx.node_count = len(ctx.ordered)
+    ctx.result = {
+        "reference_id": ctx.ordered[0].address,
         "board_ids": board_ids,
-        "node_count": node_count,
+        "node_count": ctx.node_count,
         "cycles": args.cycles,
         "train_chunk_cycles": args.train_chunk_cycles or args.cycles,
         "boards": {address: asdict(board) for address, board in boards.items()},
         "sequence": [
             "STOP all",
-            f"TOPOLOGY node_count={node_count} slots=0..{node_count - 1} reference=0",
-            f"TRAIN all={args.cycles} (while STOPPED)", "ARM all",
-            "START forward slots", "START reference",
+            f"TOPOLOGY node_count={ctx.node_count} slots=0..{ctx.node_count - 1} reference=0",
+            "TRAIN all=%d (while STOPPED)" % args.cycles,
+            "ARM all", "START forward slots", "START reference",
             "wait for adapter_started (after START)",
         ],
     }
-    print(json.dumps(result, indent=2))
+    ctx.log(json.dumps(ctx.result, indent=2))
     if args.dry_run:
-        return 0
+        ctx.dry_run = True
+    ctx.discovered = True
+    return True
 
-    acknowledgements: list[dict[str, str]] = []
-    for board in ordered:
-        acknowledgements.append({board.address: board_command(
-            board, "SYSTem:TDMA:RING:STOP", args)})
-    if args.level is not None:
-        for board in ordered:
-            acknowledgements.append({board.address: board_command(
-                board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)})
-            # The first APPLy right after STAGe is often rejected while the
-            # previous configuration is still retiring, so retry before
-            # concluding that the level cannot be activated.
-            active = board_command(board, "SYSTem:TDMA:OPMode?", args)
-            for _ in range(4):
-                applied = board_command(
-                    board, "SYSTem:TDMA:OPMode:APPLy", args)
-                active = board_command(board, "SYSTem:TDMA:OPMode?", args)
-                active_values = [int(value.strip().strip('"'), 0)
-                                 for value in active.split(",")]
-                if active_values and active_values[0] == args.level:
-                    break
-                time.sleep(0.5)
-            acknowledgements.append({board.address: applied})
+
+def ensure_discovered(ctx):
+    if not ctx.discovered:
+        step_discover(ctx)
+
+
+@step(1)
+def step_stop(ctx):
+    ensure_discovered(ctx)
+    for board in ctx.ordered:
+        ctx.ack(board, board_command(board, "SYSTem:TDMA:RING:STOP", ctx.args))
+    return True
+
+
+@step(2)
+def step_stage(ctx):
+    ensure_discovered(ctx)
+    if ctx.args.level is None:
+        return True
+    for board in ctx.ordered:
+        ctx.ack(board, board_command(
+            board, f"SYSTem:TDMA:OPMode:STAGe {ctx.args.level}", ctx.args))
+        # The first APPLy right after STAGe is often rejected while the
+        # previous configuration is still retiring, so retry before
+        # concluding that the level cannot be activated.
+        active = board_command(board, "SYSTem:TDMA:OPMode?", ctx.args)
+        for _ in range(4):
+            applied = board_command(
+                board, "SYSTem:TDMA:OPMode:APPLy", ctx.args)
+            active = board_command(board, "SYSTem:TDMA:OPMode?", ctx.args)
             active_values = [int(value.strip().strip('"'), 0)
                              for value in active.split(",")]
-            if not active_values or active_values[0] != args.level:
-                raise RuntimeError(
-                    f"{board.address}: active operating level is {active}")
-    for slot, board in enumerate(ordered):
-        acknowledgements.append({board.address: board_command(
+            if active_values and active_values[0] == ctx.args.level:
+                break
+            time.sleep(0.5)
+        ctx.ack(board, applied)
+        active_values = [int(value.strip().strip('"'), 0)
+                         for value in active.split(",")]
+        if not active_values or active_values[0] != ctx.args.level:
+            raise RuntimeError(
+                f"{board.address}: active operating level is {active}")
+    return True
+
+
+@step(3)
+def step_topology(ctx):
+    ensure_discovered(ctx)
+    for slot, board in enumerate(ctx.ordered):
+        ctx.ack(board, board_command(
             board,
-            f"SYSTem:TDMA:RING:TOPology {node_count},{slot},0",
-            args)})
+            f"SYSTem:TDMA:RING:TOPology {ctx.node_count},{slot},0",
+            ctx.args))
+    if ctx.args.process_image:
+        # 1 = process-image forwarding (adapter mode 2); 0 = physical flight.
+        for board in ctx.ordered:
+            ctx.ack(board, board_command(
+                board, "SYSTem:TDMA:FLIGHT:MODE 1", ctx.args))
+    return True
 
+
+@step(4)
+def step_bringup(ctx):
+    ensure_discovered(ctx)
+    if not ctx.args.bringup:
+        return True
+    for board in ctx.ordered:
+        # TOPOLOGY rebuilds the staged config, so the bring-up bit must be
+        # set after it and immediately before ARM. APPLY is asynchronous:
+        # retry until the readback shows the bit.
+        readback = "0"
+        for _ in range(8):
+            set_response = board_command(
+                board, "SYSTem:TDMA:RING:BRINGup 1", ctx.args)
+            readback = set_response
+            try:
+                enabled = int(set_response.strip().strip('"'), 0)
+            except ValueError:
+                enabled = 0
+            if enabled == 1:
+                break
+            time.sleep(0.2)
+            readback = board_command(
+                board, "SYSTem:TDMA:RING:BRINGup?", ctx.args)
+            try:
+                enabled = int(readback.strip().strip('"'), 0)
+            except ValueError:
+                enabled = 0
+            if enabled == 1:
+                break
+            time.sleep(0.5)
+        ctx.ack(board, readback)
+        if enabled != 1:
+            raise RuntimeError(f"{board.address}: BRINGup readback {readback}")
+    return True
+
+
+@step(5)
+def step_train(ctx):
+    ensure_discovered(ctx)
+    if ctx.args.skip_train:
+        return True
     # Clock training drives a single in-board trial and the documented flow
-    # trains while the ring is STOPPED (stage/apply + topology, then TRAIN),
-    # so the train pass must precede ARM/START.  Issuing TRAIN after ARM left
-    # the command unanswered at every slot length.
-    for board in start_order:
-        acknowledgements.append({board.address: train(board, args)})
+    # trains while the ring is STOPPED, so this pass must precede ARM/START.
+    for board in ctx.start_order:
+        ctx.ack(board, train(board, ctx.args))
+    return True
 
-    for board in start_order:
-        acknowledgements.append({board.address: board_command(
-            board, "SYSTem:TDMA:RING:ARM", args)})
-    before_start = {board.address: status(board, args) for board in ordered}
-    for board in start_order:
-        acknowledgements.append({board.address: board_command(
-            board, "SYSTem:TDMA:RING:START", args)})
-    # The adapter only starts once TRAIN and START have been issued, so the
-    # start barrier has to be awaited here.  Waiting straight after ARM can
-    # never succeed and made every call report a spurious "ARM timeout".
-    armed = {board.address: wait_started(board, args)
-             for board in start_order}
 
-    time.sleep(args.start_wait)
-    final = {board.address: status(board, args)
-             for board in ordered}
+@step(6)
+def step_arm(ctx):
+    ensure_discovered(ctx)
+    for board in ctx.start_order:
+        ctx.ack(board, board_command(board, "SYSTem:TDMA:RING:ARM", ctx.args))
+    return True
+
+
+@step(7)
+def step_start(ctx):
+    ensure_discovered(ctx)
+    ctx.before_start = {board.address: status(board, ctx.args)
+                        for board in ctx.ordered}
+    for board in ctx.start_order:
+        ctx.ack(board, board_command(board, "SYSTem:TDMA:RING:START", ctx.args))
+    return True
+
+
+@step(8)
+def step_wait(ctx):
+    ensure_discovered(ctx)
+    if not ctx.before_start:
+        ctx.before_start = {board.address: status(board, ctx.args)
+                            for board in ctx.ordered}
+    # The adapter only starts once START has been issued, so the start barrier
+    # has to be awaited here.
+    armed = {board.address: wait_started(board, ctx.args)
+             for board in ctx.start_order}
+    time.sleep(ctx.args.start_wait)
+    final = {board.address: status(board, ctx.args)
+             for board in ctx.ordered}
     counter_deltas = {
         board.address: {
             "tx": ((final[board.address]["ring_adapter_tx_count"] -
-                    before_start[board.address]["ring_adapter_tx_count"])
+                    ctx.before_start[board.address]["ring_adapter_tx_count"])
                    & 0xFFFFFFFF),
             "rx": ((final[board.address]["ring_adapter_rx_count"] -
-                    before_start[board.address]["ring_adapter_rx_count"])
+                    ctx.before_start[board.address]["ring_adapter_rx_count"])
                    & 0xFFFFFFFF),
         }
-        for board in ordered
+        for board in ctx.ordered
     }
     passed = (
-        all(final[board.address]["ring_node_count"] == node_count
-            for board in ordered)
+        all(final[board.address]["ring_node_count"] == ctx.node_count
+            for board in ctx.ordered)
         and all(final[board.address]["ring_local_slot_id"] == slot
-                for slot, board in enumerate(ordered))
+                for slot, board in enumerate(ctx.ordered))
         and all(item["ring_reference_slot_id"] == 0 for item in final.values())
         and all(item["ring_adapter_started"] == 1 for item in final.values())
         and all(item["ring_up_running"] == 1 for item in final.values())
@@ -619,21 +786,84 @@ def main() -> int:
         and all(item["tx"] > 0 for item in counter_deltas.values())
         and all(item["rx"] > 0 for item in counter_deltas.values())
     )
-    result.update({"passed": passed,
-                   "slot_map": [{"no": slot + 1, "address": board.address}
-                                for slot, board in enumerate(ordered)],
-                   "acknowledgements": acknowledgements,
-                   "armed": armed, "before_start": before_start,
-                   "counter_deltas": counter_deltas, "final": final})
-    out_dir = args.out_dir or (
-        ROOT / "build-rtos-multicore-smoke" /
-        f"tdma_start_ring_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "summary.json").write_text(
-        json.dumps(result, indent=2), encoding="utf-8")
-    print(json.dumps(result, indent=2))
-    print(f"out_dir={out_dir}")
-    return 0 if passed else 1
+    ctx.final = final
+    ctx.passed = passed
+    ctx.result.update({
+        "passed": passed,
+        "slot_map": [{"no": slot + 1, "address": board.address}
+                     for slot, board in enumerate(ctx.ordered)],
+        "acknowledgements": ctx.acks,
+        "armed": armed, "before_start": ctx.before_start,
+        "counter_deltas": counter_deltas, "final": final,
+    })
+    return passed
+
+
+def write_summary(ctx):
+    ctx.result.update({
+        "steps": ctx.records,
+        "failures": ctx.failures,
+        "passed": ctx.passed,
+        "out_dir": str(ctx.out_dir),
+    })
+    path = ctx.out_dir / "summary.json"
+    path.write_text(json.dumps(ctx.result, indent=2), encoding="utf-8")
+    ctx.log(json.dumps(ctx.result, indent=2))
+    ctx.log(f"out_dir={ctx.out_dir}")
+    return path
+
+
+@step(9)
+def step_summary(ctx):
+    # The summary is written once after the loop so it includes step 9's own
+    # record and, on failure, the failing step's record as well.
+    return ctx.passed
+
+
+def main() -> int:
+    args = parse_args()
+    # The ring transaction owns all board I/O, so it can safely reuse the
+    # sessions. Imported helpers must opt in instead.
+    args.keep_open = not args.short_open
+    if args.list:
+        for number in sorted(STEP_TITLES):
+            print(f"{number:2d}  {STEP_TITLES[number]}")
+        return 0
+    selection = parse_selection(args)
+    unknown = [number for number in selection if number not in STEP_TITLES]
+    if unknown:
+        raise SystemExit(f"unknown step(s): {unknown}")
+    ctx = Context(args)
+    try:
+        for number in selection:
+            if ctx.dry_run and number != 0:
+                break
+            if number != 0:
+                ensure_discovered(ctx)
+            started = time.monotonic()
+            ctx.log(f"=== Step {number} START  {STEP_TITLES[number]}")
+            try:
+                ok = bool(STEP_FUNCTIONS[number](ctx))
+            except Exception as exc:                     # noqa: BLE001
+                ok = False
+                ctx.failures.append({"step": number, "error": str(exc)})
+                ctx.log(f"  FAIL {type(exc).__name__}: {exc}")
+            duration = time.monotonic() - started
+            ctx.records.append({
+                "step": number, "title": STEP_TITLES[number],
+                "ok": ok, "duration_s": round(duration, 3),
+            })
+            ctx.log(f"=== Step {number} END    {'OK' if ok else 'FAIL'}  "
+                    f"{duration:.1f}s")
+            if not ok:
+                break
+    finally:
+        write_summary(ctx)
+    if ctx.dry_run:
+        return 0
+    if any(record["step"] == 8 for record in ctx.records):
+        return 0 if ctx.passed else 1
+    return 0 if all(record["ok"] for record in ctx.records) else 1
 
 
 if __name__ == "__main__":

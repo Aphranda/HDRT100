@@ -38,6 +38,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):
+    pass
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
 import workflow_steps as p3  # noqa: E402

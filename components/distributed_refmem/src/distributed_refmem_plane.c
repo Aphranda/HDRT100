@@ -264,14 +264,23 @@ void distributed_refmem_tdma_flight_sync_publish(
     }
     if (feedback == -2) feedback = distributed_refmem_feedback_prepare(owner);
     if (feedback < 0) {
-        if (s_tdma_flight_sync.position_tx_active) {
-            s_tdma_flight_sync.position_tx_phase =
-                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_FEEDBACK;
-            s_tdma_flight_sync.position_tx_wait_reason =
-                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FEEDBACK;
-            s_tdma_flight_sync.position_tx_wait_count++;
+        /* RefMem-only profile (no VDC feedback binding): there is no VDC
+         * cadence to wait for, so command replies and ordinary deltas must
+         * still be published.  A real VDC binding keeps the fail-closed
+         * early return below. */
+        if (distributed_refmem_feedback_binding()->rate_mode ==
+            VDC_BOUNDARY_MODE_PROBE) {
+            feedback = 0;
+        } else {
+            if (s_tdma_flight_sync.position_tx_active) {
+                s_tdma_flight_sync.position_tx_phase =
+                    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_FEEDBACK;
+                s_tdma_flight_sync.position_tx_wait_reason =
+                    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FEEDBACK;
+                s_tdma_flight_sync.position_tx_wait_count++;
+            }
+            return; /* Busy snapshot: do not splice an ordinary frame. */
         }
-        return; /* Busy snapshot: do not splice an ordinary frame. */
     }
     /* A position-only idle-cycle publication must not move the VDC cadence;
      * the next normal frame remains due at the original deadline. */
@@ -757,7 +766,9 @@ void distributed_refmem_tdma_flight_sync_service(void)
         distributed_refmem_tdma_sync_resident_command_identity(&refmem_snapshot);
     }
 #endif
-    if (ordinary_binding_known && feedback_binding_known) {
+    if ((ordinary_binding_known && feedback_binding_known) ||
+        distributed_refmem_feedback_binding()->rate_mode ==
+            VDC_BOUNDARY_MODE_PROBE) {
         distributed_refmem_tdma_flight_sync_receive(owner, &ring);
     }
     distributed_refmem_tdma_flight_sync_publish(owner, &ring);

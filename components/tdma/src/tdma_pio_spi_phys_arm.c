@@ -366,6 +366,7 @@ bool tdma_pio_spi_phys_arm(void *context,
                      ? TDMA_PIO_SPI_ROLE_MASTER
                      : TDMA_PIO_SPI_ROLE_SLAVE;
     phys->baud_hz = config->baud_hz;
+    phys->flight_cycle_period_ns = config->cycle_period_ns;
     const uint32_t clk_sys_hz = clock_get_hz(clk_sys);
     const uint32_t period_cycles = phys->baud_hz == 0u
         ? 0u : clk_sys_hz / phys->baud_hz;

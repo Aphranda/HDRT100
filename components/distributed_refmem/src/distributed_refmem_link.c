@@ -1400,6 +1400,55 @@ bool distributed_refmem_command_ack(uint32_t target_node,
     return ok;
 }
 
+/* The 0x52 command transport keeps the wire command_seq (the ACK seat reply
+ * must carry it), so it cannot use
+ * distributed_refmem_post_command_replacing_complete(), which rewrites the
+ * sequence locally.  A slot left holding a completed command would otherwise
+ * reject every later command for the rest of the boot; replace it only when
+ * the previous one is terminal and the sequence actually differs, so a late
+ * retransmission of the same command stays a no-op instead of re-executing. */
+bool distributed_refmem_command_try_post_replacing_complete(
+    const refmem_command_request_t *request,
+    uint32_t issue_tick32)
+{
+    if (request == NULL) {
+        return false;
+    }
+    const uint32_t board_no = board_identity_get_no();
+    const uint32_t local_slot = board_no > 0u ? board_no - 1u : 0u;
+    tdma_ring_runtime_snapshot_t ring;
+    const bool unified_available =
+        tdma_runtime_owner_get_ring_snapshot(&ring) &&
+        ring.enabled != 0u && ring.adapter_started != 0u;
+    const refmem_control_route_t route = refmem_control_route_decide(
+        local_slot, request->target_mask, unified_available);
+    if (route == REFMEM_CONTROL_ROUTE_REJECT_NO_TARGET ||
+        route == REFMEM_CONTROL_ROUTE_REJECT_UNIFIED_UNAVAILABLE ||
+        route == REFMEM_CONTROL_ROUTE_REJECT_BAD_SLOT) {
+        return false;
+    }
+    osal_critical_enter();
+    refmem_command_snapshot_t snapshot;
+    bool ok = false;
+    if (refmem_command_get_snapshot(&s_refmem_command_slot, &snapshot)) {
+        if (snapshot.command_seq == request->command_seq) {
+            ok = true; /* same command: already posted, never re-execute */
+        } else if (snapshot.command_seq == 0u ||
+                   (distributed_refmem_command_state_is_complete(
+                        snapshot.state) &&
+                    refmem_command_clear(&s_refmem_command_slot,
+                                         snapshot.command_seq))) {
+            ok = refmem_command_try_post(&s_refmem_command_slot, request,
+                                         issue_tick32);
+        }
+    }
+    osal_critical_exit();
+    if (ok) {
+        distributed_refmem_mirror_local_control();
+    }
+    return ok;
+}
+
 bool distributed_refmem_command_nack(uint32_t target_node,
                                      refmem_command_reason_t reason,
                                      uint32_t evidence_index)

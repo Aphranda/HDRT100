@@ -9,6 +9,25 @@
 
 #define TDMA_MAINTENANCE_RUNTIME_MAX TDMA_LONG_FRAME_MAX
 
+/* ACK timeout baseline for high-rate profiles. Low-rate rings need a command
+ * round trip (one revolution) to fit, so the runtime derives 2x the ring
+ * feedback timeout and clamps it to a bounded maximum. */
+#define TDMA_MAINTENANCE_ACK_TIMEOUT_BASE_MS 50u
+#define TDMA_MAINTENANCE_ACK_TIMEOUT_MAX_MS 10000u
+static inline uint32_t tdma_maintenance_ack_timeout_ms(
+    uint32_t feedback_timeout_ns)
+{
+    uint64_t derived_ms =
+        ((uint64_t)feedback_timeout_ns * 2u + 999999u) / 1000000u;
+    if (derived_ms < TDMA_MAINTENANCE_ACK_TIMEOUT_BASE_MS) {
+        derived_ms = TDMA_MAINTENANCE_ACK_TIMEOUT_BASE_MS;
+    }
+    if (derived_ms > TDMA_MAINTENANCE_ACK_TIMEOUT_MAX_MS) {
+        derived_ms = TDMA_MAINTENANCE_ACK_TIMEOUT_MAX_MS;
+    }
+    return (uint32_t)derived_ms;
+}
+
 bool tdma_maintenance_runtime_init(tdma_pio_spi_ring_adapter_t *adapter,
                                    uint32_t local_slot);
 bool tdma_maintenance_runtime_ready(void);

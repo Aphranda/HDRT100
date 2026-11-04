@@ -838,6 +838,9 @@ bool tdma_pio_spi_ring_adapter_start_origin(tdma_pio_spi_ring_adapter_t *adapter
 bool tdma_pio_spi_ring_adapter_set_calibration_topology(
     tdma_pio_spi_ring_adapter_t *adapter,
     const tdma_ring_calibration_stage_t *stage);
+bool tdma_pio_spi_ring_adapter_set_bringup_topology(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t node_count, uint32_t reference_slot);
 void tdma_pio_spi_ring_adapter_clear_calibration_topology(
     tdma_pio_spi_ring_adapter_t *adapter);
 bool tdma_pio_spi_ring_adapter_set_topology_probe_mode(

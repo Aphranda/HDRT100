@@ -137,10 +137,13 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
     /* The watchdog and its Core1 service argument share the boot-monotonic
      * timer epoch. The independent hardware timestamp clock is evidence and
      * may have been reset later during startup. */
+    const uint64_t completion_margin_ns =
+        tdma_pio_spi_phys_tx_completion_margin_ns(
+            phys->flight_cycle_period_ns);
     phys->flight_tx_deadline_ns =
-        UINT64_MAX - timeout_now_ns < wire_ns + 1000000ull
+        UINT64_MAX - timeout_now_ns < wire_ns + completion_margin_ns
             ? UINT64_MAX
-            : timeout_now_ns + wire_ns + 1000000ull;
+            : timeout_now_ns + wire_ns + completion_margin_ns;
     if (tx_timestamp_ns != NULL) {
         /* Completion owns the hardware latch timestamp.  Zero is explicit:
          * the adapter must not promote a software launch time to DPLL

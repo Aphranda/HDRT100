@@ -1,5 +1,6 @@
 #include "tdma_maintenance_runtime.h"
 
+#include <stdint.h>
 #include <string.h>
 
 #include "osal.h"
@@ -7,7 +8,6 @@
 #include "tdma_process_image_layout.h"
 #include "tdma_spsc_index.h"
 
-#define TDMA_MAINTENANCE_ACK_TIMEOUT_MS 50u
 #define TDMA_MAINTENANCE_MAX_ATTEMPTS 3u
 
 static tdma_pio_spi_ring_adapter_t *s_adapter;
@@ -66,6 +66,27 @@ static void maintenance_release_slot(void)
     s_tx_dequeued++;
 }
 
+/* One maintenance ACK is published by the target's next process image and then
+ * forwarded hop by hop, so its budget is not a single feedback window.
+ * `feedback_timeout_ns` already spans one full ring revolution
+ * (cycle_period_ns x node_count); a physical process-image round trip needs
+ * about two of them -- one for the target's publish slot, one for the return
+ * path.  This helper returns that two-revolution trip; the caller's
+ * tdma_maintenance_ack_timeout_ms() applies its own 2x, so the effective
+ * budget is four revolutions (2400 ms at 10 kHz).  The 10 kHz profile measured
+ * a 1200 ms trip against the old 1200 ms budget, i.e. a coin flip that
+ * surfaced as tx_ack_fail on a healthy ring.  High-rate profiles stay on the
+ * 50 ms floor, so their behaviour is unchanged. */
+static uint32_t maintenance_ack_round_trip_ns(void)
+{
+    if (s_adapter == NULL || s_adapter->config.feedback_timeout_ns == 0u) {
+        return 0u;
+    }
+    const uint64_t round_trip =
+        (uint64_t)s_adapter->config.feedback_timeout_ns * 2u;
+    return round_trip > UINT32_MAX ? UINT32_MAX : (uint32_t)round_trip;
+}
+
 static bool maintenance_retry_or_fail(uint32_t now)
 {
     if (s_tx_attempts >= TDMA_MAINTENANCE_MAX_ATTEMPTS) {
@@ -104,8 +125,9 @@ static bool maintenance_mailbox(void *context,
             maintenance_release_slot();
             return false;
         }
-        if ((uint32_t)(now - s_tx_sent_ms) >=
-            TDMA_MAINTENANCE_ACK_TIMEOUT_MS) {
+        const uint32_t ack_timeout_ms = tdma_maintenance_ack_timeout_ms(
+            maintenance_ack_round_trip_ns());
+        if ((uint32_t)(now - s_tx_sent_ms) >= ack_timeout_ms) {
             return maintenance_retry_or_fail(now);
         }
         return false; /* waiting for all target frame ACKs */

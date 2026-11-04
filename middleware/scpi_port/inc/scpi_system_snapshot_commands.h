@@ -215,6 +215,8 @@ scpi_result_t scpi_cmd_system_tdma_ring_loop_delay(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_loop_delay_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_diagnostic(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_diagnostic_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_ring_bringup(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_ring_bringup_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_origin_cadence_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_burst(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_burst_q(scpi_t *context);
@@ -559,6 +561,8 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:LOOP:DELay?", .callback = scpi_cmd_system_tdma_ring_loop_delay_q}, \
     {.pattern = "SYSTem:TDMA:RING:DIAGnostic", .callback = scpi_cmd_system_tdma_ring_diagnostic}, \
     {.pattern = "SYSTem:TDMA:RING:DIAGnostic?", .callback = scpi_cmd_system_tdma_ring_diagnostic_q}, \
+    {.pattern = "SYSTem:TDMA:RING:BRINGup", .callback = scpi_cmd_system_tdma_ring_bringup}, \
+    {.pattern = "SYSTem:TDMA:RING:BRINGup?", .callback = scpi_cmd_system_tdma_ring_bringup_q}, \
     {.pattern = "SYSTem:TDMA:RING:ORIGin:CADEnce?", .callback = scpi_cmd_system_tdma_ring_origin_cadence_q}, \
     {.pattern = "SYSTem:TDMA:RING:BURSt", .callback = scpi_cmd_system_tdma_ring_burst}, \
     {.pattern = "SYSTem:TDMA:RING:BURSt?", .callback = scpi_cmd_system_tdma_ring_burst_q}, \

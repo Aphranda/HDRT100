@@ -941,6 +941,9 @@ typedef struct {
     uint32_t baud_hz;
     uint32_t node_count;
     uint32_t flight_tail_bytes;
+    /* Slot copied at ARM. The TX watchdog derives its completion margin so a
+     * long low-rate frame is not declared stuck at a fixed 1 ms. */
+    uint32_t flight_cycle_period_ns;
     bool process_image_enabled;
     uint32_t flight_payload_size;
     uint32_t flight_physical_byte_count;

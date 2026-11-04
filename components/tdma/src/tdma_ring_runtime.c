@@ -2,6 +2,7 @@
 #include "tdma_service_timing.h"
 
 #include "tdma_transport_frame.h"
+#include "tdma_operating_profile.h"
 
 #include <string.h>
 
@@ -151,8 +152,10 @@ bool tdma_ring_runtime_validate_config(
         (config->flags & TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) == 0u ||
         config->ring_profile_crc32 == 0u || config->schedule_crc32 == 0u ||
         config->operating_profile_crc32 == 0u ||
-        config->baud_hz < 1000000u || config->baud_hz > 50000000u ||
         config->cycle_period_ns == 0u ||
+        !tdma_operating_profile_admitted_for_ring(
+            config->baud_hz, config->cycle_period_ns,
+            config->operating_profile_crc32, config->node_count) ||
         (config->loop_delay_ns != 0u &&
          config->feedback_timeout_ns != 0u &&
          config->loop_delay_ns > config->feedback_timeout_ns) ||

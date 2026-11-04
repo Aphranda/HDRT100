@@ -8,6 +8,7 @@
 
 #include "tdma_process_image_layout.h"
 #include "tdma_service_timing.h"
+#include "tdma_operating_profile.h"
 
 #if TDMA_SERVICE_TIMING_ENABLED
 /* Only the device build owns a real timebase (see tdma_service_timing.h). */
@@ -306,8 +307,10 @@ bool tdma_pio_spi_ring_adapter_start(
         config->ring_profile_crc32 == 0u ||
         config->schedule_crc32 == 0u ||
         config->operating_profile_crc32 == 0u ||
-        config->baud_hz < 1000000u || config->baud_hz > 50000000u ||
         config->cycle_period_ns == 0u ||
+        !tdma_operating_profile_admitted_for_ring(
+            config->baud_hz, config->cycle_period_ns,
+            config->operating_profile_crc32, config->node_count) ||
         config->feedback_timeout_ns == 0u ||
         (tdma_ring_diagnostic_burst_limit(config->flags) != 0u &&
          (adapter->started != 0u ||
@@ -346,6 +349,7 @@ bool tdma_pio_spi_ring_adapter_start(
         tdma_flight_engine_deactivate(adapter->flight_engine);
     }
     if (adapter->topology_probe_mode != 0u &&
+        (config->flags & TDMA_RING_FLAG_BRINGUP_NO_CAL) == 0u &&
         adapter->flight_engine != NULL &&
         tdma_flight_engine_is_active(adapter->flight_engine)) {
         tdma_flight_engine_deactivate(adapter->flight_engine);

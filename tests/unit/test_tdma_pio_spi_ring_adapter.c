@@ -3773,9 +3773,11 @@ int main(void)
             failed += expect_u32("reverse expected segment mask",
                                  snapshot.receive_health.expected_segment_mask,
                                  expected_by_node[local_node]);
-            failed += expect_u64("receive stale timeout is four rings",
-                                 adapter.receive_health.config.stale_timeout_ns,
-                                 (uint64_t)config.feedback_timeout_ns * 4ull);
+            failed += expect_u64(
+                "stale timeout follows clock-evidence cadence",
+                adapter.receive_health.config.stale_timeout_ns,
+                (uint64_t)config.feedback_timeout_ns *
+                    (adapter.clock_evidence_enabled != 0u ? 8ull : 4ull));
         }
     }
 

@@ -144,15 +144,22 @@ static bool tdma_runtime_owner_flight_phys_arm(
             phys, TDMA_PIO_SPI_PHYS_ERROR_OWNER_FLIGHT_MAP);
         return false;
     }
-    if (stage->enabled != 0u && !have_flight_map) {
-        /* Product ring stages require a frozen map.  Failing here keeps an
-         * unconfigured physical length from masquerading as a live ring. */
+    const bool bringup =
+        (config->flags & TDMA_RING_FLAG_BRINGUP_NO_CAL) != 0u;
+    if ((stage->enabled != 0u || bringup) && !have_flight_map) {
+        /* Product ring stages and bring-up both require a frozen map.  Failing
+         * here keeps an unconfigured physical length from masquerading as a
+         * live ring. */
         tdma_pio_spi_phys_publish_arm_error(
             phys, TDMA_PIO_SPI_PHYS_ERROR_OWNER_FLIGHT_MAP);
         return false;
     }
     if (stage->enabled == 0u) {
-        const uint32_t phase = s_tdma_topology_probe_phase_delay_cycles;
+        /* Bring-up keeps the flight engine active with fixed phase 1..31; it
+         * deliberately does not consume the topology-probe phase and never
+         * reports calibrated geometry. */
+        const uint32_t phase = bringup
+            ? 2u : s_tdma_topology_probe_phase_delay_cycles;
         if (phase == 0u || phase > 31u) {
             tdma_pio_spi_phys_publish_arm_error(
                 phys, TDMA_PIO_SPI_PHYS_ERROR_OWNER_TOPOLOGY_PHASE);
@@ -760,6 +767,21 @@ bool tdma_runtime_owner_set_origin_cadence(bool enabled)
     return s_tdma_runtime_owner_initialized &&
            tdma_service_set_origin_cadence(
                &s_tdma_runtime_owner, enabled);
+}
+
+bool tdma_runtime_owner_set_bringup_no_cal(bool enabled)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_set_bringup_no_cal(
+               &s_tdma_runtime_owner, enabled);
+}
+
+bool tdma_runtime_owner_set_bringup_topology(uint32_t node_count,
+                                             uint32_t reference_slot)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_ring_adapter_set_bringup_topology(
+               &s_tdma_pio_spi_ring_adapter, node_count, reference_slot);
 }
 typedef struct {
     uint32_t enabled;

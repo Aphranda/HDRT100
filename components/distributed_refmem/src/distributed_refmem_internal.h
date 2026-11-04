@@ -37,6 +37,12 @@ refmem_vector_node_region_t *distributed_refmem_node_region(uint32_t node_id);
 void distributed_refmem_node_control_service(void);
 bool distributed_refmem_post_command_replacing_complete(
     refmem_command_request_t *request, uint32_t issue_tick32);
+/* Wire-sequence-preserving variant used by the 0x52 command transport: the ACK
+ * seat reply must carry the issuer's command_seq, so the record cannot be
+ * renumbered.  Replaces a terminal predecessor; a retransmission of the same
+ * sequence is a no-op. */
+bool distributed_refmem_command_try_post_replacing_complete(
+    const refmem_command_request_t *request, uint32_t issue_tick32);
 /* N5.2b: control coordinator slot derived from the active SlotClaimMap (lowest
  * claimed slot).  Read-only; false means "no authority" (fail closed). */
 bool distributed_refmem_control_owner_slot(uint32_t *owner_slot);

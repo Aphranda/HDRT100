@@ -11,6 +11,7 @@ $build = Join-Path $repo $BuildDir
 $include = Join-Path $repo "components\tdma\inc"
 $testSource = Join-Path $repo "tests\unit\test_tdma_ring_runtime.c"
 $runtimeSource = Join-Path $repo "components\tdma\src\tdma_ring_runtime.c"
+$profileSource = Join-Path $repo "components\tdma\src\tdma_operating_profile.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -25,7 +26,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_tdma_ring_runtime.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" $testSource $runtimeSource -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" $testSource $runtimeSource $profileSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -47,7 +48,7 @@ if (-not $ArmGcc -or -not (Test-Path $ArmGcc)) {
     throw "No host C compiler or ARM GCC found"
 }
 
-foreach ($source in @($testSource, $runtimeSource)) {
+foreach ($source in @($testSource, $runtimeSource, $profileSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$include" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

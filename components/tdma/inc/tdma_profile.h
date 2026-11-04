@@ -16,6 +16,10 @@
 /* Debug bring-up: execute phase-budget violations and retain the warning in
  * the physical snapshot so waveform evidence can explain packet loss. */
 #define TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE 0x00000002u
+/* STOP-only bootstrap authorization: a no-stage ARM keeps the flight engine
+ * active with fixed phase 1..31. It never carries calibration identity and
+ * must not be presented as a calibrated product ring. */
+#define TDMA_RING_FLAG_BRINGUP_NO_CAL 0x00000004u
 /* STOP-configured ordinary-origin diagnostic launch quota: 0 is unlimited,
  * 1/2 are bounded, and the reserved encoding 3 is rejected at ARM. */
 #define TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT 8u
