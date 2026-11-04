@@ -11,7 +11,7 @@ import sys
 import time
 from types import SimpleNamespace
 
-from tools.hardware_acceptance import p3_hardware_acceptance as gate
+from tools.hardware_acceptance import workflow_steps as gate
 from tools.workflows.vdc_joint_capture.base import load_base
 
 

@@ -22,7 +22,7 @@ from tools.domains.vdc.priority_trace.probe_support import (
     IDS, OBSERVER_FIELDS, TRACE_FIELDS, bind_receipt, fields,
     native_input_summary, observer_delta, sha, uints)
 from tools.dpll_observation_capture import dpll_observation_capture as capture
-from tools.hardware_acceptance.p3_hardware_acceptance import (
+from tools.hardware_acceptance.workflow_steps import (
     working_source_fingerprint, validate_ota)
 
 

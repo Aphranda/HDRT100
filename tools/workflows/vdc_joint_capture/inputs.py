@@ -101,7 +101,7 @@ def _pinned_file(root: Path, declaration, label: str) -> tuple[Path, dict[str, s
 def validate_current_receipt(inputs: WorkflowInputs, root: Path, *,
                              allow_p3_provisional: bool = False) -> dict:
     """Bind the manifest to the current tracked source before adapter import."""
-    from tools.hardware_acceptance import p3_hardware_acceptance as gate
+    from tools.hardware_acceptance import workflow_steps as gate
 
     receipt = _read_json(inputs.receipt, "receipt")
     if not isinstance(receipt, dict):

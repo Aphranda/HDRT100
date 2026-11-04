@@ -7,7 +7,7 @@ checks the linked symbol table before any board is touched.
 """
 import pytest
 
-from tools.hardware_acceptance import p3_hardware_acceptance as gate
+from tools.hardware_acceptance import workflow_steps as gate
 
 
 def test_nm_parser_separates_defined_from_undefined():

@@ -71,7 +71,7 @@ def main() -> int:
           f"{'PASS' if passed else 'FAIL'}")
 
     sys.path.insert(0, str(ROOT / "tools/hardware_acceptance"))
-    from p3_hardware_acceptance import working_source_fingerprint  # noqa: E402
+    from workflow_steps import working_source_fingerprint  # noqa: E402
 
     fingerprint, file_count = working_source_fingerprint(ROOT)
     receipt = {

@@ -8,10 +8,10 @@ import zlib
 from pathlib import Path
 
 import pytest
-import tools.hardware_acceptance.p3_hardware_acceptance as p3_acceptance
+import tools.hardware_acceptance.workflow_steps as p3_acceptance
 from test_tdma_board_record import recorder  # noqa: F401 - shared production C recorder fixture
 
-from tools.hardware_acceptance.p3_hardware_acceptance import (
+from tools.hardware_acceptance.workflow_steps import (
     AcceptanceError,
     LIMITED_RECEIPT_SCHEMA,
     QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
@@ -219,7 +219,7 @@ def test_dpll60_receipt_declares_its_unverified_scope() -> None:
 def test_direct_script_help_loads_repository_dependencies():
     result = subprocess.run(
         [sys.executable,
-         str(ROOT / "tools/hardware_acceptance/p3_hardware_acceptance.py"),
+         str(ROOT / "tools/hardware_acceptance/workflow_steps.py"),
          "--help"],
         cwd=ROOT, text=True, capture_output=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -314,7 +314,7 @@ def test_acceptance_steps_use_phase_owned_serial_lifecycle(
 
     monkeypatch.setenv("HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS", "0")
     monkeypatch.setattr(
-        "tools.hardware_acceptance.p3_hardware_acceptance.subprocess.run",
+        "tools.hardware_acceptance.workflow_steps.subprocess.run",
         fake_run)
     _run_step([sys.executable, "phase.py"], ROOT, tmp_path / "phase.log")
     assert captured["env"]["HAOFV_SERIAL_LIFECYCLE"] == "phase"
@@ -324,7 +324,7 @@ def test_acceptance_steps_use_phase_owned_serial_lifecycle(
 def test_acceptance_step_can_retain_nonzero_diagnostic_result(
         monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
-        "tools.hardware_acceptance.p3_hardware_acceptance.subprocess.run",
+        "tools.hardware_acceptance.workflow_steps.subprocess.run",
         lambda *args, **kwargs: types.SimpleNamespace(
             returncode=7, stdout=b"diagnostic evidence\n"))
     assert _run_step(
@@ -405,8 +405,8 @@ def test_code_scope_includes_runtime_tools_and_build_inputs() -> None:
 
 def test_precommit_enforces_p3_receipt_after_doc_gates() -> None:
     hook = (ROOT / ".githooks" / "pre-commit").read_text(encoding="utf-8")
-    assert "p3_hardware_acceptance.py check-staged" in hook
-    assert hook.index("doc gates OK") < hook.index("p3_hardware_acceptance.py")
+    assert "workflow_steps.py check-staged" in hook
+    assert hook.index("doc gates OK") < hook.index("workflow_steps.py")
 
 
 def test_schedule_parser_and_isolation_gate() -> None:
@@ -476,7 +476,7 @@ def test_acceptance_initialization_resets_each_uid_once_and_reenumerates(
     fake.close_persistent_connections = lambda: closed.append(True)
     monkeypatch.setitem(sys.modules, "tdma_start_ring", fake)
     monkeypatch.setattr(
-        "tools.hardware_acceptance.p3_hardware_acceptance.time.sleep",
+        "tools.hardware_acceptance.workflow_steps.time.sleep",
         lambda _seconds: None)
 
     result = reset_acceptance_boards(ids, "build", acceptance_timing({}))

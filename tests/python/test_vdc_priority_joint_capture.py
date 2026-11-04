@@ -702,7 +702,7 @@ def test_main_rejects_stale_receipt_before_adapter_import(tmp_path, monkeypatch)
 
 
 def test_current_receipt_validation_binds_source_and_board_order(tmp_path, monkeypatch):
-    from tools.hardware_acceptance import p3_hardware_acceptance as gate
+    from tools.hardware_acceptance import workflow_steps as gate
 
     fixture = workflow_input_fixture(tmp_path)
     receipt = {'schema': gate.QUICK_GRADED_RECEIPT_SCHEMA,

@@ -1464,7 +1464,7 @@ def check_staged(root: Path, receipt_path: Path) -> None:
         raise AcceptanceError(
             "staged code fingerprint has no matching hardware acceptance (neither P3 nor a T2 "
             "sequence receipt); run sequence_workflow to a PASS, or "
-            "python tools/hardware_acceptance/p3_hardware_acceptance.py run")
+            "python tools/hardware_acceptance/workflow_steps.py run")
     if receipt.get("source_file_count") != file_count:
         raise AcceptanceError("P3 acceptance source file count mismatch")
     _validate_receipt_evidence(root, receipt, changed)
@@ -1498,7 +1498,7 @@ def _validate_receipt_evidence(root: Path, receipt: dict[str, Any],
             raise AcceptanceError(
                 "staged change is outside the DPLL-60 scope: " +
                 ", ".join(uncovered[:6]) +
-                "; run python tools/hardware_acceptance/p3_hardware_acceptance.py run")
+                "; run python tools/hardware_acceptance/workflow_steps.py run")
         _validate_dpll_short_receipt(root, receipt)
     elif schema in (TDMA_RECEIPT_SCHEMA, TDMA_DIAGNOSTIC_RECEIPT_SCHEMA):
         expected_scope = (

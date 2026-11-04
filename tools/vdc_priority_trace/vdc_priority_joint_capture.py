@@ -560,7 +560,7 @@ def main():
         # receipt and remains rejected by check-staged.
         from tools.hardware_acceptance.p3_dpll_short import validate_provisional_receipt
         from tools.hardware_acceptance import p3_dpll_short as short_gate
-        from tools.hardware_acceptance import p3_hardware_acceptance as p3_gate
+        from tools.hardware_acceptance import workflow_steps as p3_gate
         _strict_provisional = short_gate.validate_provisional_receipt
 
         def _provisional_debug_admission(root, value, board_uids):

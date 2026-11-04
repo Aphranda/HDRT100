@@ -26,7 +26,7 @@ Routes:
 
 This is a THIN ORCHESTRATION: building is tools/cmake_build_auto, transport is
 ota_multi_update / picotool_flash, and the OTA acceptance gate is
-p3_hardware_acceptance.validate_ota. It reimplements no flashing logic.
+workflow_steps.validate_ota. It reimplements no flashing logic.
 """
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ def sha256(path: Path) -> str:
 def p3_module():
     """The acceptance module owns the package reader and the OTA gate."""
     sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
-    import p3_hardware_acceptance as p3                                   # noqa: PLC0415
+    import workflow_steps as p3                                   # noqa: PLC0415
     return p3
 
 

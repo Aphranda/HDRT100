@@ -952,7 +952,7 @@ def validate_provisional_receipt(root: Path, receipt: dict[str, Any],
             receipt.get("ota_board_ids") != board_uids or
             not str(receipt.get("build_id", "")).isdigit()):
         raise ValueError("invalid P3 joint provisional receipt")
-    from tools.hardware_acceptance import p3_hardware_acceptance as gate
+    from tools.hardware_acceptance import workflow_steps as gate
     if gate.working_source_fingerprint(root) != (
             receipt.get("source_tree_sha256"), receipt.get("source_file_count")):
         raise ValueError("provisional receipt source fingerprint differs")

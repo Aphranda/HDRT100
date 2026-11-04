@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.hardware_acceptance import p3_hardware_acceptance as p3
+from tools.hardware_acceptance import workflow_steps as p3
 
 
 IDS = ['n1', 'n2', 'n3', 'n4']

@@ -9,7 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
-import p3_hardware_acceptance as p3  # noqa: E402
+import workflow_steps as p3  # noqa: E402
 import hardware_acceptance_workflow as workflow  # noqa: E402
 from test_dpll_capture_retry import write_probe  # noqa: E402
 

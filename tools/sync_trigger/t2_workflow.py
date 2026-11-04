@@ -2102,7 +2102,7 @@ def step_12_t2_mount(ctx, slot, board, uid):
     print(f"  slot {slot} SEQuence:REAdy {_ready_required} (after mount) -> "
           f"{ctx.send(board, 'TRIGger:SEQuence:REAdy?')[:24]}", flush=True)
     # The wording "configured ... active ..." is the acceptance contract
-    # (p3_hardware_acceptance.py counts "T2 configured 1 active 1" lines); the
+    # (workflow_steps.py counts "T2 configured 1 active 1" lines); the
     # semantics of this mount step are explained in the step table, not by renaming
     # the field here.
     print(f"  slot {slot} configure diag {diag[4] if len(diag) > 4 else '?'}"

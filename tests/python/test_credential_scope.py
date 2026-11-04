@@ -10,15 +10,15 @@ from pathlib import Path
 import pytest
 
 from tools.acceptance import credential_scope, host_acceptance
-from tools.hardware_acceptance import p3_hardware_acceptance
+from tools.hardware_acceptance import workflow_steps
 
 
 @pytest.mark.parametrize("path,expected", [
     ("components/vdc_dpll_manager/src/vdc_priority_follow.c", ["firmware"]),
     ("application/src/app.c", ["firmware"]),
     ("CMakeLists.txt", ["firmware"]),
-    ("tools/hardware_acceptance/p3_hardware_acceptance.py", ["firmware"]),
-    ("tools/vdc_priority_trace/vdc_priority_joint_capture.py", ["firmware"]),
+    ("tools/hardware_acceptance/workflow_steps.py", ["host"]),
+    ("tools/vdc_priority_trace/vdc_priority_joint_capture.py", ["host"]),
     ("tools/acceptance/host_acceptance.py", ["host"]),
     ("tests/python/test_vdc_priority_phase.py", ["host"]),
     (".githooks/pre-commit", ["host"]),
@@ -119,13 +119,16 @@ def test_check_staged_rejects_missing_or_stale_receipt(tmp_path, monkeypatch):
 
 
 def test_p3_fingerprint_ignores_host_credential_scope():
-    """A test or hook change must not invalidate the hardware credential."""
-    assert p3_hardware_acceptance.is_acceptance_source(
+    """A test, hook, doc or Python-tool change must not invalidate the credential."""
+    assert workflow_steps.is_acceptance_source(
         "components/vdc_dpll_manager/src/vdc_priority_follow.c")
-    assert p3_hardware_acceptance.is_acceptance_source(
-        "tools/hardware_acceptance/p3_hardware_acceptance.py")
-    assert not p3_hardware_acceptance.is_acceptance_source(
+    # 2026-11-02 user directive: the hardware credential covers firmware only.
+    assert not workflow_steps.is_acceptance_source(
+        "tools/hardware_acceptance/workflow_steps.py")
+    assert not workflow_steps.is_acceptance_source(
+        "docs/ota/OTA_V2STREAM_PLAYBOOK.md")
+    assert not workflow_steps.is_acceptance_source(
         "tests/python/test_vdc_priority_phase.py")
-    assert not p3_hardware_acceptance.is_acceptance_source(".githooks/pre-commit")
-    assert not p3_hardware_acceptance.is_acceptance_source(
+    assert not workflow_steps.is_acceptance_source(".githooks/pre-commit")
+    assert not workflow_steps.is_acceptance_source(
         "tools/acceptance/host_acceptance.py")

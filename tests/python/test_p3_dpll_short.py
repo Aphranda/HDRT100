@@ -7,7 +7,7 @@ import zlib
 import pytest
 
 from tools.hardware_acceptance import p3_dpll_short as short
-from tools.hardware_acceptance import p3_hardware_acceptance as p3
+from tools.hardware_acceptance import workflow_steps as p3
 from tools.workflows.vdc_joint_capture import internal_seal
 
 

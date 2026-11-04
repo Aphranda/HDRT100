@@ -356,7 +356,7 @@ def write_t2_receipt(state) -> None:
 
     _sys.path.insert(0, str(ROOT / "tools/hardware_acceptance"))
     try:
-        from p3_hardware_acceptance import working_source_fingerprint   # noqa: PLC0415
+        from workflow_steps import working_source_fingerprint   # noqa: PLC0415
     except Exception as exc:                                            # never fail a run over a credential
         print(f"  T2 receipt skipped: {type(exc).__name__}", flush=True)
         return

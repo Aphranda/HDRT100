@@ -15,7 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/hardware_acceptance"))
 
-import p3_hardware_acceptance as p3  # noqa: E402
+import workflow_steps as p3  # noqa: E402
 
 BOARDS = ["0010071E65B5CB38", "FB276192BEF9CCE1", "2BD5090FE009FA2A", "A1E549202D18ED6A"]
 

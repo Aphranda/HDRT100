@@ -163,7 +163,7 @@ def online_builds(ctx):
     result = {}
     try:
         sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
-        import p3_hardware_acceptance as acceptance                        # noqa: PLC0415
+        import workflow_steps as acceptance                        # noqa: PLC0415
         timing = acceptance.acceptance_timing(
             {"timing": dict(acceptance.DEFAULT_ACCEPTANCE_TIMING)})
         result = acceptance.read_online_builds(list(BENCH_BOARDS), timing)
@@ -365,7 +365,7 @@ def step_2_reset(ctx):
         return
     try:
         sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
-        import p3_hardware_acceptance as acceptance                        # noqa: PLC0415
+        import workflow_steps as acceptance                        # noqa: PLC0415
         # The helper verifies that the online boards run the expected firmware build
         # before it resets them. Take that expectation from the bench config, else
         # from the last receipt (which records the build it accepted), and print both
@@ -391,7 +391,7 @@ def step_3_tdma_process_image(ctx):
 
     The packaged entry performs this with tools/calibration_ring_validate/
     trn03_closed_loop.py --stage process-image --dpll-provisional
-    (p3_hardware_acceptance.py:3192-3212) BEFORE the capture; without it the capture
+    (workflow_steps.py:3192-3212) BEFORE the capture; without it the capture
     sends the same 188 commands but the DPLL never locks (measured: actions.jsonl
     114 KB -> 12.9 KB, input-probe.json 304 KB -> 47.7 KB, and no 60 s scope
     checkpoint), and the child exits 2. No build and no OTA are involved: the
@@ -450,11 +450,11 @@ def step_3_tdma_process_image(ctx):
     ]
     # Use the acceptance's own timing injector instead of guessing the serial flags:
     # add_serial_timing() is what the packaged entry calls
-    # (p3_hardware_acceptance.py:3213-3215).
+    # (workflow_steps.py:3213-3215).
     try:
         sys.path.insert(0, str(ROOT))
         sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
-        import p3_hardware_acceptance as gate                              # noqa: PLC0415
+        import workflow_steps as gate                              # noqa: PLC0415
         gate.add_serial_timing(command, gate.acceptance_timing(
             {"timing": dict(gate.DEFAULT_ACCEPTANCE_TIMING)}), action=True,
             capture=False)
@@ -485,7 +485,7 @@ def step_3_tdma_process_image(ctx):
         try:
             sys.path.insert(0, str(ROOT))
             sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
-            import p3_hardware_acceptance as gate                          # noqa: PLC0415
+            import workflow_steps as gate                          # noqa: PLC0415
             proof = gate.validate_tdma_stopped_handoff(
                 ROOT, json.loads(summary_path.read_text(encoding="utf-8")),
                 list(BENCH_BOARDS), expected_build(ctx)[0])
@@ -496,7 +496,7 @@ def step_3_tdma_process_image(ctx):
             ctx.warnings.append(f"Step 3 stopped handoff not derivable: {type(exc).__name__}: {exc}")
     if code != 0 or not summary_path.exists():
         # NOT a blocking failure: the packaged entry runs this phase with
-        # allow_failure=diagnostic_continue (p3_hardware_acceptance.py:3221-3223) and
+        # allow_failure=diagnostic_continue (workflow_steps.py:3221-3223) and
         # lets the capture produce the verdict. Report it as a warning and name the
         # boards whose record did not complete.
         detail = ""
@@ -538,7 +538,7 @@ def step_4_scope(ctx):
     serial = str(ctx.config.get("dpll_short_scope_serial", ""))
     try:
         sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
-        import p3_hardware_acceptance as acceptance                        # noqa: PLC0415
+        import workflow_steps as acceptance                        # noqa: PLC0415
         discovery = acceptance.discover_optional_scope(resource, serial)
         # The bench config declares a scope, and the DPLL60_JOINT verdict needs its
         # external windows: a run started with --scope off records
@@ -620,7 +620,7 @@ def step_5_capture_prepare(ctx):
         # refuses with "receipt schema is not the required quick graded schema"; with
         # it, it validates the provisional receipt (p3_dpll_short
         # .validate_provisional_receipt) exactly as the packaged entry does
-        # (p3_hardware_acceptance.py:2118).
+        # (workflow_steps.py:2118).
         "--p3-provisional",
         "--out", str(ctx.capture_dir),
     ]
@@ -637,7 +637,7 @@ def step_5_capture_prepare(ctx):
         sys.path.insert(0, str(ROOT))
         sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
         import p3_dpll_short as short                                       # noqa: PLC0415
-        import p3_hardware_acceptance as gate                              # noqa: PLC0415
+        import workflow_steps as gate                              # noqa: PLC0415
         # validate_provisional_receipt compares the receipt against the WORKING source
         # tree (p3_dpll_short.py:877-879), so the fingerprint has to be computed now -
         # reusing an older receipt's value fails with "provisional receipt source
@@ -843,7 +843,7 @@ def step_8_summary(ctx):
         if hasattr(short, "summarize_joint"):
             # The real signature is summarize_joint(root, report_path, input_path,
             # scope_enabled=..., seconds=...) - it reads both files itself
-            # (p3_hardware_acceptance.py:2130-2132).
+            # (workflow_steps.py:2130-2132).
             report_path = probe.parents[1] / "report.json"
             summary = short.summarize_joint(
                 ROOT, report_path, probe,

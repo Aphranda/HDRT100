@@ -7,7 +7,7 @@ import pytest
 
 from tools.hardware_acceptance.p3_alarm_policy import (
     _dpll_observation_valid, build_acceptance_report)
-from tools.hardware_acceptance import p3_hardware_acceptance as p3
+from tools.hardware_acceptance import workflow_steps as p3
 
 
 IDS = ["n1", "n2", "n3", "n4"]

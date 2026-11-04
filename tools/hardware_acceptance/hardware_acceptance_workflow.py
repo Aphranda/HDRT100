@@ -2,7 +2,7 @@
 
 Same shape as tools/vdc_priority_trace/DPLL60_workflow.py, tools/ota/OTA_workflow.py
 and tools/sync_trigger/t2_workflow.py. The steps themselves live in
-p3_hardware_acceptance.py (ACCEPTANCE_STEPS); `p3_hardware_acceptance.py run` executes
+workflow_steps.py (ACCEPTANCE_STEPS); `workflow_steps.py run` executes
 the same functions in order, so `--profile full` here and the monolithic run are one
 code path. This file only selects steps, continues run directories, reuses calibration
 from an earlier run, tees the log and writes the data for docs/validation/P3_FLOW.html.
