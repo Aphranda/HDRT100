@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
 Related: `AGENTS.md`, `README.md`, `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-10-25
+Last updated: 2026-11-04
 
 > 本文是跨 worker/agent 的长期执行流程入口。它描述如何工作、如何留证和何时停止；不替代产品架构、域内运行时契约或单次验收报告。
 
@@ -61,13 +61,13 @@ Last updated: 2026-10-25
 2. 运行相关软件测试并记录完整命令和结果。
 3. 编译受影响配置，保留 build 输出和源码指纹。
 4. 对固件/PIO/构建/工具/测试改动执行硬件验收；验收凭证必须绑定当前 staged 源码指纹。
-   常规迭代使用 `python tools/hardware_acceptance/p3_hardware_acceptance.py dpll60`
+   常规迭代使用 `python tools/hardware_acceptance/workflow_steps.py dpll60`
    （证书 schema `HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_DPLL60_V1`，scope `DPLL60_JOINT`）：
    复用已成功的 package/OTA，经一次有限 TDMA 阶段应用已冻结校准矩阵并给出四板 STOP 原始交接，
    再执行四板 DPLL 60 s 联合观测。该证书**不能覆盖**校准测定、P1–P3 延迟试验及其严格质量门、
    CLK/DATA 训练测定、存储/SD、sync I/O、flash/OTA 健壮性与外部示波器路径——这些正是
    `DPLL_SHORT_UNCOVERED_PREFIXES` 列出的路径；staged 改动命中其中任一路径（含 OTA 工具）时，
-   `check-staged` 拒绝该证书，必须回到完整验收 `p3_hardware_acceptance.py run`。
+   `check-staged` 拒绝该证书，必须回到完整验收 `workflow_steps.py run`。
    证书自带的 `unverified_scope` 与 `restore_full_condition` 字段是这条范围声明的机器可读副本。
 5. 将成功、失败、拒绝原因、资源冲突、状态快照和原始数据写入 `out/`。
 6. 主控复核证据后，代码与文档分离提交；提交后按任务授权选择性 push。

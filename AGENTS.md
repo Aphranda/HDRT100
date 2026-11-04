@@ -1,6 +1,6 @@
 # Agent 常设命令（Codex / Claude / AI 助手）
 
-Last updated: 2026-11-03
+Last updated: 2026-11-04
 
 本仓库采用「文档自回归体系」治理文档。**任何 AI 助手（Codex / Claude / DSH）在本仓库工作前，必须先阅读 §0 理解该体系，再动手改文档。** 违反体系约束会被 git pre-commit 门禁拦截。
 
@@ -45,7 +45,7 @@ Last updated: 2026-11-03
    - **固件 / 验收流程**（`components/`、`application/`、`boards/`、`bootloader/`、`cmake/`、
      `config/`、`drivers/`、`linker/`、`middleware/`、`osal/`、`platform/`、`third_party/`、
      `tools/`（`tools/acceptance/` 除外）与构建文件）：必须执行
-     `python tools/hardware_acceptance/p3_hardware_acceptance.py run`，或等价的步进工作流
+     `python tools/hardware_acceptance/workflow_steps.py run`，或等价的步进工作流
      `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`（同一组
      37 个步骤函数；可 `--run <dir>` 续跑，只有所需步骤在同一运行目录、同一源码指纹下按序
      全部运行才写凭证）；pre-commit 用 `check-staged` 按 staged 源码指纹核验 P3 凭证。
@@ -70,7 +70,7 @@ Last updated: 2026-11-03
    修改/删除/重命名 + 未被忽略的新建源码/文档；`out/`、`artifacts/`、`build/` 下的运行产物
    不计）**超过 40** 时，立即冻结新增改动，先对当前工作树做一次完整硬件验收：
    `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`
-   （等价 `python tools/hardware_acceptance/p3_hardware_acceptance.py run`），凭证必须覆盖
+   （等价 `python tools/hardware_acceptance/workflow_steps.py run`），凭证必须覆盖
    当前源码指纹且 scope 为 FULL。验收未通过前**不得叠加新改动**（先归因，再决定修还是
    按 §2.10 归档回退）；通过后按 §2.7 分域提交收口——P3 凭证绑定 staged 源码指纹，
    `check-staged` 要求工作区无未暂存源码差异，因此同一凭证覆盖的改动应作为**一个**代码
@@ -125,7 +125,7 @@ python tools/doc_regression_check.py
 python -m pytest tests/python/test_doc_regression.py tests/python/test_docs_check.py -p no:cacheprovider
 sh .githooks/pre-commit
 python tools/doc_regression_check.py --log-check   # 逃生门审计（建议每周）
-python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged
+python tools/hardware_acceptance/workflow_steps.py check-staged
 ```
 
 > **门禁接线**：pre-commit 依赖 `git config core.hooksPath .githooks`（本地配置，clone/迁移后**必须重配**，否则 commit 不触发检查器）。`sh .githooks/pre-commit` 可手动验证。
@@ -181,7 +181,7 @@ python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged
 **硬规则**：
 - **每轮开场先做第 0 段**：缺失、只有复述没有前提核验、或用上轮结论充当证据 → 本轮流程未启动，不得开新改动、不得把任何子项或目标标成完成，须补做后重新汇报。首轮或确无上轮“下一步”时，第 0 段写明“无（首轮）”并给出本轮计划来源，不得留空。
 - **硬件验收工作流每次失败必须开子代理交叉独立排查**（用户要求，2026-11-02）：任何 `hardware_acceptance_workflow.py` /
-  `p3_hardware_acceptance.py` 步骤失败，必须同时起一个只读子代理独立排查（给它失败步骤、报错、相关产物路径；
+  `workflow_steps.py` 步骤失败，必须同时起一个只读子代理独立排查（给它失败步骤、报错、相关产物路径；
   要求它给证据行号与独立结论），主会话再把两者结论交叉对比、记录异同后才允许继续改动。禁止只看主会话自己的判断就下结论。
 - **上轮推荐的偏离必须显式**：修正后执行 / 证伪改道 / 延后都要在第 0 段记录理由，禁止静默偏离；延后项按第 4 段规则记为非完成项。
 - 任一门禁 ❌/未通过 → 不进入下一子项，先归因修正；⚠️ 只用于“已定位、已隔离、有复验判据”的残余，且必须写偏差、影响、闭环里程碑。

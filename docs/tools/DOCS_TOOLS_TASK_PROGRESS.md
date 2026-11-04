@@ -12,6 +12,15 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-006：M7.4/M7.5——引用收敛到 workflow_steps，p3 shim 移入归档
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。本轮只改工具/测试/文档，未上板。
+- **M7.4 引用收敛**：活动工具（OTA/DPLL60/VDC joint/sync_trigger/check_board_firmware/p3_dpll_short）与测试、`.githooks/pre-commit` 全部改为 `workflow_steps`；仓库内**活动 `.py` 对 `p3_hardware_acceptance` 的引用为 0**（`tools/archive` 冻结件与 `tools/scratch` 不计）。
+- **M7.5 归档**：`p3_hardware_acceptance.py` 以 `git mv` 移入 `tools/archive/hardware_acceptance/`，附 `README.md`（时间、理由、替代路径、提交号）；旧路径已不存在，归档 shim 仅作历史兼容（`parents[3]` 定位根目录）。
+- **等价性**：定向 **461 passed**；`python tools/hardware_acceptance/workflow_steps.py check-staged` OK；源码指纹仍 `9fdd28…`/959；37 个步骤函数完整。代码提交 `9930b1b4`。
+- **残余**：`tools/scratch/*` 仍有旧路径（非维护脚本，未迁移）；`tools/archive/vdc/...` 冻结件保留旧 import（从不执行）。
+- 下一 gate：R1 FULL 预算配置、R2 角色持久化；目标收口。
+
 ### TOOLS-PROGRESS-20261104-005：M7.3——step 实现迁入 workflow_steps.py，p3 改为模块别名 shim
 
 - TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。本轮只改工具/测试，未上板；数字为快照。
