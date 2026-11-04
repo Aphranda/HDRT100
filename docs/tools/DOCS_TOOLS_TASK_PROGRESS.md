@@ -12,6 +12,15 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-004：M7.2 第二批——bench_config 抽取（p3 5184→5098 行）
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。本轮只改 workflow 依赖工具，未上板；数字为快照。
+- **改动**：新增 `tools/hardware_acceptance/bench_config.py`，承接 `load_bench_config`/`acceptance_timing`/`acceptance_budget_status`/`DEFAULT_ACCEPTANCE_TIMING`；`p3_hardware_acceptance.py` 改为导入并再导出，行为与默认值不变。
+- **等价性**：源码指纹仍为 `9fdd28…`/959 files（tools 不在指纹内）；`load_bench_config`/`acceptance_timing`/budget 的既有测试全部经 p3 再导出路径通过。
+- **验证**：p3/workflow/credential/dpll 定向 **346 passed**；host 门禁 77 passed；`py_compile` OK。代码提交 `560bb26e`。
+- **残余**：p3 仍 5098 行、37 步、workflow 19 处 `p3.*` 引用；归档未做。
+- 下一 gate：M7.2 第三批（state/run API 或 schedule helpers），每批保持指纹不变 + host 同集全绿。
+
 ### TOOLS-PROGRESS-20261104-003：台架实测——角色修正后 step29/30 同轮通过并取得 FULL 凭证；origin 尾隙消失
 
 - TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。以下数字为本次运行快照，非事实源；凭证以 `config/hardware_acceptance/p3_acceptance_receipt.json` 为准。
