@@ -12,6 +12,30 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-010：C11 独立交叉审核（子 agent）+ 4 项必修闭环
+
+- TODO task ID：`TOOLS-CHECK-001`。本批只改工具/测试/文档，未上板；数字为运行快照，非事实源。
+- **审核方**：独立只读子 agent `463723db-139e-4305-8e19-df2ab1fead91`（未参与实现）。初审结论 `APPROVE-WITH-FIXES`，4 项必修 + 11 项 minor；提交单 `docs/check/submissions/DOCS_CROSS_REVIEW_01.md`。
+- **必修 1（索引与自述不一致）**：§8 瘦身、EXE §7 迁移、refmem skill 瘦身在 `git add` 之后才做，索引里仍是旧内容；已重新 `git add` 并在提交前复核 `git show :AGENTS.md` 为 161 行、无 `### 8.x`。
+- **必修 2（证据洞）**：`classify(".agents/**/*.py")` 为空集，pre-commit 一条门禁都不跑。修复：`_host_member()` 覆盖 `.agents/**/*.py`，并同步进 host 指纹；`.md` 一律只算 docs（`tools/*.md` 不再强制 host 用例）。
+- **必修 3（fail-open）**：`host_acceptance.check_staged()` 读工作区 receipt 却比对 staged 指纹。修复：新增 `_receipt_matches_index()`，receipt 未入索引或与索引不一致即 FAIL。
+- **必修 4（缺 C11 记录）**：新增提交单并在 `docs/README.md`、`docs/check/submissions/README.md` 登记。
+- **验证**：`docs_check` / `doc_regression` / 目标 pytest 全绿；host 凭证重新生成后 `check-staged` OK（见下一轮复核）。
+- **残余（minor，随 M2/M3）**：PLAN 旧 `ROW_RE` 规格与「环 3 下一期」、`PRODUCT_VALUE_EVALUATION` 的「三环门禁」、`tools/README.md` 等 6 处已归档 `p3_hardware_acceptance.py` 命令、`registry_rows` 对缺前导 `|` 的错位行仍跳过、`DPLL_SHORT_UNCOVERED_PREFIXES` 中两条 `tools/ota_*` 永不命中。
+- 下一 gate：M2（skill 去正文）+ M3（豁免机检化、T2 落点决策）。
+
+### TOOLS-PROGRESS-20261104-009：约束收敛——tools/ 归 host、契约 id 全量校验、失效引用清理
+
+- TODO task ID：`TOOLS-CHECK-001`。本轮只改工具/测试/文档，未上板；数字为运行快照，非事实源。
+- **凭证归属**：`credential_scope.py` 把 `tools/**` 定为 host，host 指纹扩到 `tests/ + tools/ + .githooks/`；`firmware` 成员判定改为委托 `source_scope.is_acceptance_source`，删除模块内第二份目录常量。实测：改 `tools/` 文件后 `host_acceptance.py check-staged` 必须重跑（此前可零证据提交）。
+- **契约 id 全量校验**：`doc_regression_check.py` 的 `ROW_RE` 由「域白名单 + 两段」改为 `<DOMAIN>-<TOPIC>-<NN>`；`clause_loc`/`code_anchor` 去反引号并支持仓库相对路径锚点。登记表校验条数由 50 增至 60，原 10 条（7 条 active）不再被静默跳过。
+- **新发现缺陷**：4 条 T2 契约（`T2-DEPLOY-003`/`T2-IDENT-002`/`T2-GROUPCOUNT-01`/`T2-TURNTABLE-002`）的 `clause_loc` 指向 `Status: Draft` 的 `TRIGGER_T2_TODO.md`，违反 C7/G7。本轮不擅自改契约落点，改为可见债务 `DRAFT_CLAUSE_DEBT`（到期 2026-11-18，过期即 FAIL，只减不增）。
+- **失效引用清理**：删除 `p3_hardware_acceptance.py` 命令、`c_file_budget_check.py` 引用、`v3` 陈旧状态，以及 skill 中「该 WARN 是既有现象」的注释；`AGENTS.md` 的 2026-10-30 冻结豁免按原文标记为**已失效**（2026-11-02 到期）。
+- **防复发**：新增 `tests/python/test_constraint_sync.py`（文档命令路径存在、步骤数与实现一致、receipt schema 字面量真实、registry status 合法）；`credential_scope.py --explain` 作为分流表的唯一入口。
+- **验证**：`docs_check --strict-names` 250 files OK；`doc_regression` 60 contracts + 4 条债务 WARN；host 凭证 1249 files / 74 passed（`config/hardware_acceptance/host_acceptance_receipt.json`）；`sh .githooks/pre-commit` PASS（docs+host，无固件改动故 P3 skip）。
+- **残余**：4 条 T2 契约落点债务（见上）；`docs/check/DOCS_EXECUTION_CONSTRAINTS.md` 仍为 `Draft`。
+- 下一 gate：T2 落点债务收口（冻结目标文档或改指 Active 文档，需 C11 复核）；§8 迁出与 `AGENTS.md` 瘦身（已由 010 完成）。
+
 ### TOOLS-PROGRESS-20261104-008：P0T 100ms gap / FULL profile 修复 + 新 run scope-qualified FULL 凭证
 
 - TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。以下为运行快照，非事实源。

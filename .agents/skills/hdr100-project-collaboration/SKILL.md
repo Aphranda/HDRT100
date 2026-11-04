@@ -18,7 +18,7 @@ This skill encodes how to work correctly in the Distributed Hard Real-Time Trigg
 
 ## 2. The doc self-regression system in 30 seconds
 
-Three loops + gates + cross-review:
+Self-regression loops (1 freshness / 2 registry / 3 numbers) + rotation loop 5 + gates + cross-review:
 
 ```
 Loop 1 freshness : top-level doc (docs/arch/HAOFV_ARCHITECTURE.md) must reflect newly frozen
@@ -52,8 +52,8 @@ Common traps (from implementation experience): extra metadata fields push Requir
 HDRT100 commits docs/contract changes separately from code changes (auditable history). Work is split into independent task packages so parallel workers do not collide:
 
 - DOCS lane: `docs/**`, `.md` files — obey the self-regression rules above.
-- FIRMWARE lane: `application/`, `boards/`, `components/`, `drivers/`, `middleware/`, `config/`, `bootloader/`, PIO programs, build/hook files — HAOFV owner boundaries apply and the P3 hardware-acceptance gate applies before commit.
-- TOOL/TEST lane: `tools/`, `tests/` — verify with host C unit tests / pytest; note whether HIL/hardware is required.
+- FIRMWARE lane: `application/`, `boards/`, `components/`, `drivers/`, `middleware/`, `config/`, `bootloader/`, PIO programs, build files — HAOFV owner boundaries apply and the P3 hardware-acceptance gate applies before commit.
+- TOOL/TEST lane: `tools/`, `tests/` — host-scope: bound to the host credential fingerprint, so `python tools/acceptance/host_acceptance.py run` before commit. No bench run is required (or permitted as a substitute).
 
 HAOFV non-negotiables the worker and reviewer must check:
 
@@ -94,10 +94,17 @@ Notes:
 
 - The pre-commit hook depends on `git config core.hooksPath .githooks` (reconfigure after clone/move); `sh .githooks/pre-commit` validates manually.
 - pytest needs a writable `--basetemp`; a stale `out/pytest/runs` can fail cleanup on Windows.
-- The `TDMA-FLIGHT-BITMAP-01` registry WARN is pre-existing (legacy double-segment id), not a regression.
+- The `TDMA-FLIGHT-BITMAP-01` row is `superseded`; contract ids are now validated for
+  every row (a 3-segment id such as `TDMA-SEAT-SHARE-01` is valid). The only remaining
+  registry warnings are the four T2 rows whose `clause_loc` points at the Draft
+  `TRIGGER_T2_TODO.md` (C7/G7 debt until 2026-11-18).
 - `python tools/doc_regression_check.py --log-check` is the weekly escape-hatch audit.
-- After firmware/PIO/build/tool/hook changes, the P3 hardware acceptance gate must run before commit:
-  `python tools/hardware_acceptance/p3_hardware_acceptance.py run` (receipt bound to the staged source fingerprint; manual reports or replays do not pass). `check-staged` verifies at commit time.
+- After firmware/build changes, the P3 hardware acceptance gate must run before commit:
+  `python tools/hardware_acceptance/workflow_steps.py run` (full) or `dpll60` (routine
+  iteration, unless the change hits `DPLL_SHORT_UNCOVERED_PREFIXES`). `check-staged`
+  verifies at commit time; tooling changes need the host receipt instead
+  (`python tools/acceptance/host_acceptance.py run`). Run
+  `python tools/acceptance/credential_scope.py --explain` for the current routing.
 - Build presets: release = `pico2-release`; firmware changes should at least compile via `python tools/cmake_build_auto/cmake_build_auto.py --preset pico2-release --build-dir <local>` when the SDK is available.
 
 ## 5. Roles: parallel workstreams + independent cross-review
