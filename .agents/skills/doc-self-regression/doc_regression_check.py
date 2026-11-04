@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import os
 import re
 import shutil
@@ -105,6 +106,12 @@ DRAFT_CLAUSE_DEBT = {
     "T2-TURNTABLE-002": "docs/trigger/t2/TRIGGER_T2_TODO.md",
 }
 DRAFT_CLAUSE_DEBT_UNTIL = datetime.date(2026, 11, 18)
+
+# §2.11 temporary freeze waivers live in one machine-checked file: an active
+# waiver that is past its date must FAIL, so an expired exemption can never stay
+# silently "in force" the way the 2026-10-30 one did.
+WAIVERS_REL = Path("docs/check/WAIVERS.json")
+WAIVER_STATUSES = {"active", "expired"}
 
 # Loop 3: docs must not hand-write #define numbers (single source of truth).
 DEFINE_RE = re.compile(r"#define\s+([A-Z_][A-Z0-9_]*)\s+(\d+)")
@@ -739,6 +746,76 @@ def sync_skill_plugin(root: Path, result: Result) -> None:
         )
 
 
+def _parse_waiver_date(value, label: str, field: str, result: Result):
+    if value is None:
+        return None
+    try:
+        return datetime.date.fromisoformat(str(value))
+    except ValueError:
+        result.fail(f"{label}: {field} {value!r} is not a YYYY-MM-DD date")
+        return None
+
+
+def check_waivers(root: Path, result: Result) -> None:
+    """§2.11 waivers: an active one past its date is a FAIL, not a footnote."""
+    path = root / WAIVERS_REL
+    if not path.exists():
+        result.warn(f"{WAIVERS_REL}: missing (AGENTS.md §2.11 points here)")
+        return
+    try:
+        data = json.loads(read_text(path))
+    except json.JSONDecodeError as exc:
+        result.fail(f"{WAIVERS_REL}: invalid JSON ({exc})")
+        return
+    if data.get("schema") != "HAOFV_WAIVERS_V1":
+        result.fail(f"{WAIVERS_REL}: unexpected schema {data.get('schema')!r}")
+    waivers = data.get("waivers")
+    if not isinstance(waivers, list) or not waivers:
+        result.fail(f"{WAIVERS_REL}: 'waivers' must be a non-empty list")
+        return
+    today = datetime.date.today()
+    seen: set[str] = set()
+    for index, waiver in enumerate(waivers, 1):
+        label = f"{WAIVERS_REL}: waiver #{index}"
+        if not isinstance(waiver, dict):
+            result.fail(f"{label} is not an object")
+            continue
+        wid = waiver.get("id")
+        if not wid:
+            result.fail(f"{label}: missing id")
+            continue
+        label = f"{WAIVERS_REL}: {wid}"
+        if wid in seen:
+            result.fail(f"{label}: duplicate id")
+            continue
+        seen.add(wid)
+        status = waiver.get("status")
+        if status not in WAIVER_STATUSES:
+            result.fail(
+                f"{label}: status {status!r} must be one of {sorted(WAIVER_STATUSES)}")
+            continue
+        if not waiver.get("reason"):
+            result.fail(f"{label}: missing reason")
+        if status == "expired":
+            result.ok(f"waiver expired (kept for history): {wid}")
+            continue
+        expires = _parse_waiver_date(waiver.get("expires"), label, "expires", result)
+        review_by = _parse_waiver_date(
+            waiver.get("review_by"), label, "review_by", result)
+        if expires is None and review_by is None:
+            result.fail(
+                f"{label}: active waiver needs 'expires' or 'review_by' "
+                "(open-ended waivers are not allowed)")
+            continue
+        deadline = expires or review_by
+        if deadline < today:
+            result.fail(
+                f"{label}: active waiver past {deadline.isoformat()}; close it "
+                "(status=expired + closed_on) or renew explicitly")
+        else:
+            result.ok(f"waiver active until {deadline.isoformat()}: {wid}")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -827,6 +904,7 @@ def main() -> int:
         check_escape_hatch(root, result)
     if run_all:
         check_skill_sync(root, result)
+        check_waivers(root, result)
 
     if result.failures:
         print(f"SUMMARY FAIL failures={len(result.failures)} warnings={len(result.warnings)}")

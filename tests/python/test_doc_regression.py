@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 from pathlib import Path
 
 from tools.doc_regression_check import (
@@ -12,6 +13,7 @@ from tools.doc_regression_check import (
     check_progress_rotation,
     check_registry,
     check_skill_sync,
+    check_waivers,
 )
 import tools.doc_regression_check as regress
 
@@ -487,3 +489,56 @@ def test_progress_accepts_descending_index_range(tmp_path: Path) -> None:
         tail=_index_row(archive, "OTA-PROGRESS-20260916-002",
                         "OTA-PROGRESS-20260910-001", 2)))
     assert _run_progress(tmp_path).failures == []
+
+
+def _write_waivers(tmp_path: Path, waivers: list[dict],
+                   schema: str = "HAOFV_WAIVERS_V1") -> None:
+    (tmp_path / "docs" / "check").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "check" / "WAIVERS.json").write_text(
+        json.dumps({"schema": schema, "waivers": waivers}), encoding="utf-8")
+
+
+def test_waivers_reject_expired_active(tmp_path: Path) -> None:
+    _write_waivers(tmp_path, [{
+        "id": "W-OLD", "status": "active", "expires": "2020-01-01", "reason": "x"}])
+    result = Result(failures=[], warnings=[])
+    check_waivers(tmp_path, result)
+    assert any("active waiver past" in f for f in result.failures)
+
+
+def test_waivers_accept_expired_archive_and_future_active(tmp_path: Path) -> None:
+    _write_waivers(tmp_path, [
+        {"id": "W-HISTORY", "status": "expired", "expires": "2020-01-01", "reason": "x"},
+        {"id": "W-ACTIVE", "status": "active", "expires": "2099-01-01", "reason": "x"},
+        {"id": "W-REVIEW", "status": "active", "expires": None,
+         "review_by": "2099-01-01", "reason": "x"},
+    ])
+    result = Result(failures=[], warnings=[])
+    check_waivers(tmp_path, result)
+    assert result.failures == []
+
+
+def test_waivers_reject_open_ended_and_bad_schema(tmp_path: Path) -> None:
+    _write_waivers(tmp_path, [{"id": "W-X", "status": "active", "reason": "x"}])
+    result = Result(failures=[], warnings=[])
+    check_waivers(tmp_path, result)
+    assert any("needs 'expires' or 'review_by'" in f for f in result.failures)
+
+    _write_waivers(tmp_path, [{
+        "id": "W-1", "status": "active", "expires": "2099-01-01", "reason": "x"}],
+        schema="WRONG")
+    result = Result(failures=[], warnings=[])
+    check_waivers(tmp_path, result)
+    assert any("unexpected schema" in f for f in result.failures)
+
+
+def test_waivers_reject_bad_status_and_duplicate_ids(tmp_path: Path) -> None:
+    _write_waivers(tmp_path, [
+        {"id": "W-1", "status": "paused", "expires": "2099-01-01", "reason": "x"},
+        {"id": "W-2", "status": "active", "expires": "2099-01-01", "reason": "x"},
+        {"id": "W-2", "status": "active", "expires": "2099-01-01", "reason": "x"},
+    ])
+    result = Result(failures=[], warnings=[])
+    check_waivers(tmp_path, result)
+    assert any("status 'paused'" in f for f in result.failures)
+    assert any("duplicate id" in f for f in result.failures)
