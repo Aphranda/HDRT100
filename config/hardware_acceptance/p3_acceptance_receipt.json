@@ -4,7 +4,7 @@
   "acceptance_profile": "QUICK_DIAGNOSTIC",
   "dpll_observation": "FOUR_BOARD_SHORT_60S",
   "passed": true,
-  "generated_at_utc": "2026-11-04T15:28:27.800452+00:00",
+  "generated_at_utc": "2026-11-04T15:39:04.057911+00:00",
   "source_tree_sha256": "e0222a0553e54ec9f51106b6e11c1ac483ef7ac8af9d86c1a3a78c99cc3154f7",
   "source_file_count": 965,
   "bench_config_path": "config/hardware_acceptance/p3_bench_quick.json",
@@ -19,27 +19,27 @@
     "sha256": "c71c39656af7414b9df2d8782562d4233fcab7560765bf4a6394a88c1a9b7764"
   },
   "initialization_reset": {
-    "path": "out/acceptance/dpll60-horizon-b/initialization-reset.json",
-    "sha256": "650927d95af047e981b435d238d42f25e8e1721f9ef99ddf8898d51f26d39a68"
+    "path": "out/acceptance/dpll60-horizon-e/initialization-reset.json",
+    "sha256": "142ecc4b139e42d3a80fde1dbe3e6b1f72eb7f9cb40023b39d734892af743d71"
   },
   "trn03_matrix": {
     "path": "out/HardwareAcceptance/20261102/p3-103438/trn03-matrix.json",
     "sha256": "6dc56ae83a3bf0956a78bafd784c696d85da11217440931c0c18605ecbef88f0"
   },
   "tdma_summary": {
-    "path": "out/acceptance/dpll60-horizon-b/tdma-process-image/summary.json",
-    "sha256": "deda0dc961ac6c4abd2bbaed53e9ebb918b1b5cfd66d2a713fd90c3d3187a557"
+    "path": "out/acceptance/dpll60-horizon-e/tdma-process-image/summary.json",
+    "sha256": "f18214da630065f2ad8c9ee7e7a468a457e717c1b900cefabc40b4262740a04b"
   },
   "tdma_stopped_handoff": {
-    "path": "out/acceptance/dpll60-horizon-b/tdma-stopped-handoff.json",
-    "sha256": "886f3f3d1acaae8a2b4781c5413ec92a9a59e7f8259fa8b3731807fa94b74c9f"
+    "path": "out/acceptance/dpll60-horizon-e/tdma-stopped-handoff.json",
+    "sha256": "399be0b2239e46b0f1c134a93c07759f27c390b1aad41a4a365a4eab08ed7cec"
   },
   "dpll_summary": {
-    "path": "out/acceptance/dpll60-horizon-b/dpll-short-summary.json",
-    "sha256": "d76a06417672be88f7e5e1dd1125d2ab9aaf1bf87da63a7cf7d453e8e5b23a7d"
+    "path": "out/acceptance/dpll60-horizon-e/dpll-short-summary.json",
+    "sha256": "ea1d1a2e4785f7f81a9b944ed84ea02ab3ebdea74e2bc6c782f8e051182dda6d"
   },
   "dpll_scope_discovery": {
-    "path": "out/acceptance/dpll60-horizon-b/dpll-scope-discovery.json",
+    "path": "out/acceptance/dpll60-horizon-e/dpll-scope-discovery.json",
     "sha256": "85d0d89c89cc2e4f8b646b109c9a7783b447492dc470e31adff9c1cb6a82d49d"
   },
   "ota_board_ids": [
