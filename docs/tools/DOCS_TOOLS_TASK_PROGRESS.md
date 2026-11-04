@@ -12,6 +12,16 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-012：M3——§2.11 豁免外置为机检清单
+
+- TODO task ID：`TOOLS-CHECK-001`。只改工具/测试/文档，未上板。
+- **外置**：新增 `docs/check/WAIVERS.json`（schema `HAOFV_WAIVERS_V1`），3 条豁免（1 条 `expired` + 2 条 `active`），字段 `id/status/scope/expires/review_by/reason/closed_on`；正文原样保留，不再由 `AGENTS.md` 逐条复述。
+- **机检**：`doc_regression_check.py` 新增 `check_waivers()` —— `active` 过期即 FAIL、`active` 无 `expires`/`review_by`（开放式豁免）FAIL、非法日期/重复 id/坏 schema FAIL、`expired` 只留档；文件缺失 WARN。用于根治「到期仍以生效口吻保留」。
+- **AGENTS**：§2.11 的 18 行 inline 豁免压成 3 行指针（162→147 行）。
+- **验证**：`doc_regression` 输出 3 条 waiver OK（`WAIVER-OTA-20261030` expired、另两条 active 至 2026-11-10）；pytest 39 passed；`docs_check` 251 files OK。
+- **残余**：T2 四条 `clause_loc` 仍指 Draft（限时债务，2026-11-18）；收口需用户二选一（冻结 `TRIGGER_T2_TODO.md` 或把条款搬进 Active 架构文档），并按 C11 复核。
+- 下一 gate：M4（PLAN §2.5/§3/§4 剩余源码副本收敛 + AGENTS ≤100 行）。
+
 ### TOOLS-PROGRESS-20261104-011：M2——skill 去正文、PLAN 删检查器源码副本、3 项 minor 收口
 
 - TODO task ID：`TOOLS-CHECK-001`。只改文档，未上板；数字为运行快照，非事实源。

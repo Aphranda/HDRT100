@@ -1,0 +1,29 @@
+{
+  "schema": "HAOFV_WAIVERS_V1",
+  "note": "AGENTS.md §2.11 的临时豁免正文外置于此；doc_regression_check.py 机检。规则：active 且过期即 FAIL；active 必须给出 expires 或 review_by；缺字段/非法日期/重复 id 即 FAIL；expired 只留档。",
+  "waivers": [
+    {
+      "id": "WAIVER-OTA-20261030",
+      "status": "expired",
+      "scope": ["out/ota_workflow/run-20"],
+      "expires": "2026-11-02",
+      "closed_on": "2026-11-04",
+      "reason": "并行会话的 NO.1 工厂刷写 + COM5 stream OTA 任务（2026-10-30 14:57 起）的 §2.11 冻结豁免。按原文『到期即自动失效』，自 2026-11-02 起不再有效；若该任务仍需落地，按 §2.11 正常流程先做 FULL 验收再单批提交。原范围仅覆盖该任务自身改动与其提交批次，不覆盖新开任务或其它会话追加的无关改动。"
+    },
+    {
+      "id": "WAIVER-ACCEPT-FIX-20261102",
+      "status": "active",
+      "scope": ["tools/hardware_acceptance/", "docs/check/", "docs/tools/"],
+      "expires": null,
+      "review_by": "2026-11-10",
+      "reason": "为修复硬件验收本身（P3 FULL 阻塞的归因与修复：相位预算/DPLL 调度、验收工具与证据脚本、对应文档与进度日志）而新增/修改的文件不受 §2.11 冻结约束；与验收修复无关的功能开发、重构、清理仍受冻结。事件式失效：拿到覆盖当前源码指纹的 FULL 凭证并按 §2.7 单批提交后，应改为 expired 并记录提交号；review_by 到期仍未收口即 FAIL。§2.10 禁回滚/禁删除始终有效。"
+    },
+    {
+      "id": "WAIVER-BUG-20261103",
+      "status": "active",
+      "scope": ["*"],
+      "expires": "2026-11-10",
+      "reason": "为修复 BUG（缺陷/故障/卡死超时/数据损坏/fail-closed 误触发等导致的现场或验收阻塞，含其最小回归用例与进度日志记录）而新增/修改的文件不受 §2.11 冻结约束，目的是打破『BUG 未修 → 验收不通过 → 积压无法提交 → 新改动被冻结 → BUG 无法修』的死锁。与 BUG 无关的功能开发、重构、清理仍受冻结；§2.10 禁回滚/禁删除始终有效。到期未收口即自动失效，不得静默保留。"
+    }
+  ]
+}
