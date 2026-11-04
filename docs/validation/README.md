@@ -4,7 +4,7 @@ Status: Active
 Domain: VALIDATION
 Canonical: `docs/validation/README.md`
 Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-10-12
+Last updated: 2026-11-04
 
 本目录是 HIL、验证方法、任务进度及闭环验证记录的入口。工具身份、登记、依赖、生命周期与交接治理统一见 [工具域架构](../tools/DOCS_TOOLS_ARCHITECTURE.md)；具体工具操作说明仍与根目录 `tools/` 实现相邻，业务资格判据仍归原业务域。
 
@@ -18,6 +18,7 @@ Last updated: 2026-10-12
 | `../storage/SD_TASK_PROGRESS.md` | SD 域任务进度和验证记录 |
 | `../sync/SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构任务进度 |
 | `P3_FLOW.html` | 硬件验收（P3）37 步工作流视图（`tools/hardware_acceptance/hardware_acceptance_workflow.py`） |
+| `VALIDATION_HARDWARE_ACCEPTANCE_PLAYBOOK.md` | 硬件验收操作手册：前置检查、标准命令、续跑/重试边界、失败处置与收口判据；其他会话先读这份再跑。 |
 
 ## 2026-10-12 硬件验收步进工作流
 
