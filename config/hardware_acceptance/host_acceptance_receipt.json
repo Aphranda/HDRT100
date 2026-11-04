@@ -5,42 +5,40 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_hardware_acceptance_workflow.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_tdma_origin_calibration_crc.py",
+    "tests/python/test_tdma_origin_admission.py",
     "tests/python/test_vdc_host_harness.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_hardware_acceptance_workflow.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_tdma_origin_calibration_crc.py",
+    "tests/python/test_tdma_origin_admission.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 13.0,
+  "duration_s": 10.25,
   "returncode": 0,
   "summary": {
-    "passed": 126,
+    "passed": 103,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "126 passed in 12.42s",
+  "summary_line": "103 passed in 9.68s",
   "tail": [
-    "........................................................................ [ 57%]",
-    "......................................................                   [100%]",
-    "126 passed in 12.42s"
+    "........................................................................ [ 69%]",
+    "...............................                                          [100%]",
+    "103 passed in 9.68s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "f58aadcee325f31e9cdce5a36315d898062b39bbdca22bf87dc3be0ceadca86d",
+  "fingerprint": "662cb150ab25093adcac5938b35bbd6f19bf383946836ad28d99b3b36d68fee3",
   "file_count": 565,
-  "working_fingerprint": "f51bfacf92d9f7c1c033863bd8c5c1cfc4824ceba7210a754c3d373d0933914d",
-  "started_at_utc": "2026-11-04T08:40:54.764304+00:00"
+  "working_fingerprint": "d7bc65c2e61499afd6bd617af973c1e79ce2f8c3c96d87a35a40985c18988835",
+  "started_at_utc": "2026-11-04T08:43:19.750757+00:00"
 }

@@ -173,6 +173,7 @@ static tdma_service_service_t *s_vdc_tdma_service = &s_tdma_runtime_owner;
 static uint32_t full_service_calls[4];
 static bool ota_active;
 static bool ota_ao_is_active(void) { return ota_active; }
+static bool ota_ao_tdma_maintenance_allowed(void) { return false; }
 static uint32_t board_uptime_ms(void) { return (uint32_t)(ticks / 1000000u); }
 static void tdma_runtime_owner_service_observer(void) { }
 static void tdma_runtime_owner_service_phys_tx(uint64_t now)
@@ -299,7 +300,16 @@ int main(int argc, char **argv)
             if (bad == 9) s_tdma_runtime_owner.calibration_stage.links[TDMA_RING_CALIBRATION_LINK_MAX - 1u].guard_cycles++;
             if (bad == 10) s_tdma_runtime_owner.foundation_profile_crc32++;
             if (bad == 11) config.owner_config_seq++;
-            assert(admit() == TDMA_ORIGIN_ADMISSION_REJECTED);
+            tdma_origin_admission_result_t stale_result = admit();
+            if (bad == 11) {
+                /* A trial staged for an earlier ring configuration is ignored
+                 * as STALE (NONE), not reported as a rejected handoff; the
+                 * current run stages its own trial against the ring it builds. */
+                assert(stale_result == TDMA_ORIGIN_ADMISSION_NONE);
+                assert(admit() == TDMA_ORIGIN_ADMISSION_NONE);
+                continue;
+            }
+            assert(stale_result == TDMA_ORIGIN_ADMISSION_REJECTED);
             assert(admit() == TDMA_ORIGIN_ADMISSION_NONE);
         }
         assert(begins == 0);
