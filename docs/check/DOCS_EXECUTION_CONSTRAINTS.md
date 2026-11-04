@@ -65,8 +65,10 @@ Last updated: 2026-11-04
 - 机检：`python tools/tool_governance/workflow_triage.py check --quiet`（挂在 pre-commit 的 host 分支）。
   `*_workflow.py` 入口未判 WORKFLOW、非 `UNASSESSED` 家族没有归型行、WORKFLOW 缺证据根/续跑方式
   → FAIL；`UNASSESSED` 家族未判 → WARN（存量债务：把生命周期升级到 EXPERIMENTAL 之前必须补判）。
-- 判型是**使用前置条件**：新增脚本没有归型行，不得进入 `tool_registry.json` 的 EXPERIMENTAL 及以上；
-  现有在用脚本按同一规则补判，禁止「先用起来再补」。
+- 判型是**使用前置条件**：新增脚本默认按 workflow 形式设计，没有归型行不得进入 `tool_registry.json` 的
+  EXPERIMENTAL 及以上；确实不需要 workflow 的，必须在 `reason` 说明为什么（单次命令/无阶段/无恢复/无凭证）。
+- 现存脚本**逐步迁移**：判型行用 `target_form` + `milestone` 登记目标形态与里程碑，检查器输出
+  `migration pending` 警告；迁移完成后把 `form` 改成目标形态并删除这两个字段。禁止「先用起来再补」。
 - 归型是治理声明：改 `form`、新增 WORKFLOW、或把家族升级生命周期，同批提交并在提交信息说明理由。
 
 ## 3. 变更与证据闭环

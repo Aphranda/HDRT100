@@ -12,6 +12,17 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-016：M6 后半——注册表转绿、治理门禁接线、workflow 迁移登记
+
+- TODO task ID：`TOOLS-CHECK-001`。按用户 2026-11-04 指令：tools 域引用 workflow 定义，保证后续脚本都是 workflow 形式、现有脚本逐步迁移。
+- **注册表转绿**：`tool_registry.json` 112 个家族（新增 `TOOL-ACCEPTANCE-GATE` / `TOOL-ARCHIVE` / `TOOL-REFMEM-CMD-HIL` / `TOOL-SYNC-T2-TOOLS` / `TOOL-TDMA-WORKFLOW`），补齐 87 个未登记文件；`TOOL-HARDWARE-ACCEPTANCE` 去掉已归档的 `p3_hardware_acceptance.py`、纳入 `workflow_steps.py`；`tools/README.md` catalog 由工具重新生成。`check --check-catalog` 从 **94 errors → 0 errors**（198 warnings 为存量 UNASSESSED/依赖待复核债务）。
+- **layout 基线**：20 个在用顶层目录并入 `standard_roots`（不再 unclassified）；11 个 root 文件入 `allowed_root_files`；`DPLL60_workflow.py` 进 `legacy_files` 基线；移除 5 条非法 `allowed_root_files`。
+- **治理门禁接线**：pre-commit host 分支新增 `tool_governance.py check --check-catalog --quiet`；`tool_governance.py` 增加 `--quiet` 与 jsonschema 缺失降级（stdlib 校验 + 告警，满足 C2）。
+- **workflow 迁移登记**：`DOCS_TOOLS_ARCHITECTURE.md` 新增 `TG-WORKFLOW`，引用 `CONSOLE_WORKFLOW_ARCHITECTURE.md` 作为唯一定义；triage 增加 `target_form`/`milestone`，首批登记 3 个迁移（校准训练、TDMA 启环、DPLL 采集），检查器输出 `migration pending` 警告。
+- **验证**：governance `errors=0/warnings=198`；triage `errors=0/warnings=92`；`docs_check` 253 files OK；`doc_regression` PASS；triage 用例 9 passed。
+- **残余**：198 条 governance warnings 是存量 UNASSESSED 家族与依赖待复核，需按批次升级生命周期；`DOCS_TOOLS_ARCHITECTURE.md` 仍是 `Draft`。
+- 下一 gate：M5 收口（对账测试扩到 `tools/*.md`、最终报告）与 M7 迁移批次。
+
 ### TOOLS-PROGRESS-20261104-015：workflow 定义单独成文并成为 tools 归型依据
 
 - TODO task ID：`TOOLS-CHECK-001`。按用户 2026-11-04 指令：「console 文档里应有非常详细的 workflow 定义，可以单独摘出来」。

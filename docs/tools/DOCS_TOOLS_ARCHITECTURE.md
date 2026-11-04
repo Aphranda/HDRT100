@@ -4,7 +4,7 @@ Status: Draft
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`
 Related: `docs/tools/DOCS_TOOLS_TODO.md`, `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`, `tools/README.md`
-Last updated: 2026-10-16
+Last updated: 2026-11-04
 
 ## 文档接口与范围
 
@@ -143,6 +143,23 @@ base 层由 tracked workflow 管理 allowlist、query barrier、总工作量/文
 
 状态迁移记录理由、验证及替代关系；废弃不自动删除文件。存量先登记债务和退出条件，按工作流小批迁移，不一次搬动全部目录。配置/输出接口变更需声明兼容性，避免仅路径迁移却破坏调用方。
 
+## TG-WORKFLOW：workflow-first 与迁移登记
+
+**workflow 的定义只有一个 owner**：`docs/console/CONSOLE_WORKFLOW_ARCHITECTURE.md`（WorkflowSpec、步骤模型、能力范围、运行语义、证据与版本）。工具域只负责判定与登记，不复制定义。
+
+- **新脚本**：默认按 workflow 形式设计；确实不需要（单次命令、无阶段/无恢复/无凭证）的，必须在 `tools/tool_workflow_triage.json` 判型并写明理由，否则 pre-commit 的 `workflow_triage.py check` 拒绝提交。
+- **`*_workflow.py` 入口**：必须判为 `WORKFLOW`，并满足 WorkflowSpec 的 id/version、inputs、preconditions、steps、transport、receipt_schema；不满足的不得标 `WORKFLOW`，应先按 STEP/STANDALONE 归型并登记迁移。
+- **存量脚本逐步迁移**：不要求一次性改造。判型行用 `target_form` + `milestone` 登记目标形态与里程碑，检查器输出 `migration pending` 警告；迁移完成后把 `form` 改成目标形态并删除 `target_form`/`milestone`。
+- **首批迁移登记**（2026-11-04）：
+
+| 工具族 | 当前形态 | 目标 | 里程碑 |
+|---|---|---|---|
+| `TOOL-CALIBRATION-RING-VALIDATE` | STANDALONE | WORKFLOW（BIAS→MARK→SCK→DATA→CLK→STAGE→ACTIVE） | M7 校准训练 workflow |
+| `TOOL-TDMA-RING-MONITOR` | STANDALONE | WORKFLOW（bootstrap→OPMode→topology→TRAIN→ARM→START） | M7 TDMA 启环 workflow |
+| `TOOL-DPLL-OBSERVATION-CAPTURE` | STANDALONE | WORKFLOW（role→tune→capture→lock） | M7 DPLL 采集 workflow |
+
+- 已按 workflow 形态登记：`TOOL-HARDWARE-ACCEPTANCE`、`TOOL-ACCEPTANCE-GATE`、`TOOL-T2-BENCH-PROBE`、`TOOL-SYNC-T2-TOOLS`、`TOOL-OTA-MULTI-UPDATE`、`TOOL-OTA-STREAM-SEND`、`TOOL-TDMA-WORKFLOW`、`TOOL-REFMEM-CMD-HIL`。
+
 ## TG-HANDOFF：结果、失败恢复与交接
 
 每次运行记录工具及依赖版本、源码指纹、固件 build（适用时）、完整命令、生效配置、设备身份、接线、阶段日志、原始数据及哈希。必须记录失败、设备末态、清理/恢复结果和下一可执行动作；重跑使用新目录，不能覆盖旧失败。
@@ -157,7 +174,7 @@ P3 默认绑定同一组四板完成 OTA、TDMA 与 `p3_bench.json` 的 `dpll_sh
 
 ## TG-VERIFY：自回归与验证映射
 
-入口为 `tools/tool_governance/tool_governance.py`，提供 inventory、check、catalog；当前为显式调用，不自动接入 hook。检查器只做静态检查，不执行登记入口、不导入被登记模块、不打开设备；JSON Schema 外部引用不从网络获取。`--help`/模拟测试仅在明确安全的测试环境运行。
+入口为 `tools/tool_governance/tool_governance.py`，提供 inventory、check、catalog；**pre-commit 的 host 分支已接入 `check --check-catalog --quiet`**（jsonschema 缺失时降级为 stdlib 校验并告警，满足 C2 零依赖）。检查器只做静态检查，不执行登记入口、不导入被登记模块、不打开设备；JSON Schema 外部引用不从网络获取。`--help`/模拟测试仅在明确安全的测试环境运行。
 
 inventory 枚举 Git 跟踪及非忽略的新文件，记录字节哈希、角色、静态导入候选和待审位置。Python 用 AST，文本按 UTF-8 读取，不透明资源只记哈希；动态加载、shell/subprocess 调用须人工复核，`out/` 引用可能只是合法输出位置，不能一律判成代码依赖。已声明 depends_on 是确认的部分关系，dependency_review 为 PENDING 时，空列表不代表独立。
 
