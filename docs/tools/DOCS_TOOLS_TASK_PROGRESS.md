@@ -12,6 +12,15 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-007：`--monitor scope` 修复 + 示波器实测通过（不覆盖 FULL 凭证）
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。以下为运行快照，非事实源。
+- **修复**：`p3_bench.json` 默认 `dpll_short_force_internal=true`，此前 `--monitor scope` 仍走内部证据。新增 `write_scope_config`，`--monitor scope` 生成 `out/HardwareAcceptance/p3_bench_scope.json`（`force_internal=false`），不改 tracked config/指纹；host 用例覆盖。代码提交 `cf9f1ba2`。
+- **示波器实测**：使用最终 FULL receipt 生成临时 provisional（`out/hardware_acceptance_step29/20261104/scope-test/provisional-receipt.json`）与 manifest，直接跑 60 s 联合采集（`--scope on`，CHAN1，HDO4A244301137）。结果 `passed=true`、`external_status=PASS`、`external_steady_state_passed=true`、12/12 窗口无 missed、checkpoint 60 s `failures=[]`、外部最大 |phase|≈32.04 ns、内部健康 true、耗时 104.391 s。
+- **安全性**：本次为只读诊断采集，未写 `config/hardware_acceptance/p3_acceptance_receipt.json`（sha 仍 `a68ba4ec…`），未改 run state；FULL 凭证仍为内部证据版本（`external_status=SKIPPED`）。
+- **残余**：若要把 FULL 凭证升级为 scope-qualified，需要在同一 run 重跑 27–36（step28 会先写 provisional 覆盖 receipt），建议单独安排台架窗口；`step33` 仍需 `--time-budget 900,1200` 或补 FULL config 预算。
+- 下一 gate：按需做 scope-qualified FULL 收口；R2 角色持久化/R1 预算配置仍未决。
+
 ### TOOLS-PROGRESS-20261104-006：M7.4/M7.5——引用收敛到 workflow_steps，p3 shim 移入归档
 
 - TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。本轮只改工具/测试/文档，未上板。
