@@ -12,6 +12,17 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-014：M6——tools 按 workflow 归型并进门禁
+
+- TODO task ID：`TOOLS-CHECK-001`。按用户 2026-11-04 指令「tools 的约束按 workflow 定义执行；新增脚本都必须判断是否该做成 workflow」。
+- **新增归型清单** `tools/tool_workflow_triage.json`（`TOOLS_WORKFLOW_TRIAGE_V1`）：`WORKFLOW`（分阶段编排，必须有入口 + `out/` 证据根 + 续跑方式）、`STEP`（挂到某 WORKFLOW）、`STANDALONE`（单次命令）、`LIBRARY`（被 import，无入口）。首批判 11 个家族：3 个 WORKFLOW（硬件验收、T2 台架、OTA 多板）、4 个 LIBRARY、4 个 STANDALONE。
+- **新检查器** `tools/tool_governance/workflow_triage.py`（纯 stdlib）：`*_workflow.py` 入口未判 WORKFLOW、非 `UNASSESSED` 家族无归型行、WORKFLOW 缺证据根/续跑声明 → FAIL；`UNASSESSED` 存量家族 → WARN（债务）。
+- **门禁接线**：`.githooks/pre-commit` 的 host 分支新增 `workflow_triage.py check --quiet`；配套 7 个 pytest 用例。
+- **文档**：`EXE-TOOL-03` 定义规则；`tools/README.md` 目录治理规则第 7 条；`AGENTS.md` §2.7 加一句指针（AGENTS 恰好 100 行）。
+- **验证**：triage `errors=0 / warnings=92`；`test_workflow_triage` 7 passed；`docs_check` 252 OK；`doc_regression` PASS。
+- **残余**：`tool_governance.py check --check-catalog` 仍有 **92 条 errors**（`tools/acceptance/*`、`tools/archive/*`、`workflow_steps.py` 等未登记，`p3_hardware_acceptance.py` 已归档但注册表仍指旧路径）——注册表与目录已漂移，这是下一步 M6 后半：先补登记使治理检查转绿，再把 `--check-catalog` 一并接进 pre-commit。
+- 下一 gate：M6 后半（补登记 + 治理门禁接线）+ M4 后半（PLAN §2.5/§3/§4 副本收敛）。
+
 ### TOOLS-PROGRESS-20261104-013：M4（前半）——AGENTS 压到 99 行，细节移入 EXE
 
 - TODO task ID：`TOOLS-CHECK-001`。只改文档，未上板。

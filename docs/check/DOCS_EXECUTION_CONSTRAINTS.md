@@ -50,6 +50,23 @@ Last updated: 2026-11-04
 - 当前超标文件（2026-10-25 快照，非事实源）：`distributed_refmem.c` 5,763、`scpi_system_snapshot_commands.c` 5,712、`vdc_dpll_manager.c` 4,826 等；由 N5.0 拆分目标收口。
 - 行数预算目前**没有**机器检查器（原计划的 c 文件预算检查脚本未实现），超标以
   评审发现并在域 TODO 登记，不假装有门禁。
+
+### EXE-TOOL-03：脚本进场须先做 workflow 归型
+
+用户要求（2026-11-04）：tools 的约束按 workflow 定义执行——**任何在用的脚本都要先判型，新增脚本先判型再使用**。
+
+- 归型唯一事实源：`tools/tool_workflow_triage.json`（schema `TOOLS_WORKFLOW_TRIAGE_V1`），四种形态：
+  - `WORKFLOW`：分阶段编排，必须声明入口、`out/` 证据根、续跑方式；
+  - `STEP`：由某个 WORKFLOW 调用，必须用 `workflow` 指向该 WORKFLOW；
+  - `STANDALONE`：单次命令、单一目的；
+  - `LIBRARY`：被 import 复用，不得声明入口。
+- 机检：`python tools/tool_governance/workflow_triage.py check --quiet`（挂在 pre-commit 的 host 分支）。
+  `*_workflow.py` 入口未判 WORKFLOW、非 `UNASSESSED` 家族没有归型行、WORKFLOW 缺证据根/续跑方式
+  → FAIL；`UNASSESSED` 家族未判 → WARN（存量债务：把生命周期升级到 EXPERIMENTAL 之前必须补判）。
+- 判型是**使用前置条件**：新增脚本没有归型行，不得进入 `tool_registry.json` 的 EXPERIMENTAL 及以上；
+  现有在用脚本按同一规则补判，禁止「先用起来再补」。
+- 归型是治理声明：改 `form`、新增 WORKFLOW、或把家族升级生命周期，同批提交并在提交信息说明理由。
+
 ## 3. 变更与证据闭环
 
 ### EXE-CHANGE-01：独立改动的最小交付单元

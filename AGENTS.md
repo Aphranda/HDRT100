@@ -40,7 +40,8 @@ Last updated: 2026-11-04
    （**不要在本文件抄目录清单**；跑 `--explain` 看当前表）：固件/构建 → P3（`workflow_steps.py run`，
    或常规迭代 `dpll60`，档位以 `check-staged` 的 `ACCEPTED_RECEIPT_SCHEMAS` 为准）；
    `tests/`、`tools/`、`.githooks/`、`.agents/**/*.py` → host 凭证（`host_acceptance.py run`；
-   `check-staged` 只校验指纹与 receipt，**不重跑**用例）；文档 → 只跑 §5。旧凭证、手工报告、replay 不放行。
+   `check-staged` 只校验指纹与 receipt，**不重跑**用例）；文档 → 只跑 §5。新增工具须先在
+   `tools/tool_workflow_triage.json` 归型（WORKFLOW/STEP/STANDALONE/LIBRARY），未归型不得入库。
 8. `*_TASK_PROGRESS.md` ≤200KB（C14）；超出把**最旧**条目连续归档到 `docs/legacy/<domain>/`，
    维护 `## 归档索引`（ID 闭包、条目数相符）；只搬旧证据，禁止丢证据
 9. 进展日志条目按新鲜度**倒排**（C15）：日期非递增，新条目写在 `## 当前 checkpoint` 之后

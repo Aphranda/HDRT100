@@ -579,3 +579,8 @@ python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDA
 5. **不删除**：agent 不得删除 `tools/` 下内容；删除由用户确认后执行。
 6. **审计要求**：任何移动前先做引用审计（`docs/**`、`config/**`、`components/**`、`tool_registry.json`、
    `.githooks/**`、`CMakeLists.txt`），并把审计结果记录到 `tools/archive/REFERENCE_AUDIT.md`。
+7. **workflow 归型（2026-11-04）**：任何在用脚本——含新增脚本——必须先判型：`WORKFLOW`（分阶段编排，
+   有入口/`out/` 证据根/续跑方式）、`STEP`（挂到某个 WORKFLOW）、`STANDALONE`（单次命令）、
+   `LIBRARY`（被 import，无入口）。判型写在 `tools/tool_workflow_triage.json`；`*_workflow.py` 入口
+   未判 WORKFLOW、或非 UNASSESSED 家族没有归型行，`python tools/tool_governance/workflow_triage.py check`
+   （pre-commit host 分支）会 FAIL。UNASSESSED 存量家族是债务，升级生命周期前必须补判。
