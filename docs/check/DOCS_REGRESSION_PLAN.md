@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_PLAN.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-09-17
+Last updated: 2026-11-04
 
 > 本文件由工作区 `doc-skill/方案_文档自回归体系.md` 归档而来；执行状态与最终调整见 `docs/check/DOCS_REGRESSION_TODO.md`。
 > 设计依据一句话：需求追溯矩阵思想（契约登记）+ docs-as-code 门禁（commit 拦截）。
@@ -181,151 +181,9 @@ Last updated: 2026-08-19
 - 新契约登记后，顶层 `docs/arch/HAOFV_ARCHITECTURE.md` 须在 7 天内刷新（环1 校验）
 ```
 
-## §2 tools/doc_regression_check.py（完整代码）
+## §2 检查器
 
-```python
-#!/usr/bin/env python3
-"""Check docs freshness (loop 1) and contract registry (loop 2).
-
-Companion to tools/docs_check/docs_check.py. Pure stdlib.
-"""
-from __future__ import annotations
-
-import argparse
-import re
-import sys
-from dataclasses import dataclass
-from pathlib import Path
-
-FRESHNESS_DAYS = 7
-REGISTRY_REL = Path("docs/check/DOCS_REGISTRY.md")
-TOP_DOC_REL = Path("docs/arch/HAOFV_ARCHITECTURE.md")
-
-DATE_RE = re.compile(r"Last updated:\s*(\d{4})-(\d{2})-(\d{2})")
-ROW_RE = re.compile(r"^\|\s*(TDMA|VDC|REFMEM|RTOS|INTERFACE|HARDWARE|ARCH|DOCS)-[A-Z0-9]+-\d+\s*\|")
-
-
-@dataclass
-class Result:
-    failures: list[str]
-    warnings: list[str]
-
-    def fail(self, msg: str) -> None:
-        self.failures.append(msg)
-        print(f"FAIL {msg}")
-
-    def warn(self, msg: str) -> None:
-        self.warnings.append(msg)
-        print(f"WARN {msg}")
-
-    def ok(self, msg: str) -> None:
-        print(f"OK   {msg}")
-
-
-def parse_date(text: str) -> tuple[int, int, int] | None:
-    m = DATE_RE.search(text)
-    if not m:
-        return None
-    return int(m.group(1)), int(m.group(2)), int(m.group(3))
-
-
-def days_between(a: tuple[int, int, int], b: tuple[int, int, int]) -> int:
-    return (__import__("datetime").date(*b) - __import__("datetime").date(*a)).days
-
-
-def check_freshness(root: Path, result: Result) -> None:
-    top = root / TOP_DOC_REL
-    if not top.exists():
-        result.fail(f"{TOP_DOC_REL} missing")
-        return
-    top_date = parse_date(top.read_text(encoding="utf-8"))
-    if top_date is None:
-        result.fail(f"{TOP_DOC_REL}: missing 'Last updated: YYYY-MM-DD'")
-        return
-
-    newest: tuple[int, int, int] | None = None
-    newest_file = ""
-    for doc in (root / "docs").rglob("*.md"):
-        if doc == top or "archive" in doc.parts or "legacy" in doc.parts:
-            continue
-        d = parse_date(doc.read_text(encoding="utf-8", errors="ignore"))
-        if d is None:
-            continue
-        if newest is None or d > newest:
-            newest, newest_file = d, str(doc.relative_to(root))
-
-    if newest is None:
-        result.ok("freshness: no dated domain docs found")
-        return
-    if days_between(top_date, newest) > FRESHNESS_DAYS:
-        result.fail(
-            f"freshness: top doc is {days_between(top_date, newest)}d older than "
-            f"{newest_file} ({newest[0]}-{newest[1]:02d}-{newest[2]:02d}); "
-            f"refresh {TOP_DOC_REL} within {FRESHNESS_DAYS}d"
-        )
-    else:
-        result.ok("freshness: top doc within window")
-
-
-def check_registry(root: Path, result: Result) -> None:
-    reg = root / REGISTRY_REL
-    if not reg.exists():
-        result.fail(f"{REGISTRY_REL} missing (create it per spec)")
-        return
-    text = reg.read_text(encoding="utf-8")
-    rows = [ln for ln in text.splitlines() if ROW_RE.match(ln)]
-    if not rows:
-        result.fail(f"{REGISTRY_REL}: no contract rows found")
-        return
-
-    ids = [ln.split("|")[1].strip() for ln in rows]
-    dupes = sorted({i for i in ids if ids.count(i) > 1})
-    if dupes:
-        result.fail(f"{REGISTRY_REL}: duplicate contract_id {dupes}")
-    else:
-        result.ok(f"registry: {len(rows)} contracts, ids unique")
-
-    for ln in rows:
-        cells = [c.strip() for c in ln.split("|")]
-        # cells: ['', id, domain, contract, ver, clause_loc, code_anchor, check, registered, status, '']
-        if len(cells) < 10:
-            result.fail(f"{REGISTRY_REL}: malformed row: {ln[:80]}")
-            continue
-        clause_loc, code_anchor = cells[5], cells[6]
-        doc_rel = clause_loc.split(":")[0]
-        if not (root / doc_rel).exists():
-            result.fail(f"{REGISTRY_REL}: clause_loc file missing: {clause_loc}")
-        if not any((root / p).name == code_anchor
-                   for p in [clause_loc.split(":")[0]] + []):
-            # search under root for the anchor file name
-            if not list(root.rglob(code_anchor)):
-                result.fail(f"{REGISTRY_REL}: code_anchor not found: {code_anchor}")
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=Path.cwd())
-    parser.add_argument("--freshness", action="store_true", help="only loop 1")
-    parser.add_argument("--registry", action="store_true", help="only loop 2")
-    args = parser.parse_args()
-    root = args.root.resolve()
-
-    result = Result(failures=[], warnings=[])
-    if args.freshness or not (args.freshness or args.registry):
-        check_freshness(root, result)
-    if args.registry or not (args.freshness or args.registry):
-        check_registry(root, result)
-
-    if result.failures:
-        print(f"SUMMARY FAIL failures={len(result.failures)} warnings={len(result.warnings)}")
-        return 1
-    result.ok("doc_regression passed")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-```
+实现唯一事实源：`tools/doc_regression_check.py`。**本文件不再复制源码** —— 历史副本已与实现分叉（旧 `ROW_RE` 只认两段 id，导致 10 行契约长期未被校验；现行为 `<DOMAIN>-<TOPIC>-<NN>` 全量校验）。需要看实现请直接读该文件；skill 模板见 `.agents/skills/doc-self-regression/`。
 
 ## §2.5 .agents/skills/doc-self-regression/SKILL.md（完整内容）
 
@@ -498,7 +356,7 @@ pytest tests/python/test_doc_regression.py -v
 
 | 不做 | 原因 |
 |---|---|
-| 环3 数字单一来源检查 | 下一期；本期先立住登记 + 新鲜度 + 门禁 |
+| 环3 数字单一来源检查 | 已实现（`--constants`，T16 于 2026-08-19 完成）；文档手写 `#define` 数字由检查器 FAIL |
 | `verify-doc-crosscheck` 自动交叉核验 | 下一期：对登记契约自动比对"域文档描述 vs code_anchor 实际值"；本期交叉审核走提交单人工/agent 流程（C11） |
 | 顶层 HAOFV_ARCHITECTURE.md 刷新 | 另行待办（涉及正文修改，单独评审） |
 | 逐级核验流程的完整自动化 | 提交单格式本期定义（§2.6），流程依赖登记表跑顺后再启用 |

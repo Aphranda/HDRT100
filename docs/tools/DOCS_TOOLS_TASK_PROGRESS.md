@@ -12,6 +12,16 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-011：M2——skill 去正文、PLAN 删检查器源码副本、3 项 minor 收口
+
+- TODO task ID：`TOOLS-CHECK-001`。只改文档，未上板；数字为运行快照，非事实源。
+- **hdr100 skill 145→60 行**：删掉与 PLAN §0 / AGENTS §5 重复的 6 条硬约束、命令块、Codex `[agents]` 并行参数与过期分支名；只留 lane 划分、HAOFV 不变量、操作形态与指针，凭证分流改指 `credential_scope.py --explain`。
+- **PLAN 546→404 行**：删除 §2 中 142 行检查器源码副本（已与实现分叉：旧 `ROW_RE` 只认两段 id，导致 10 行契约长期未校验），改为指向 `tools/doc_regression_check.py`；被删副本可从提交 `e536a5c3` 之前的 git 历史找回。
+- **3 项 minor**：PLAN 环3「下一期」→ 已实现（T16 / `--constants`）；`PRODUCT_VALUE_EVALUATION` 的「三环门禁」与「27 条契约」→ 改为按环编号表述并指登记表；`TRIGGER_T2_HANDOFF_CHECKLIST` 的 `ROW_RE` 前缀白名单表述与旧 `p3_hardware_acceptance` 入口（已归档）。
+- **验证**：`docs_check` 251 files OK；`doc_regression` 60 contracts + 4 条债务 WARN；`test_constraint_sync` 7 passed。
+- **残余**：PLAN §2.5/§3/§4 仍是 skill / 测试 / pre-commit 的源码副本，留 M4 一并收敛（与「每类事实一个 owner」同批）。
+- 下一 gate：M3（`waivers.json` 机检化 + T2 四条落点决策，需 C11）。
+
 ### TOOLS-PROGRESS-20261104-010：C11 独立交叉审核（子 agent）+ 4 项必修闭环
 
 - TODO task ID：`TOOLS-CHECK-001`。本批只改工具/测试/文档，未上板；数字为运行快照，非事实源。

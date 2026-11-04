@@ -4,7 +4,7 @@ Status: Active
 Domain: EVALUATION
 Canonical: `docs/evaluation/PRODUCT_VALUE_EVALUATION.md`
 Related: `docs/evaluation/README.md`, `docs/evaluation/PRODUCT_VALUE_TRACKING_TODO.md`, `docs/arch/HAOFV_PORTABILITY_EVALUATION.md`, `docs/arch/HAOFV_ARCHITECTURE_RISK_EVALUATION.md`, `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`, `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md`
-Last updated: 2026-09-05
+Last updated: 2026-11-04
 
 > 本文是项目级**综合价值评估** canonical，位于评估与监督子域 `docs/evaluation/`，作为长期
 > 审核监督项目滚动更新（域规则与更新触发见 `docs/evaluation/README.md`；行动追踪见
@@ -32,7 +32,7 @@ Last updated: 2026-09-05
 | `docs/arch/HAOFV_ARCHITECTURE_RISK_EVALUATION.md` | 评估快照 | 顶层架构有哪些 S0–S3 风险？ | R2 风险清单与处置（S0 XIP/Flash、S1 ECC 失真/跨核契约等） |
 | `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md` | 规划（Draft） | 当前产品之后的平台化/开源路线？ | R3 平台化分层、平台映射、F0–F4 开源交付清单 |
 | `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` | 审查快照 | 各域完成度与主链路状态？ | R5 域完成度快照+主链路收敛顺序+统一 active gate 未过 |
-| `docs/check/DOCS_REGISTRY.md` + `docs/check/DOCS_REGRESSION_PLAN.md` | 治理事实源 | 契约与治理是否健全？ | R6 契约 27 条、三环门禁、C11（工程治理成熟度） |
+| `docs/check/DOCS_REGISTRY.md` + `docs/check/DOCS_REGRESSION_PLAN.md` | 治理事实源 | 契约与治理是否健全？ | R6 契约条数以登记表为准、文档自回归门禁、C11（工程治理成熟度） |
 | `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md` | **独立 canonical 主文档** | 产品化边界与门禁 | R4 仅作价值判断背景；不合并、不修改 |
 
 ### 0.1 回答的核心问题
@@ -57,7 +57,7 @@ Last updated: 2026-09-05
 | R3 | 平台化分层（产品→平台→生态）；八平台映射；四层 portable 边界；开源组件优先交付 simulator/validator/visualizer；F0 当前闭环 → F4 开源生态包；核心卖点"小 MCU 可观察、可校准、可恢复的分布式硬实时系统" | `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md` |
 | R4 | 产品边界（背景引用）：A0 扫描/DPLL 主控、A1 DUT、A2 馈源/极化、A3 VNA/上位机网关；百 ns 级目标（稳定 <10 ns 需 FPGA/TDC）；SCPI/System Pack 只表达意图；发布门禁 9 项。此结论属独立 canonical `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`，仅背景引用 | `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`（独立 canonical，不在合并范围） |
 | R5 | 域完成度快照：OTA v1≈86%、RefMem≈70%、SD≈63%、TDMA≈50%、VDC≈46%、Flash v2≈45%、RTOS/HAOFV≈39%、Calibration≈39%、RS485≈17%；主链路=硬件时间戳→Calibration active→TDMA 常驻环→VDC/DPLL LOCKED→RefMem 可靠完成→T2→长稳，统一 active gate 未过 | `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` |
-| R6 | 治理三环门禁（7 天新鲜度环 + 契约登记 + pre-commit 双检查器）；登记 27 条契约（5 active/21 pending/1 superseded）；C11 禁止自审自批；另有 P3 硬件验收凭证门禁 | `docs/check/DOCS_REGISTRY.md`、`docs/check/DOCS_REGRESSION_PLAN.md`、`.githooks/pre-commit` |
+| R6 | 文档自回归门禁（环1 新鲜度 + 环2 登记 + 环3 数字单一来源 + 环5 轮转 + pre-commit 双检查器）；登记契约条数以 `docs/check/DOCS_REGISTRY.md` 为准（不在此手写）；C11 禁止自审自批；另有 P3 硬件验收凭证门禁 | `docs/check/DOCS_REGISTRY.md`、`docs/check/DOCS_REGRESSION_PLAN.md`、`.githooks/pre-commit` |
 
 ### 1.2 一手证据（E1–E12，2026-09-05 观察）
 

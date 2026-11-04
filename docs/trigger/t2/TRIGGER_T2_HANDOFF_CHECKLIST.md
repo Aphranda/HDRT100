@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_HANDOFF_CHECKLIST.md`
 Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/check/DOCS_REGISTRY.md`, `AGENTS.md`
-Last updated: 2026-10-13
+Last updated: 2026-11-04
 
 > 用途：把上一段会话（约七十余轮）的**工作状态、未完成项、流程铁律与验证方法**交给新任务；
 > 新任务应**自行审查验证**，不要只信本文件的结论。
@@ -43,14 +43,14 @@ Last updated: 2026-10-13
 ## 4. 流程铁律（上一段会话的教训，违反会直接失败）
 
 1. **硬件验收用 workflow 前端**（有 tee 与流程视图）：`python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full [--run latest]`；
-   旧入口 `tools/hardware_acceptance/p3_hardware_acceptance.py run` 也可用，但无分步可见性与视图刷新。
+   旧入口 `p3_hardware_acceptance` 已归档到 `tools/archive/hardware_acceptance/`，只作历史兼容，不应再用于新验收。
 2. **P3 运行期间绝不编辑任何被源码指纹覆盖的文件**（否则 `provisional receipt source fingerprint differs` 必 FAIL）。
 3. **清理/杀进程与运行必须串行**；不要并发跑两个 P3（会互相杀掉）。
 4. 定位"谁列出了某源文件"用 **`git grep`**：清单是根 `CMakeLists.txt` 的 `PROJECT_APP_SOURCES`。
 5. 新文档命名：前缀必须 ∈ `tools/docs_check/docs_check.py` 的 `ALLOWED_PREFIXES`（含 `ARCH/TRIGGER/SCPI/VDC/TDMA/DOCS/REFMEM` 等，
    **不含 `INTERFACE`**），后缀 ∈ `ALLOWED_SUFFIXES`，前缀最多 3 段；新增 `.md` **必须**加 `docs/README.md` 索引行。
-6. 契约登记：`clause_loc` 文档必须 `Status: Active/Frozen`；新登记 status 用 `pending`；`ROW_RE` 前缀白名单见检查器；
-   登记须 **C11 独立审核**且**禁止自审自批**。
+6. 契约登记：`clause_loc` 文档必须 `Status: Active/Frozen`；新登记 status 用 `pending`；契约 id 形如 `<DOMAIN>-<TOPIC>-<NN>`
+   （具体正则以检查器为准，已不再按前缀白名单）；登记须 **C11 独立审核**且**禁止自审自批**。
 7. 控制台输出保持**纯 ASCII**（GBK 编码会崩）；提交信息避免非 ASCII 引号。
 8. `*_TASK_PROGRESS.md` ≤200KB、条目**倒排**（最新在最上，新条目写在 `## 当前 checkpoint` 之后）；
    下沉长记录到 Task Progress 以维持**单一事实源**（C12）。
