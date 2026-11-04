@@ -29,6 +29,9 @@ NORMATIVE_DOCS = [
     ROOT / "AGENTS.md",
     ROOT / "docs" / "check" / "DOCS_EXECUTION_CONSTRAINTS.md",
     ROOT / "docs" / "check" / "DOCS_REGRESSION_PLAN.md",
+    ROOT / "docs" / "console" / "CONSOLE_WORKFLOW_ARCHITECTURE.md",
+    ROOT / "tools" / "README.md",
+    ROOT / "tools" / "tool_governance" / "README.md",
     *sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md")),
 ]
 
