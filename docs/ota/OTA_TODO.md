@@ -4,7 +4,7 @@ Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_TODO.md`
 Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TASK_PROGRESS.md`, `docs/arch/HAOFV_FLASH_TODO.md`
-Last updated: 2026-10-31
+Last updated: 2026-11-04
 
 本文维护 OTA 域当前主线、稳定任务 ID、状态和退出门禁。历史完成清单与单次验证快照已迁入 `docs/legacy/ota/`；实现证据只追加到 `OTA_TASK_PROGRESS.md`。
 
@@ -203,7 +203,149 @@ flash program/erase 期间 core1 必须 park（`drv_flash_lockout_core1_poll()` 
 
 REFMEM 统一控制面按单串口收敛后，从板不再有独立升级串口；本里程碑是该形态下四板升级的唯一通道。未落地前，四板升级必须逐板接串口（`ota_multi_update`）或用 picotool（丢已存标定），不得写成“单口可升级”。
 
-## 当前阻塞项
+## OTA 性能与稳定性 TODO（2026-11-03 评审新增）
+
+本节是 2026-11-03 对“SCPI 二进制块 fast path、流式 RX ring、16KiB 块、journal 合并、erase-ahead”方案的架构/RAM 评审结论与任务拆解。容量数字均为指定构建快照，非事实源；以 `tools/project/ram_budget_check/ram_budget_check.py` 和 `SYST:RTOS:STAT?` 的当前实跑为准。
+
+**2026-11-03 用户裁定**：RAM 不足，暂不扩 8/16KiB；数据面保持 **4KiB**；先增加稳定性，再用 4KiB fast path、journal 合并和 256KiB 擦除尽量加速。`OTA-PERF-002/003` 的 8/16KiB 任务保持 `BLOCKED`，直到 RAM 回收、栈重构和 owner 评审通过；不得用“流式/吞吐”为由先扩 RAM。
+
+### 1. 评审结论
+
+| 结论 | 证据/约束 | 对方案的影响 |
+|---|---|---|
+| 现构建 RAM 已到链接硬底 | `ram_budget_check.py --profile release`：`link_free_bytes=2048`（净余量 0，快照）；`SYST:RTOS:STAT?` 空闲堆 832 B（快照） | 禁止新增常驻 buffer；任何新增先过 RAM 门禁 |
+| 16KiB RX ring + 16KiB staging（32KiB）不可行 | 现无 32KiB 连续余量；`ucHeap` 已近耗尽，不得靠下调 heap 解决（`ARCH_RAM_REVIEW.md` §6） | 流水线 ring 降级或延后 |
+| 16KiB 双缓冲（32KiB）不可行 | 同上 | 最多 8KiB 双缓冲（复用 `s_ota_fast_blocks` 16KiB） |
+| 16KiB 单 staging 可复用现有池 | `s_ota_fast_blocks` 16,384 B（4×4KiB，`event_bus.c`）；V2 stream 期间 legacy `SYST:OTA:DATA` 被拒绝 | 需 EventBus/OtaAO owner 租约，不能与 legacy OTA 并发 |
+| 16KiB 一次 FlashTransaction 不符合预算/C1 | `OTA_DEDICATED` 预算 5000 μs；一次 4KiB 事务已约 0.26–0.30 s；16KiB 放在一个 XIP-disabled section 会拉长临界区 | 必须 4KiB 分段 program/verify，journal 合并，不做 16KiB 单事务 |
+| 当前 stream DATA 在 SCPI/USB 任务同步写 flash | `scpi_cmd_ota_stream_data()` → `portable_ota_port_stream_write()`；OtaAO 同时在 service 同一 session | 违反 OtaAO 单 owner/单写者边界；流水线必须先迁到 OtaAO event/lease |
+| 提高 `POTA_MAX_DATA_BLOCK_SIZE` 有栈风险 | `pota_core.c` raw resume 的 `uint8_t buffer[POTA_MAX_DATA_BLOCK_SIZE]` 位于任务栈；OTA task 1792 words | 先改为 AO workspace/静态 buffer，再提高块大小 |
+
+### 2. 方案评审
+
+| 方案项 | HAOFV 合规性 | RAM | 结论 |
+|---|---|---|---|
+| 4KiB SCPI 二进制块 fast path（绕过通用 parser，超时/重同步） | 合规；仍由 FlashTransactionAO 写 flash | 不新增；复用现有 4KiB 输入/块缓冲 | **先做** |
+| 8KiB 双缓冲（复用 `s_ota_fast_blocks` 16KiB） | 需 OtaAO 单 owner + EventBus 租约 | 不新增 | 可做，但必须先完成 owner/租约 |
+| 16KiB 单 staging（复用 `s_ota_fast_blocks`） | 需 4KiB 分段 + 栈重构 | 不新增 | 有条件做 |
+| 16KiB RX ring / 双缓冲 | 预算/C1 风险 | 32KiB 不可行 | **不做/延后** |
+| 16KiB 单 FlashTransaction | 违反 OtaFB 非阻塞/预算/C1 | — | **不做** |
+| 新开 writer task | 违反 OtaAO 唯一 owner / FlashTransactionAO 唯一 writer | — | **不做** |
+| journal 合并（每 16KiB 只写 1 条终态记录） | 合规；需掉电矩阵 | 不新增 | 可做 |
+| 擦除 256KiB/事务 | 合规；`drv_flash_erase_parked` 仍逐 4KiB 扇区、逐扇区喂狗 | 不新增 | 可做，需 HIL 复核 park/watchdog |
+
+### 3. 任务表
+
+| ID | 任务 | 状态 | 依赖与退出门禁 |
+|---|---|---|---|
+| OTA-PERF-001 | SCPI `STREAM:DATA` **4KiB** 二进制块 fast path：专用长度/CRC/seq 状态机、半包超时、RESYNC；不扩块大小 | PENDING | 不新增常驻 RAM；host/unit + NO.1 硬杀/半包；解析 <5 ms/4KiB；8/16KiB 不纳入本任务 |
+| OTA-PERF-002 | 从 EventBus OTA fast pool 租借 staging（16KiB 单缓冲或 2×8KiB），V2 stream 与 legacy OTA 互斥 | BLOCKED | 用户 2026-11-03 裁定 RAM 不足先不做；需 RAM 回收 + EventBus/OtaAO owner 评审；`ram_budget_check` 不下降 |
+| OTA-PERF-003 | 16KiB 块：`pota_core.c` raw resume 栈缓冲改 AO workspace；flash 仍 4KiB 分段 program/verify + 喂狗 | BLOCKED | 依赖 002；OTA task stack high-water 门禁；C1 复核；RAM 未回收前保持 4KiB |
+| OTA-PERF-004 | journal 合并：每个 **4KiB 事务**只写 1 条终态 completion；checkpoint 保持 64KiB | PENDING | NO.1 已验（117.5/114.7s）；flash 事务 PERF 约 69/990ms；掉电/复位矩阵未做 |
+| OTA-PERF-005 | 擦除 256KiB/事务（`pota_erase_one_step` 分块） | BLOCKED | 2026-11-04 试 256KiB：首个 soak 第 1 轮 12.8KiB DATA 超时；已回退 64KiB；需先查 OTA 任务心跳/擦除事务预算 |
+| OTA-PERF-006 | CRC32 表驱动/硬件 CRC，替换 `pota_crc32` 逐位实现 | PENDING | 代码+host 全绿；最终 build **20/20**（124.1–129.4s，mean 127.5s）；四板未复跑 |
+| OTA-PERF-007 | 4KiB EventBus QUEUED/window：SCPI 只入队，OtaAO 唯一写；host 窗口 4 | PENDING | NO.1 **20/20 soak**（121.0–123.6s）+ 硬杀/复位重试 1/1；四板/P3 未闭合，不得标 DONE |
+| OTA-STAB-001 | stream session 单写者：DATA + CLOSE 已迁 OtaAO event/lease；OPEN/ABORT 仍由 SCPI 调用 | PENDING | 数据面/收尾单写者已落；OPEN/ABORT 控制面仍双入口；HAOFV-01/02/05；并发压力 + 20× soak |
+| OTA-STAB-002 | 掉电/复位矩阵：擦除中、写入中、finalize 中、commit 后 | PENDING | 传输中 `picotool reboot -f` 已验证（active 可启动、重试 117.1s）；真实掉电/擦除/finalize 时点未做 |
+| OTA-STAB-003 | 四板/单口 P3 FULL：OTA 4/4、TDMA/DPLL 不回归 | PENDING | 同指纹 P3 FULL receipt；四板 HIL |
+| OTA-STAB-004 | `SLOT?` confirmed 快照发布；boot confirm 后刷新 metadata | DONE | NO.1 手动 `CONFirm` OK，OTA 切槽后 boot confirm OK（active==confirmed）；四板 P3 仍待 |
+| OTA-TEST-001 | 20× commit+boot soak、kill -9 ×10、半包 ×10、power-cut ×10、四板 ×10 | PENDING | **20× soak 已过**；kill/半包/真实 power-cut/四板未全量 |
+
+### 4. 4KiB-first 执行顺序（2026-11-03 裁定）
+
+1. `OTA-STAB-001`：先消除 USB/SCPI 与 OtaAO 双写 session，保证并发/断连下不变砖。
+2. `OTA-STAB-002` / `OTA-STAB-004`：掉电/复位矩阵、confirmed 快照；稳定性门禁。
+3. `OTA-PERF-001`：4KiB SCPI fast path；不扩块、不新增 RAM。
+4. `OTA-PERF-004` / `OTA-PERF-006`：4KiB 事务 journal 合并、CRC 表驱动；把单块从 ~0.58s 压向 ≤0.45s。
+5. `OTA-PERF-005`：256KiB 擦除，缩短首块等待。
+6. `OTA-STAB-003` / `OTA-TEST-001`：四板 P3 FULL、20× soak、kill/半包/掉电矩阵。
+7. `OTA-PERF-002/003` 保持 `BLOCKED`；只有 RAM 回收、栈重构和 owner 评审通过后，才允许 8/16KiB。
+
+### 5. 已落地但未达 DONE 门禁（NO.1 单板，快照）
+
+以下改动已在 build `20261103140913` 的 NO.1 上验证，但未做四板/P3/power-cut，按状态规则不得记 DONE：
+
+- BUSY/`ERASE?` 非阻塞擦除握手；CDC 250ms 有界写；USB 侧半包 2s 超时；host `*IDN?` 重试。
+- 64KiB 擦除/事务、64KiB checkpoint、`SYST:OTA:PERF?`/`STREAM:INIT?`/`STREAM:ERASE?` 诊断、pending 已就绪时跳过 `SYST:OTA:COMM`。
+- 证据见 `OTA_TASK_PROGRESS.md` 与 `out/ota_verify/`；硬杀 2/2 自动恢复、正常 OTA 6/6。
+
+2026-11-03 新增（build `20261103144039`，NO.1）：
+
+- STREAM DATA 改为 SCPI 只入 EventBus `QUEUED`，由 OtaAO 唯一写 flash；host 使用 4 块窗口，不新增常驻 RAM。
+- 实测：完整 OTA **121.1s / 119.1s**（两次），`data_queued` 均值约 **0.317s**，`durable_wait` 总计约 13.2s；硬杀后自动恢复并重试 1/1 通过。
+- RAM 门禁：`link_free_bytes=2048` 与改动前一致，未因队列/窗口下降。
+- 仍未闭合：OPEN/CLOSE/ABORT 控制面仍由 SCPI 调用；OtaFB 5ms 预算尚未分步；四板/P3/20× soak/power-cut 未做。
+
+2026-11-03 第二轮（build `20261103150915`，NO.1）：
+
+- STREAM CLOSE 也改为 OtaAO event/lease；OPEN/ABORT 仍在 SCPI 入口。
+- OTA_IMAGE completion journal 合并为 1 条终态记录；flash 事务 PERF 约 69/990ms；完整 OTA **117.5s**。
+- 5× commit+boot soak：**5/5**，125.3–126.3s；硬杀恢复并重试 **114.7s**。
+- RAM 仍为 `link_free_bytes=2048`；`FlashTransaction`/`OTA journal adapter` host 测试全绿。
+- 已知未闭合：`SLOT?` confirmed 快照仍显示旧槽（如 `2,0,1,2,0`），但下一次 OPEN 已成功；`SLOT?` 发布修复未生效，`OTA-STAB-004` 继续 PENDING。
+
+2026-11-03 第三轮（build `20261103152032`，NO.1）：
+
+- 新增 `SYST:OTA:CONFirm` 手动确认诊断；但手发该命令无应答，`SLOT?` 仍为 `1,0,2,1,0`（active 1 / confirmed 2），confirm store 未更新快照，`OTA-STAB-004` 保持 PENDING。
+- **20× commit+boot soak 完成**（两组各 10 次，同一 build）：**20/20**，121.0–123.6s，erase 9.1–11.4s。
+- 复位矩阵（传输中）：在 durable≈70 KiB 时 `picotool reboot -f`；复位后 active slot 仍可启动、`SLOT?` 一致（`1,0,1,0,0`），随后完整重试 **117.1s** 通过。真实掉电仍未做（无程控电源）。
+- 仍未闭合：OPEN/ABORT 控制面、OtaFB 5ms 预算、真实 power-cut/四板 P3、`OTA-PERF-001` parser fast path。
+
+2026-11-04 第四轮（build `20261103172035`，NO.1）：
+
+- `pota_crc32` 改为 16-entry nibble 表（`.rodata` 64 B，不占 RAM）；host portable tests 全绿。
+- NO.1 完整 OTA 安装 + **20/20** commit+boot soak：118.6–129.3s，mean 127.4s，erase 8.1–10.9s；无 CRC/包校验回归。
+- 20× 已补齐；四板/P3 尚未复跑。
+
+2026-11-04 第五轮（build `20261103183228`，NO.1）：
+
+- confirmed 根因：`FlashTransactionAO` 对 `OTA_METADATA` 要求 OTA admission；boot/手动 confirm 无 admission → `FLASH_TRANSACTION_ERROR_MODE`（`FT?` last_error=17）。
+- 修复：boot/manual confirm 临时借用 maintenance admission，store 后立即释放；不创建 OTA 会话。
+- 验证：手动 `SYST:OTA:CONFirm` 返回 `OK`；OTA 切槽后 boot confirm 使 `SLOT?` 从 `2,0,1` 变为 **`2,0,2`**；BCB 从 1 lane/246 records 变为 2 lanes/254 records。
+- 新增只读诊断 `SYST:OTA:BCB?` / `SYST:OTA:FT?`。
+- 最终 **20/20** soak（build `20261103184145`）：124.1–129.4s，mean 127.5s；boot confirm 从 5 s 提前到 1 s 且仅在 OTA IDLE 时执行，避免与主机 OTA 抢 Flash。
+- 20 次后 `SLOT?` 为 `2,0,2,0,0`（active==confirmed），BCB 双 lane 正常。
+- 最终 build 硬杀恢复：`ABORT OK`，重试 **114.0s** 通过。
+- 最终 build 传输中 `picotool reboot -f`：复位后 active 可启动、`SLOT? 2,0,2,0,1`，重试 **122.2s** 通过；真实掉电仍未做。
+- 该 build 为当前最终 OTA 候选；四板/P3 仍未复跑。
+
+2026-11-04 第六轮（256KiB 擦除试验/恢复）：
+
+- 试 `POTA_ERASE_CHUNK_SIZE=256KiB`：首个 5× soak 第 1 轮在 12.8KiB DATA 超时；判定 256KiB 擦除事务超过 OTA 心跳/预算，已回退 64KiB，任务转 BLOCKED。
+- 回退过程中为恢复 NO.1，曾尝试 raw app 写入导致进入 recovery；最终用 factory UF2 恢复，**NO.1 标定/BCB 被重置**（已披露）。
+- 恢复后 OTA 安装 64KiB final build `20261103193953`：active 2 / confirmed 2，BCB 新写 4 records；后续 P3 必须重新标定。
+
+2026-11-04 第七轮（P3 重标定尝试）：
+
+- full P3 重新构建/OTA；step4 异步 OTA 报 OK，但 step24 实测四板仍为旧 build（NO.1 `193953`、NO.2–4 `152032`），expected `195548` → `validate_recorded_builds` 直接 FAIL。
+- step8–23 在混合 build 上“通过”，不能作为有效标定/凭证；NO.1 标定仍视为丢失。
+- 结论：四板 OTA 的 step4 成功判定与 build 回读不一致，是当前 P3 的首要阻塞；step29 follower priority RX 仍未解。
+
+2026-11-04 第八轮（统一重刷/重标定）：
+
+- 按用户授权，四板分别 OTA 重刷到 `20261103195548`；preflight 四板 build 一致通过。
+- `--reuse-flashed` 旧 OTA summary 带旧 build_id，导致 step24 误报 mismatch；已修为复用现场 build 时直接合成当前 summary。
+- 重新跑完 step8–23 标定；**step24 OK 77.4s**；step25/26 OK。
+- step29 仍失败：follower `match last_reason=18`、`final_follow mode=4/state=1`，与重刷/重标定前同型；不是 build/标定漂移。
+- 结论：NO.1 标定已恢复；step29 是独立固件/TAP-RX 问题。
+
+补充（event_snapshot 解码）：
+
+- follower `event_snapshot` 显示 `publish_count≈1141`、`latest_sequence≈733`，说明 priority RX 实际收到并发布了帧；
+- 但 matcher `matched=0`、`last_reason=18`，其 `ring.enabled/adapter_started` 快照与实际 ring 状态不一致；
+- 根因方向从“无帧”修正为“帧到达但 matcher 的 owner ring 快照为 STOP”。
+
+**2026-11-04 交叉复核更正（快照，非事实源）**：上述“TAP-RX/帧已到但 matcher 的 ring 快照为 STOP”判读不适用于 2026-10-31、11-03、11-04 三轮。直接证据：四板 `SYSTem:SYNC:VDC:DPLL:ROLE?` 均为 `0,0,1,1,0`（MASTER），三从 `MATCH:STATus?` 的 `first_reject_reason=4 (MATCH_ROLE)`、`matched=0`；`event_live` 非零。失败链是产品配置重置后的角色门，不是 RX 无帧。另：主板 `guard.reason_mask` 的 `SUCCESS_GAP (1<<17)` 是独立第二道门；`restore_original_ram` 的 SCPI 队列错误是独立缺陷。工具侧修复与证据见 `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md` 的 `TOOLS-PROGRESS-20261104-001`。
+
+### 6. 硬门禁补充
+
+1. 新增常驻 buffer 必须先跑 `ram_budget_check.py`；`link_free_bytes` 低于 2048 B 直接链接失败，净余量不得为负。
+2. 不得通过下调 `ucHeap` 换取 OTA buffer（`ARCH_RAM_REVIEW.md` §6）。
+3. 不得新开 writer task/第二 Flash writer；stream session 只能由 OtaAO 修改。
+4. 16KiB 块不得对应 16KiB 单 FlashTransaction 或 16KiB XIP-disabled section；C1 仍按 4KiB 扇区/段。
+5. 任何“流式/窗口化”实现必须先有 seq/offset/CRC/超时/RESYNC 与幂等重发，否则不得以吞吐为由放宽。
+
+
 
 `OTA-HAOFV-010` 剩余真实 power-cut 控制、当前源码指纹的正式 P3 acceptance receipt 和 C11 独立审核；已有 host/reset matrix、COM7 negative HIL 与 NO1–NO4 UF2 证据不能替代这些门禁。另有 2026-10-29 评审发现的会话稳定性待办 `OTA-HAOFV-011`–`014`；这些条目关闭前，四板 OTA 的绕行通过不得计为稳定性完成。
 

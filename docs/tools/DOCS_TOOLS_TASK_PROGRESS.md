@@ -4,13 +4,46 @@ Status: Active
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`
 Related: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`, `docs/tools/DOCS_TOOLS_TODO.md`, `docs/check/DOCS_REGRESSION_PLAN.md`
-Last updated: 2026-10-16
+Last updated: 2026-11-04
 
 ## 文档接口
 
 本文只记录实施与验证事实，任务状态以 TODO 为准，治理语义以 Architecture 为准。每条记录引用稳定任务 ID，使用唯一 `TOOLS-PROGRESS-YYYYMMDD-NNN`，最新记录在上；轮转遵循文档自回归 C14/C15，历史失败和原始证据不得丢失。
 
 ## 当前 checkpoint
+
+### TOOLS-PROGRESS-20261104-003：台架实测——角色修正后 step29/30 同轮通过并取得 FULL 凭证；origin 尾隙消失
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。以下数字为本次运行快照，非事实源；凭证以 `config/hardware_acceptance/p3_acceptance_receipt.json` 为准。
+- **台架前置**：四板 build `20261103195548`、环已停；NO.2–4 由 `ROLE=0,0,1,1,0`（MASTER）改为 `1,0,2,2,0`（FOLLOWER，RAM 生效，未 `ROLE:STORe`）。命令回 `<timeout>` 但 `ROLE?` 回读 applied=2、pending=0。
+- **27–30（同一 run `hawf-081955`，invocation 1）**：step27 OK 2.7s、step28 OK 0.1s、**step29 OK 123.4s（单窗口，workflow attempts=1 生效）**、step30 OK 0.1s。
+- **step29 证据（`dpll-four-board-short-attempt3`）**：三从 `matched=7694/7642/8249`、`first_reject=9 (SOURCE)` 为局部拒绝、`guard.state=3 rmask=0`、`success=6537/6429/6873`；主板 `guard.state=3 rmask=0`、`terminal_success_gap=0.021 s`（修正前 1.63–1.76 s）。⇒ M5 的 origin `SUCCESS_GAP` 是角色错误的**下游后果**，本次随角色修正一并消失；`SEAT:COUNters?` 全 0，无优先席饥饿证据。
+- **31–36**：首次因 **FULL 配置缺少 `acceptance_time_budget`**（默认 error=100 s）在 step33 FAIL（累计 798 s）；加 workflow 显式 `--time-budget 900,1200`（写入 `time_budget_override`，不改 config 指纹）后重跑：31/32/33/34/35/36 全 OK，step34 分级 `PASS`（INFO 42 / WARN 0 / ERROR 0 / FATAL 0），step33 elapsed 806.756 s < 900 s，`credential: written`。
+- **凭证**：`acceptance_profile=FULL`、`acceptance_scope=FULL`、`passed=true`、build `20261103195548`、指纹 `9fdd28…`/959 files；`check-staged` 报“no staged code change”。代码提交 `7410d8a4`（含当前固件批次 + step29 工具链，pre-commit P3/host 门禁 OK）。
+- **残余**：FULL 配置仍无 `acceptance_time_budget`（本次靠 workflow override；应补 config 并重跑或登记策略）；M3 固件 getter/报错拆分未改；M7.2 仅完成 `acceptance_errors`/`source_scope` 抽取，p3 归档未做；工具/测试与文档尚未提交。
+- 下一 gate：工具/测试提交（host 凭证）→ 文档提交；随后 M7.2 继续迁移。
+
+### TOOLS-PROGRESS-20261104-002：M3/M4——诊断查询错误队列清理 + blocking 诊断就地停止
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。本轮只改 workflow 依赖工具与其 host 用例，未上板；数字为快照，非事实源。
+- **M3（工具侧）**：`tools/workflows/vdc_joint_capture/internal_seal.py` 新增 `drain_scpi_error_queue`；`SummaryProbe.collect` 遇到 `MATCH:STATus?` 返回 `-200` 时记录 `match_error`/`match_error_queue` 并就地清空 SCPI 错误队列，避免后续 `restore_original_ram` 把一次诊断读失败误判为采集失败。固件 `get_priority_match` 的原子读重试与 SCPI 报错拆分**未改**（需固件改动 + FULL 凭证，留到 M6）。
+- **M4（workflow）**：`hardware_acceptance_workflow.py` 新增 `blocking_diagnostic_failure`；step 循环遇到 `blocking=true` 的诊断失败（例如 TDMA stopped handoff 的 startup barrier 超时）时把该步标为 `FAIL`：默认就地停止，`--keep-going` 下继续但 run 返回非零、凭证不能把该前置当作已满足。并新增 step29 前的 step1 指纹预检：工作树变化时毫秒级 FAIL，不再写临时凭证后由子进程 2–25 s 才拒绝。
+- **M7.1（只读）**：生成 p3 依赖清单——5322 行、37 个步骤、workflow 19 处 `p3.*` 引用、10 个外部文件直接 import；产物 `out/hardware_acceptance_step29/20261104/p3-migration-inventory.json`。本轮**未移动任何代码**，归档顺序：状态/运行 API → 步骤（按依赖序）→ 辅助函数，最后归档 p3。
+- **M5 取证准备**：`SummaryProbe.collect` 增读 `SYSTem:TDMA:SEAT:COUNters?`（既有停机页），下一次台架即可用 `seat_starved_count`/`seat_priority_yield_count` 判定 origin 尾隙是优先席让位还是 TX 拒绝；不新增固件字段。
+- **验证**：`test_vdc_internal_seal.py` + `test_hardware_acceptance_workflow.py` + `test_dpll_capture_retry.py` 51 passed；`py_compile` OK。
+- **残余**：M3 固件侧、M4 指纹口径、M1/M5 台架验证均未完成；step29 仍可能因 ROLE 或 origin `SUCCESS_GAP` 失败。
+- 下一 gate：台架 `--steps 27-30`（角色修正后）判定 ROLE 与 origin 尾隙；随后 M5/M6。
+
+### TOOLS-PROGRESS-20261104-001：step29 失败交叉排查定案；workflow 接管角色预检与重试策略（p3 待迁移归档）
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。本轮只改工具/测试，未上板；以下数字为运行快照，非事实源。
+- **现象**：2026-11-04 `hawf-081955` step 29 FAIL 242.0 s；两次 attempt 均 `Capture exited 2`。四板 `DPLL:ROLE?=0,0,1,1,0`（mode=0/MASTER），三从 `first_reject_reason=4 (MATCH_ROLE)`、`matched=0`，summary `UNBOUND|NO_SUCCESS`；attempt2 另有 `MATCH:STATus? -200` 导致 `restore_original_ram` 报 SCPI 队列非空。
+- **根因（独立子代理复核一致）**：产品配置重置后从板角色回默认 MASTER；matcher 的 ROLE 门先于 RX/SOURCE，故零匹配。**不是 TAP-RX 无帧**：三从 `event_live.flags=13` 且 epoch/tick/bracket 有效。对照 2026-10-25 通过轮从板 `ROLE=[1,0,2,2,0]`、PI 16257/268；11-04 四板均默认 16384/256。
+- **门级独立第二失败**：主板 `guard.reason_mask=0x20000 (SUCCESS_GAP)`，尾隙 1.63–1.76 s；host 摘要排除 TERMINAL bin（`vdc_priority_trace_capture.py:303-312`）而固件检查点计入未闭合 bin（`vdc_priority_trace.c:1064-1069`），口径矛盾。即使修好从板角色，origin verdict 仍可能 false。
+- **改动（workflow 为唯一入口）**：① `tools/vdc_priority_trace/vdc_priority_joint_capture.py` 新增 `validate_dpll_role` 并在 `verify_startup` 逐板校验（origin MASTER、follower FOLLOWER+reference slot、pending=0），失败在采集前 <1 s；② 新增 `tools/hardware_acceptance/dpll_capture_retry.py`，`hardware_acceptance_workflow.py` 的 step 循环接管 step 29 重试，确定性失败（ROLE/SOURCE 零匹配/指纹/manifest）不再重试；workflow 内把 `dpll_short_capture_attempts` 置 1，物理窗口语义上移到 workflow；③ `tools/workflows/vdc_joint_capture/internal_seal.py` 的 `collect` 在 `summary.ram.bin` 缺失时记录 `collection_skipped` 并保留原始错误，不再用 `FileNotFoundError` 掩盖首因；④ `p3_hardware_acceptance.py` 的临时改动已撤回，p3 仅保留既有步骤库，待迁移归档。
+- **验证**：`test_vdc_priority_joint_capture.py` 104 passed；`test_dpll_capture_retry.py` + `test_hardware_acceptance_workflow.py` 39 passed；`test_p3_hardware_acceptance.py` + `test_out_tree_code_boundary.py` 72 passed；`py_compile` OK。证据索引 `out/hardware_acceptance_step29/20261104/evidence-index.json`。
+- **残余**：台架未复跑（角色修正后的 `--steps 27-30` 待做）；origin 尾隙因果未判定；`p3_hardware_acceptance.py` 归档需分阶段迁移 37 步到 workflow 依赖后再执行。
+- 下一 gate：修好从板角色后跑 `--steps 27-30`，判定 `first_reject` 是否离开 4、origin `SUCCESS_GAP` 是否消失。
 
 ### TOOLS-PROGRESS-20261016-003：out/ 只放证据、不放维护代码——实时验收栈已全量在 tools/ 下，并加边界守卫
 
