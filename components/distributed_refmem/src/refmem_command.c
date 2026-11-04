@@ -277,8 +277,13 @@ bool refmem_command_mark_timeout(refmem_command_slot_t *slot,
         return false;
     }
 
+    /* issue_tick32 and osal_tick_ms() are milliseconds while timeout_us is
+     * microseconds; comparing them raw made every timeout unreachable (a 2 s
+     * command needed 33 minutes), so a lost target left the issuer POSTED for
+     * ever.  Round the deadline up to the next whole millisecond. */
+    const uint32_t timeout_ms = (slot->timeout_us + 999u) / 1000u;
     const uint32_t elapsed = now_tick32 - slot->issue_tick32;
-    if (elapsed < slot->timeout_us) {
+    if (elapsed < timeout_ms) {
         return false;
     }
 

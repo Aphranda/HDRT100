@@ -1,4 +1,4 @@
-#include "refmem_cmd_load.h"
+﻿#include "refmem_cmd_load.h"
 
 #include <string.h>
 
@@ -43,8 +43,15 @@ static uint8_t s_maint_ack_generation;
 static uint8_t s_maint_ack_ok;
 static uint32_t s_maint_ack_remaining;
 static uint32_t s_maint_ack_count;
+/* Issuer-side fail-closed deadline. The replicated node-control record keeps no
+ * issue tick, and posting the command into the local command slot changed the
+ * record's lifecycle (the mirror then rewrote it empty), so the deadline lives
+ * here: it belongs to the submitter, not to the command fact itself. */
+static uint32_t s_cmd_deadline_ms;
+static uint32_t s_cmd_pending_seq;
 
 static void refmem_cmd_load_service_fragments(void);
+static void refmem_cmd_load_service_timeout(void);
 
 static bool refmem_cmd_parser(const uint8_t *payload,
                               size_t payload_size,
@@ -231,9 +238,58 @@ bool refmem_cmd_load_submit_type(uint8_t type,
             snapshot.timeout_us = request.timeout_us;
             (void)distributed_refmem_node_control_write(
                 local_slot, &snapshot, request.command_seq);
+            /* Arm the issuer-side deadline. timeout_us is microseconds; the
+             * service compares whole milliseconds, so round the deadline up
+             * to the next millisecond (a 0 timeout means "no deadline"). */
+            if (request.timeout_us != 0u && request.required_mask != 0u) {
+                const uint32_t timeout_ms =
+                    (request.timeout_us + 999u) / 1000u;
+                s_cmd_pending_seq = request.command_seq;
+                s_cmd_deadline_ms = osal_tick_ms() + timeout_ms;
+            }
         }
     }
     return true;
+}
+
+/* Fail closed on the issuer: once the command's deadline passes and the
+ * replicated record still lacks required ACK/NACK bits, advance that record to
+ * TIMED_OUT. Only the record is touched -- no command slot, no mirror -- so the
+ * request/status writer split (issuer writes the request, the owner writes
+ * status) stays exactly as it was. */
+static void refmem_cmd_load_service_timeout(void)
+{
+    if (s_cmd_pending_seq == 0u) {
+        return;
+    }
+    if ((int32_t)(osal_tick_ms() - s_cmd_deadline_ms) < 0) {
+        return;
+    }
+    const uint32_t board_no = board_identity_get_no();
+    const uint32_t local_slot = board_no > 0u ? board_no - 1u : 0u;
+    refmem_command_snapshot_t snapshot;
+    if (!distributed_refmem_node_control_read(local_slot, &snapshot, NULL, NULL)) {
+        s_cmd_pending_seq = 0u;
+        return;
+    }
+    if (snapshot.command_seq != s_cmd_pending_seq) {
+        s_cmd_pending_seq = 0u; /* superseded or cleared by another owner */
+        return;
+    }
+    const uint32_t pending =
+        snapshot.required_mask &
+        ~(snapshot.ack_flags | snapshot.nack_flags | snapshot.timeout_flags);
+    if (pending == 0u) {
+        s_cmd_pending_seq = 0u; /* every required bit answered in time */
+        return;
+    }
+    (void)distributed_refmem_node_control_update_status(
+        local_slot, (uint32_t)REFMEM_COMMAND_STATE_TIMED_OUT,
+        snapshot.ack_flags, snapshot.nack_flags, 0u,
+        snapshot.timeout_flags | pending,
+        (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT,
+        (uint32_t)REFMEM_COMMAND_INVALID_NODE, 0u, 0u);
+    s_cmd_pending_seq = 0u;
 }
 
 void refmem_cmd_load_service(void)
@@ -241,6 +297,7 @@ void refmem_cmd_load_service(void)
     if (s_initialized == 0u) {
         return;
     }
+    refmem_cmd_load_service_timeout();
     refmem_cmd_load_service_fragments();
     uint8_t frame[TDMA_MAINTENANCE_RUNTIME_MAX];
     size_t frame_size = 0u;
@@ -531,3 +588,4 @@ static void refmem_cmd_load_service_fragments(void)
         s_pending_active = 0u;
     }
 }
+
