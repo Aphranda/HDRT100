@@ -1,6 +1,6 @@
 {
   "schema": "TOOLS_WORKFLOW_TRIAGE_V1",
-  "rule": "Every tool family is judged once: WORKFLOW (staged orchestration with a declared evidence root and resume path), STEP (invoked by a WORKFLOW, no standalone side effects), STANDALONE (single-purpose tool), or LIBRARY (imported, no entrypoint). New scripts must be judged before they are used: a *_workflow.py entrypoint that is not triaged WORKFLOW fails the gate. Non-UNASSESSED families without a row fail; UNASSESSED legacy families warn until qualified.",
+  "rule": "Every tool family is judged once: WORKFLOW (staged orchestration with a declared evidence root and resume path, satisfying docs/console/CONSOLE_WORKFLOW_ARCHITECTURE.md WorkflowSpec), STEP (invoked by a WORKFLOW, no standalone side effects), STANDALONE (single-purpose tool), or LIBRARY (imported, no entrypoint). New scripts must be judged before they are used: a *_workflow.py entrypoint that is not triaged WORKFLOW fails the gate. Non-UNASSESSED families without a row fail; UNASSESSED legacy families warn until qualified.",
   "entries": [
     {
       "tool": "TOOL-HARDWARE-ACCEPTANCE",
