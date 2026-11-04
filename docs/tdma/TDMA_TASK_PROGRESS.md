@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-10-26
+Last updated: 2026-11-04
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -14,6 +14,46 @@ Last updated: 2026-10-26
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+
+### TDMA-PROGRESS-20261104-048：10 kHz REFMEM 命令回复链路修复（0x52 arm / 重复投递 / ACK 预算）+ 10M 验收现状
+
+- **根因（四板只读诊断）**：`SYST:REFMEM:CMD:SUBmit` 走 0x52 维护帧；目标侧 `refmem_cmd_load.c` 解析器在同一调用栈 post→take→ack，直接把记录推到 ACKED；唯一 arm 点 `distributed_refmem_command.c:247` 要求 `POSTED`（`:194-197`），故 `cmd_reply_arm()` 永不执行，ACK 席位的 `VALID|COMMAND` 从未上 wire。铁证：NO.2 `CMD:REPLy?` `armed=0/published=0`，记录 `state=4(ACKED), ack_flags=0x02`；NO.1 `rx_acquire=818/rx_accept=2454/rx_bad_mailbox=0`（扫描与解析正常），上轮 A/B 二选一前提不成立。
+- **修复**：① `refmem_cmd_load.c:86` 成功 ack 后 arm 回复（保留 wire seq）；② `distributed_refmem_link.c:1410` 新增 `..._try_post_replacing_complete()`（同 seq 重传 no-op、仅终态前驱可替换），`refmem_cmd_load.c:67` 改用，修“同一 boot 第二条命令被丢”（`posted` 恒为 1）；③ `tdma_maintenance_runtime.c:77` 维护 ACK 预算变为 4×ring 周期（10K 1200→2400 ms，≤1M 被 50 ms 地板夹住不变）——**注释仍写 2×，提交前须改**。
+- **10K 验证（build `20261104133014`）**：`wf-fix2` `passed=true`；同 boot 连续 seq30/31：source `acked_mask=0x02, state=4 ACKED`，target `armed=1/2, published=4/8`，维护账 `tx_ack_ok=2, fail=0`（原 0/1）。证据 `out/diag/reply_proof.json`、`out/tdma_lowrate/wf-fix2/summary.json`、`out/diag/ring20.json`。
+- **10M 现状（build `20261104135341`）**：`dpll60 --flash picotool` PASS（`phase_max_abs_ns=88.0`，warn 100），但无凭证；三次 OTA 复用取证失败（1 次 1 ns 分箱边缘、2 次 `STARVED` NO.2 `mask=0xc00000(OUTPUT_STOPPED+OUTPUT_STALE), svc_gap=0.0557s`）。STARVED=`sync_io_run_output.c:276` PIO TX FIFO 欠载，与相位判据不相交，属既有 10M 边际，与 10K 修复无调用关系（窗口内 `CMD:SUBMIT` 命中 0）。
+- **工具修复**：`p3_dpll_short.py` 端点判据在末 bin 为 `PARTIAL` 时用最后两 bin 包络（消 1 ns 假失败）；`workflow_steps.py` 失败明细追加 `guard.reason_mask` 位名与 `svc_gap/succ_gap`。host `pytest -k "p3_dpll_short or hardware_acceptance or workflow_steps"` 208 passed。
+- **未闭环**：P3 凭证（receipt 仍是 19:02 旧 build）；OTA 段无墙钟超时 + `picotool_reboot.py:60` 假 PASS；0x52 ack-without-execute；source 侧超时缺失；旧回复不随新 seq 失效；本文档 196,825 B（上限 200 KB），下次新增前必须先归档最旧条目。
+
+### TDMA-PROGRESS-20261104-047：10 kHz 低速档 4 节点镜像 M1–M4 实现（P3/HIL 待补）
+
+- **范围**：`PROJECT_NODE_CAPACITY=4` 的低速引导档切片；参数化档位/准入（M1）、长帧 TX 期限（M2）、免标定 bring-up ARM（M3）。用户 2026-11-04 裁定 4 节点镜像、参数可配置、8 节点仅配置，并批准 M3 方案 B。
+- **M1**：`tdma_operating_profile` 增加 low-rate 表（level 23=10k/150ms、24=100k/15ms、25=5M/500µs；capacity=8 时追加 26–29）、`find_pair`、`slot_min_ns`/`slot_sufficient`、`admitted_for_ring`；`tdma_ring_runtime`/adapter 两处 baud 准入改为查表 + `slot ≥ slot_min(N)`；0..22 既有档未改。
+- **M2**：`tdma_pio_spi_phys_tx_completion_margin_ns` = max(2×slot, 1 ms)，`flight_io` 的固定 1 ms 改为该派生值；`tdma_pio_spi_phys_t` 增加 `flight_cycle_period_ns`，ARM 时写入。
+- **M3**：`TDMA_RING_FLAG_BRINGUP_NO_CAL`、`tdma_service_set_bringup_no_cal`/owner、`SYSTem:TDMA:RING:DIAGnostic <en>[,<cadence>[,<bringup>]]`（STOP-only）；无 stage ARM 用固定相位 1..31 且保持 flight engine；probe 模式对 bring-up 不再停用 flight engine；不写 flash 标定。
+- **M4**：`tdma_maintenance_ack_timeout_ms` = max(2×`feedback_timeout_ns`, 50 ms)，上限 10 s；`maintenance_mailbox` 的超时判定改用该值，3 次重试/generation 语义不变。
+- **节点范围（2026-11-04 用户裁定）**：不保留 8 节点，只保留 4 节点 + 参数可配置。`tdma_operating_profile` 的 level 26–29 与 CMake `TDMA_OPERATING_PROFILE_LOWRATE_MAX_NODES` 已移除，`COUNT=26`；N>4 由 `slot_min(N)`/ring 准入拒绝。此前 capacity=8 的 RAM 溢出（8,004 B）与独立 RAM 审查仅作历史快照，不再是残余或完成条件。
+- **运行态刷写**：picotool factory UF2 路线已把 4 板更新到 build `20261104095830`（NO.1..4）；OTA 路线的 `SECURITY_COUNTER_ROLLBACK` 仍记录为对照。新增 `RING:BRINGup`（STOP-only）与工具 `--bringup/--skip-train`；TOPOLOGY 会重建 staged config，所以 BRINGUP 必须在 TOPOLOGY 之后、ARM 之前设置；固定相位取 2（相位 1 被既有 `PHASE_ADMISSION` 拒绝）。
+- **10 kHz HIL**：`out/tdma_lowrate/ring-10k-run7/summary.json` 与 `wf-10k-run3/summary.json` `passed=true`；4 板 `ring_adapter_started/up/down=1`，tx/rx 各 13，`rx_bad=0`；3 s 复测 tx/rx 31→37（约 2 帧/s，符合 600 ms 圈回）。`tdma_start_ring.py` 已改为 10 步 workflow（0 发现/1 STOP/2 STAGE-APPLY/3 TOPOLOGY/4 BRINGup/5 TRAIN/6 ARM/7 START/8 等待核验/9 summary；`--list --step --steps --full --process-image`），`wf-10k-run3` 十步全 OK 且 `summary.json` 记录每步时长与结论。
+- **process image**：`wf-10k-pi2`（build `20261104101843`）`passed=true`；`SYST:TDMA:FLIGHT:MODE?=2`、`FLIGHT:PROCess?` `active=1`、map_gen 1、payload 132，3 s 内 input_bytes 576→768、rx bitmap hit 48→66。bring-up 无 calibration stage 时，新增 `tdma_pio_spi_ring_adapter_set_bringup_topology()` 按 slot 顺序（N→N+1，末位回绕）填 directed link map，否则 adapter 以 `FLIGHT_MAP_REJECT`（6）拒绝 process image。
+- **命令/ACK（10 kHz）**：手工构造 56 B REFMEM_CMD（type 13 MAINTENANCE，target/required mask 0x0F，timeout 2 s），经 `SYST:REFMEM:CMD:SUBmit "<hex>"` 发送；`out/tdma_lowrate/cmd2-submit.json`、`cmd2-source.json`、`cmd2-target.json`。source `CMD:REPLy?`：pending_seq 2、`aggregate_state=4`（ACKED）、`acked_mask=1`、`last_state=4`；target `CMD:STATus?`：`decoded/posted/acked=1`。单帧命令约 2 圈完成。
+- **负测**：`neg-no-bringup` 不置 `BRINGUP`，`RING:ARM` 后 `adapter_started=0`、`up/down=0`、`FLIGHT:PROCess? active=0`，随后带 flag 重跑恢复。
+- **M5 阶梯**：`wf-10k-pi-final`、`wf-100k`、`wf-1m`、`wf-5m`、`wf-10m` 五档均 `passed=true`（bring-up + process image，4 板 up/down、tx/rx>0、rx_bad=0）；`--level` 23/24/19/25/0。
+- **10 kHz 60 s**：`out/tdma_lowrate/obs10k-t0.json`/`t1.json`；tx/rx 各 +101、`rx_bad` 0、`ring_last_error`/`adapter_last_error` 0、up/down 保持 1。按 600 ms 圈回折算约 1.68 帧/s，与实测一致。
+- **阶梯 60 s**：100k tx/rx +989、10k 之外 1M +6436、5M tx +17586/rx +15131，三者 `rx_bad=0`、`adapter_last_error=0`；**10M 60 s 不稳定**：`ring_down_running` 1→0、rx 2536 vs tx 6484、t0 `adapter_last_error=7`（RX_GATE_REJECT）。**用户 2026-11-04 裁定：1M 以上都需要标定，当前只做 10K 免标定（100K 可作上限验证）**；1M/5M/10M 长时结果按“无标定不可用”记录，不作为 10K 免标定门禁。
+- **子代理 555dc355（10M 归因）**：10K/100K 60 s 的 `txΔ==rxΔ`（+101/+101、+989/+989）、四类 bad 计数全 0、up/down=1、`last_error=0`；参考 tx→rx 固定约 408 ns 残差，占 10K bit 0.4%、100K 4%、1M 40%、10M 400%，故 no-cal 边界在 100K 与 1M 之间，1M 以上必须标定。注意：10K 60 s 仅约 100 帧，建议 600 s/10×60 s soak；`origin.rejected_observation_count` 未进 `TDMA:STATus?`，`rx_bad` 不能单独当丢帧指标。**与主会话差异**：10M 的 tx:rx≈2:1 在短时 PASS 也存在，不是丢帧比；真实指标是 rxΔ 对预期圈数（10M 约 33%）。
+- **P3 尝试**：`dpll60 --flash picotool` 的 configure 停滞已定位为一次性锁/缓存态，手动 configure 6.7 s 通过；随后 clean build 约 1000 个对象，15 min 仅完成 284 个，按时间预算 kill，板仍停留 `20261104101843`。P3 凭证仍 OPEN，下一轮用增量 build 续跑。
+- **P3 容量发现**：`out/build/dpll60-latest`（默认 `PROJECT_NODE_CAPACITY=6`）链接失败 `region RAM overflowed by 2436 bytes`（`.bss` 末 0x20080183 越过 0x20080000）；改 `-DPROJECT_NODE_CAPACITY=4` 后 build `20261104103404` 链接通过。即：4 节点镜像可交付，默认 6 节点验收镜像需按容量 4 构建；`dpll60 --package` 复用路径因缺少 OTA summary 报 `WindowsPath / None`，未作为凭证。
+- **P3 跑通到 TDMA 前置**：capacity-4 镜像已 picotool 刷 4 板；首次 DPLL60 失败于 `DPLL role mode=0`（factory 刷写重置 MASTER），在 `run_dpll_short_acceptance` 的 reset 后补 `dpll_short_arm_followers()`；重跑后角色修复生效，但 TDMA stage 的 `RING:TOPology 4,1,0` 在 NO.2 被 `-200` 拒绝（3 次 STOPPED 重试）。说明 factory 刷写后缺少 P3 校准/ring 前置，dpll60 不能直接接在 4 节点 bring-up 镜像后；P3 仍需 calibration profile 或恢复 ring 前置。
+- **P3 凭证（DPLL60_JOINT）**：把 `dpll_short_arm_followers()` 移到 TDMA stage 之后、DPLL capture 之前（角色是 RAM-only，factory 刷写会重置），`dpll60 --flash ota` 通过：build `20261104105614`、`config/hardware_acceptance/p3_acceptance_receipt.json`、scope `DPLL60_JOINT`、profile `QUICK_DIAGNOSTIC`、965 files。即 TDMA 改动按凭证分流可用 DPLL60 覆盖；FULL（含 calibration）仍未跑。
+- **断链负测**：`wf-10k-cmd-neg3` 起 10k 环后 STOP NO.4，从 NO.1 发 `cmd3`（type 13，target 0x0F）；11 s 后 source `CMD:REPLy?` 仍 `aggregate_state=1`（POSTED）、`acked_mask=0`，`ring_down_running=0`，未出现 3 次重试后的 fail。**结论**：正常 ACK 通，断链 fail-closed 缺失 source 侧超时，M4 不能标 DONE。`wf-restore` 恢复 up/down=1。
+- **M4 复测（2026-11-04 晚）**：target `cmd14` 的 `CMD:STATus?` 为 `rx_events=6, decoded=6, posted=1, acked=1`，但 source `CMD:REPLy?` 25 s 仍 `state=1 POSTED`；`cmd12/cmd13` 甚至 target `rx_events=0`。两次 patch（submit 起算 5/6/12 s、transport fail hook）都会误判健康命令，已回退。**Plan C step 1**：回退共享 receive 改动，恢复 10M-safe build `20261104125728`。**PROBE gate 尝试**（用户授权）：无 VDC binding（`VDC_BOUNDARY_MODE_PROBE`）时允许 `sync_publish` 继续并调用 `sync_receive`（build `20261104130424`）；`cmd19` 仍 target `acked=1`、source `POSTED`。10M REFERENCE 模式不进入该 gate，未受影响。M4 仍 BLOCKED。
+- **10K 作用域（用户 2026-11-04）**：10K 只承载 REFMEM、启动 TDMA 环；DPLL/VDC/T2 仅在 1M 及以上启用；低速率启动 DPLL 必须先放宽门限。`tdma_start_ring --process-image` 不使用 DPLL/VDC，符合该作用域。
+- **容量 6 收口**：`EVENT_BUS_OTA_FAST_BLOCK_DEPTH` 4→3（省 4096 B），`PROJECT_NODE_CAPACITY=6` build `20261104120902` **链接通过**（此前 overflow 2436 B）。OTA 并发深度仍需实测（RAM-03 前置）。
+- **DPLL 定位（用户 2026-11-04）**：10K 低速只承载 REFMEM，不启动 DPLL/VDC；1M 及以上才用于启动 DPLL、发布 VDC；若低速率启动 DPLL 必须先放宽门限。`dpll60`（level 7=10M）在 capacity 6 上尝试两次，均 `STARVED`（NO.2 63.1 s / NO.3 62.9 s），属 10M DPLL 门限/标定问题，不是 10K REFMEM 门禁。
+- **工具**：`tools/tdma_ring_monitor/tdma_start_ring.py` 新增 `--bringup`（STOP-only `RING:DIAGnostic 1,0,1`）；dry-run 以 `*IDN?` 第三字段（序列号）为 `--board-id` 时识别 4 板（COM3–COM6）。
+- **host 证据**：`run_tdma_operating_profile_tests`、`run_tdma_ring_runtime_tests`、`run_tdma_pio_spi_ring_adapter_tests`、`run_refmem_realtime_tdma_tests`、`run_tdma_service_scheduler_tests`、`run_vdc_domain_tests` 全绿。聚合 `run_host_unit_tests.ps1` 在 `run_drv_flash_geometry_tests.ps1` 因缺 `drv_watchdog.h` include 路径失败，属既有聚合环境问题，与本切片无关。
+- **build**：`out/build/pico2-lowrate4`，`PROJECT_NODE_CAPACITY=4`；M1 `20261104090854`、M2 `20261104091146`、M3 `20261104091428`、M4 `20261104091742`、4 节点专用后 `20261104093536`，`flash_link_contract=OK`。
+- **残余**：1 MHz/10 MHz quick P3 未跑；4 板 10 kHz HIL（UP/DOWN、过程映像、命令/ACK、未置 flag 负测）未跑；代码批 A/B 的 FULL P3 未跑；OTA 刷写被 counter/签名门禁阻塞。
 
 ### TDMA-PROGRESS-20261026-046：既有 host 源锚点清偿（5/8）
 

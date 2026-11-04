@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-25
+Last updated: 2026-11-04
 
 ## 文档接口与状态规则
 
@@ -66,6 +66,28 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | TDMA-M3 | DPLL/VDC 最小负载 | IN PROGRESS | typed 运输和本地控制已有，补齐期限、正式 evidence 与 VDC 一致发布。 |
 | TDMA-M4 | completion/reliability | PENDING | ACK/fence/retry/fail-closed 与长期错误率完整验证。 |
 | TDMA-M5 | T2 reservation 与控制 | PENDING | 当前四板预约、READY/fence/completion 集成；其他节点规模另验。 |
+
+### 低速档 4 节点镜像（10 kHz 起，2026-11-04 用户裁定）
+
+**范围。** 本轮交付 `PROJECT_NODE_CAPACITY=4` 的镜像：10 kHz 引导档可跑（UP/DOWN、过程映像、维护/CAL 命令、STOP/重入）；参数（baud、slot、guard 量子、turnaround、loop_delay、超时）由生成器/配置产生，代码里不写死 slot；只保留 4 节点，N>4 由 `slot_min(N)` 准入拒绝，不生成 8 节点 catalog、不做 8 节点台架。架构、可行性与参数公式见 [TDMA 域架构](TDMA_DOMAIN_ARCHITECTURE.md) 的「低速档与速率切换路径（10 kHz 起）」。
+
+**关键裁定。** ① 4 节点是唯一功能门禁；② 参数可配置，但节点数固定为 2..4；③ 免标定 ARM 采用方案 B（`TDMA_RING_FLAG_BRINGUP_NO_CAL` + STOP-only 授权），**2026-11-04 用户已批准，按 B 实施**；④ 低速会话只 `clear_calibration_stage()`，禁止 commit，不写 flash 标定；⑤ **10K 低速只承载 REFMEM，不启动 DPLL/VDC；1M 及以上才用于启动 DPLL、发布 VDC；若要在低速率启动 DPLL，必须先放宽门限**（用户 2026-11-04 裁定）。
+
+| ID | 里程碑 | 状态 | 交付物 / 退出门禁 | 批次与依赖 |
+|---|---|---|---|---|
+| TDMA-LOWRATE-M0 | 规格与裁定记录 | DONE | 架构「低速档」节 + 本节；用户裁定（4 节点镜像、capacity=4、参数可配置、N>4 拒绝、不保留 8 节点）；`docs_check`/`doc_regression`/pytest 全绿。 | 文档批；无前置 |
+| TDMA-LOWRATE-M1 | 参数化档位与准入（L1） | DONE | 生成器/校验器（`slot_min` 公式）；4 节点项 level 23–25（10k/100k/5M）；`find_pair` 选择；两处 baud 准入改为查表 + 低速率 `slot ≥ slot_min(N)` 校验；host 覆盖 N=2..4 与 N>4 拒绝；0..22 既有 CRC 不变。**证据**：profile/ring/adapter/refmem_realtime/service_scheduler/vdc_domain host 全绿；capacity=4 构建 `out/build/pico2-lowrate4` build_id `20261104093536`；默认 level 0 未变。 | 代码批 A（与 M2 同批）；依赖 M0 |
+| TDMA-LOWRATE-M2 | 长帧 TX 完成期限（L2） | DONE | `tdma_pio_spi_phys_flight_io.c` 的固定 `+1 ms` 改为 `2 × slot`（1 ms 下限）派生；host 断言 150 ms→300 ms、2 ms→4 ms、0→1 ms；P3 `DPLL60_JOINT` 凭证 build `20261104105614` 覆盖。 | 代码批 A；依赖 M1 |
+| TDMA-LOWRATE-M3 | 免标定 bring-up ARM（L3） | DONE | 已实现：`TDMA_RING_FLAG_BRINGUP_NO_CAL`、`tdma_service_set_bringup_no_cal`/owner、`RING:BRINGup`（STOP-only）、无 stage ARM 相位 2..31 且保持 flight engine、bring-up slot-order topology（process image 需要）、probe 例外、禁写 flash；build `20261104101843`。**四板 10 kHz HIL**：`ring-10k-run7`、`wf-10k-run3`（UP/DOWN、tx/rx 13、rx_bad 0）；`wf-10k-pi2`（process image：`FLIGHT:MODE?=2`、`active=1`、input 576→768、rx hit 48→66）；`cmd2`（维护命令 ACK：target `acked=1`、source `aggregate_state=4`）。**负测**：`neg-no-bringup` 未置 flag，`adapter_started=0`、`up/down=0`、`FLIGHT:PROCess? active=0`。`tdma_start_ring.py` 已改为 10 步 workflow。 | 代码批 B；依赖 M1 + 用户批准（已获 2026-11-04） |
+| TDMA-LOWRATE-M4 | 维护命令通道（L4） | BLOCKED | **10K REFMEM reply 回程未实现。** target `acked=1`，source 25 s 仍 `POSTED`；参考/最后/follower 发命令均复现。已尝试：① 命令 reply 不受 target mask 过滤；② 无条件 receive；③ **PROBE-only（无 VDC binding）时允许 publish 与 receive**（`distributed_refmem_plane.c`，build `20261104130424`）。`cmd19` 仍 target `acked=1`、source `POSTED`。判断：target 的 reply 未通过 process-image ACK seat/segment 到达 source；需 follower overlay ACK seat 或 target→source 定向 reply 的传输设计改动，超出安全落地范围。10M 的 REFERENCE 模式不受 PROBE gate 影响。 | 代码批 B；依赖 M3 |
+| TDMA-LOWRATE-M5 | 4 节点速率阶梯（L5） | IN PROGRESS | 10k→100k→1M→5M→10M 短观测均过。**60 s**：10k tx/rx 各 +101、100k 各 +989，`rx_bad/transport/schedule/profile_bad=0`、up/down=1、`last_error=0`；1M +6436、5M +17586/+15131 短时正常；10M 60 s `down_running` 1→0。**用户 2026-11-04 裁定：1M 以上都需要标定，当前只做 10K 免标定（100K 可作免标定上限验证）**。子代理 555dc355 独立结论：no-cal 边界在 100K 与 1M 之间（参考 tx→rx 固定约 408 ns 残差，占 1M bit 40%）；10K 60 s 仅约 100 帧，建议 600 s/10×60 s 复核。**剩余**：10K/100K 600 s soak；1M 以上标定后另验；FULL P3。 | 代码批 C（台架）；依赖 M1–M4 |
+| TDMA-LOWRATE-M7 | 收口 | IN PROGRESS | P3 `DPLL60_JOINT` 凭证已取得：build `20261104105614`、`config/hardware_acceptance/p3_acceptance_receipt.json`、scope `DPLL60_JOINT`、profile `QUICK_DIAGNOSTIC`、965 files；`check-staged` 在无 staged 时 OK，提交前需 stage 后复核。**剩余**：FULL P3（含 calibration 步骤）未跑；文档/契约更新与回退演练未做。 | 收口批；依赖 M1–M5 |
+
+**批次与凭证。** 代码批 A = M1+M2，代码批 B = M3+M4，代码批 C = M5；每批一个 FULL P3 凭证（`python tools/hardware_acceptance/workflow_steps.py run` 或 `--profile full`），提交前用 `check-staged` 按 staged 指纹核验。`DPLL60` 证书不覆盖 TDMA/PIO 路径，不能用于本任务代码提交。
+
+**4 节点边界。** 节点数固定为 2..4；N>4 由 `slot_min(N)` 与 ring 准入拒绝，不生成 8 节点 catalog，也不承诺 8 节点镜像/台架。参数可配置仅指 baud、slot、guard 量子、turnaround、loop_delay 与超时，不包含节点数扩容。
+
+**完成定义。** 仅当 M1–M5 全绿、M7 收口，目标才可标完成；M2/M4/M5 的 P3 与 HIL 未闭合前不得标完成，目标保持进行中。M3 已获用户批准（2026-11-04，方案 B）。8 节点里程碑已按用户裁定删除，不再是完成条件。
 
 ### 实时预算、飞行与异步准备
 

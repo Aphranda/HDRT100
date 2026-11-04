@@ -340,45 +340,132 @@ Core0 准备、Core1 固定窗口选择、PIO/DMA 发送；`TDMA_RECOVERY_BUFFER
 
 ### 低速档与速率切换路径（10 kHz 起）
 
-目标：在高速环之前先跑一个 **10 kHz 低速档**，不依赖相位标定，用它承载 CAL/训练命令，再逐级升到 100 kHz / 1 MHz / 5 MHz / 10 MHz。低速档仍是 `TDMA-OPMODE-01` 的一个正式 profile，不是第二条物理链路。
+> 状态：可行性分析（2026-11-04）。本节不新增冻结契约，也不把任何档位写成已验收。除标注“快照”外，数值均由代码符号推导，非实测、非事实源；采纳为产品档前须按 `TDMA-OPMODE-01` 完成 C11 登记、预算清单与四板证据。
 
-**两个时基不能混用**：
+**目标。** 在高速环可用之前先跑一个**不依赖相位标定**的 4 节点引导环：验证线序与物理连通、运载心跳/健康、承载少量维护与 CAL/训练命令，再逐级升到 100 kHz / 1 MHz / 5 MHz / 10 MHz。低速档仍是 `TDMA-OPMODE-01` 的离散 operating profile，不是第二条物理链路，也不改 wire 帧型、帧长或 Core1 节拍语义。
 
-| 项 | 事实源 | 作用 | 低速时必须区分 |
+**范围与裁定（2026-11-04 用户）。** 只保留 **4 节点**：镜像按 `PROJECT_NODE_CAPACITY=4` 构建，catalog 只生成 N=4 项（level 23–25），代码里不写死 slot；`baud`、`slot`、`guard_quanta`、`turnaround`、`loop_delay` 与超时都是可配置参数。节点数大于 4 由 `slot_min(N)` 准入直接拒绝，不保留 8 节点 catalog 或 8 节点台架。
+
+**非目标。** 低速档不承担 DPLL 同步（圈样本率 = 1/(slot × 节点数)）、产品 RUN、OTA/大载荷吞吐，也不替代 P3 标定。**定位（2026-11-04 用户裁定）：10K 低速只承载 REFMEM；1M 及以上才用于启动 DPLL、发布 VDC；若要在低速率启动 DPLL，必须先放宽门限。** `tdma_pio_spi_phys_p3_start()` 只接受 10/25/30 MHz，低速档没有自己的 bit-level delay 测量，不能凭自身测量生成标定 stage（合成 stage 等同伪造标定）；因此“低速档承载 CAL 命令”只能兑现为**命令通道**：在进入 CAL 之前/之后下发训练、查询与健康命令，CAL 测量期间环仍处于 STOP、不承载命令。
+
+**四个时基不能混用。**
+
+| 量 | 事实源 | 10 kHz、4 节点推导值 | 换档影响 |
 |---|---|---|---|
-| Core1 整表周期 | `SYST:TDMA:PERiod`（1500/5000/10000/15000 µs 白名单） | 相位调度粒度 | **不改**；10 kHz 帧可跨多相，RX 增量扫描推进。 |
-| 环 slot 周期 | `TDMA:OPMode:STAGe/APPLy` 的 operating profile | 一个节点的线上时隙 | 新增低速档，`cycle_period_ns` 按帧长取。 |
+| 线上帧时 | `wire_bytes × 8 / baud`，`tdma_pio_spi_phys_wire_time_ns()` | 174 B → 139.2 ms | 与 baud 成反比 |
+| 每节点 slot | operating profile 的 `cycle_period_ns` | 必须大于帧时（见下） | 随档位 |
+| 环回周期 | `feedback_timeout_ns = slot × node_count`（`tdma_service.c`） | 600 ms（slot 150 ms） | 随档位 |
+| Core1 整表周期 | `SYSTem:TDMA:PERiod`，白名单见 `app_realtime_profile_supported()` | 1.5 ms，可不改 | 不随档位 |
+| 标定身份 | `profile_crc32` + `schedule_crc32`（`tdma_service_stage_calibration()`）；若允许 slot 覆盖还须并入 effective slot 与 N | 换档即变 | 换档必失配 |
 
-**关键事实（按当前代码）**：
+10 kHz 的 174 B 帧按 1.5 ms 整表周期要跨约 93 个相位；Core1 只在相位边界提交/收割，线上时间由 PIO/DMA 与 guard 承担。因此“10 kHz 帧能跑”与“Core1 每 1.5 ms 要等这帧”是两件不同的事，后者不成立也不必要。
 
-- `app_runtime.c:128-134` 的线时断言使用编译期 `BOARD_TDMA_SPI_BAUD_HZ`，不是运行态约束；运行态准入在 `tdma_origin_plan.c:652` 的 `required_cycles > fixed_cycles`。
-- level 19（1 MHz/2 ms）对 4 节点 174 B 实际帧可用（1.392 ms），对 307 B 最坏帧不可用（2.456 ms）。
-- 10 kHz 的 PIO 侧是非阻塞的（TX launch+轮询、RX 增量扫描）；246 ms 级阻塞只出现在 RefMem 调试 SPI ops（`refmem_spi_physical_adapter.c` 的逐字节 put + `sleep_us`），不在环上。
-- `tdma_pio_spi_phys_flight_io.c:140-143` 的 TX 完成余量固定 1 ms，小于服务粒度时会长帧误判超时并触发 `origin_recover`；低速必须按 `cycle_period_ns` 派生。
-- 标定 gate 绑定 `profile_crc32` + `schedule_crc32`（`tdma_service.c:585-604`）；换档必失配。低速会话只 `clear_calibration_stage()`，**禁止 commit**，避免覆盖 flash 唯一标定记录。
+**参数模型（4 节点）。** 可配置量分四层，任何一层都不把 slot 写死。
 
-**速率阶梯（4 节点，推导值，待实测）**：
+| 层 | 参数 | 4 节点默认 | 约束与入口 |
+|---|---|---|---|
+| 冻结 | `clk_sys`、6 PIO cycles/bit、guard 32、PIO 程序、wire 帧型/长度、`physical_bytes` 上界、flash 标定 schema | — | 不得随档位改 |
+| profile | `baud_hz`、`cycle_period_ns`（slot）、`flags` | 10 kHz / 150 ms | STOP 下 `OPMode:STAGe/APPLy`；catalog 给默认值 |
+| ring | `node_count`（2..4）、local/reference slot、`loop_delay_ns`、`feedback_timeout_ns` | 4 | STOP 下 ring 配置；`feedback_timeout = slot × N` |
+| 派生 | `physical_bytes`、`tail_bytes`、guard 量子、TX 完成余量、维护 ACK 超时、启动窗口 | 由 N/baud/loop_delay 计算 | 不得手写；与 profile/ring 同代 |
 
-| baud | 40 B 命令 | 174 B 实际帧 | 307 B 最坏帧 | 最小 slot（含 guard） | profile 表现状 |
-|---|---:|---:|---:|---:|---|
-| 10 kHz | 32.0 ms | 139.2 ms | 245.6 ms | wire + 533 µs | 缺档 |
-| 100 kHz | 3.2 ms | 13.9 ms | 24.6 ms | wire + 53 µs | 缺档 |
-| 1 MHz | 320 µs | 1.39 ms | 2.46 ms | wire + 5.3 µs | level 19（2 ms）：174 B 可用 |
-| 5 MHz | 64 µs | 278 µs | 491 µs | wire + 1.1 µs | 缺档 |
-| 10 MHz | 32 µs | 139 µs | 246 µs | wire + 0.53 µs | level 20/0 可用 |
+slot 不是常量，而是按节点数与帧长校验后的参数：
 
-**实现路径（A 路：改现有基础件，不新写 PHY）**：
+```text
+physical_bytes(N) = 4 + 32 + 32N + 4 + tail(N)
+tail(N)           = (N-1) + ceil(ceil(loop_delay_ns × baud / 1e9) / 8) + 2   ≤ 11
+slot_min(N)       = wire(baud, physical_bytes(N)) + k × guard_quantum(baud) + turnaround_margin(N), k ≥ 1
+slot × N          ≤ UINT32_MAX
+```
 
-1. 在 `tdma_operating_profile.c`/`.h` 新增档位：10 kHz（slot 按 174 B 或 307 B 取 150/246 ms）、100 kHz、5 MHz；同步 `TDMA_OPERATING_PROFILE_COUNT` 与 `tests/unit/test_tdma_operating_profile.c`。
-2. 修 `tdma_pio_spi_phys_flight_io.c:140-143`：TX 完成余量改为 `max(2*cycle_period_ns, 1 ms)` 或等价派生，覆盖低速长帧。
-3. 低速会话流程（全部在 STOP 窗口，顺序不可换）：
-   `RING:STOP` → 等 `config_seq==applied_config_seq` 且 `adapter_started==0` → `OPMode:STAGe/APPLy` 低速档 → `clear_calibration_stage()`（不 commit）→ `RING:ARM` → `RING:STARt`。
-4. 退出：`RING:STOP` → 切回高速档 → 必要时重上电恢复训练记录 → `ARM`/`STARt`。
-5. 负测必须保留：未清 gate → `CALIBRATION_GATE_REJECTED`；slot=wire → cadence 计算 false；每周期容量仍按 10 MHz 配 → `budget_overrun`。
+10 kHz、`loop_delay_ns ≈ 1 µs` 时：N=4 → 173–174 B、slot ≥ 150 ms；`slot_min(4)` 约 139.7 ms。N>4 不生成 catalog 项，且 `slot_sufficient(..., N>4)` 对 150 ms 直接为假。
 
-**禁止改**：`clk_sys`、`TDMA_ORIGIN_CONTROL_CYCLES_PER_BIT`/guard 常量、`physical_bytes` 上界、标定 flash 单记录 schema；不得让 `tdma_service_ops_t` 在 Core1 相内阻塞。
+**可配置的边界。** `baud`/`slot`/`flags` 属 profile，`N`/`loop_delay` 属 ring，超时与窗口是派生量；四者必须同代绑定。若要让 `slot` 脱离 catalog 在线覆盖，必须把 effective `slot` 与 `N` 并入 `schedule_crc32`，否则换 slot 后旧 calibration stage 仍会通过 `profile_crc32 + schedule_crc32` 校验——这是 `TDMA-OPMODE-01` 的契约变更，须先 C11 登记。登记前只允许选 catalog 里已生成好的项，不允许任意写 slot。
 
-**未决项**：10 kHz 下 PIO 分频抖动、246 ms CS 低电平的驱动/线缆表现、几何训练在低速档的稳定性、训练记录是否有运行时热重载路径；均需台架实测，不能由 host 结果替代。
+**逐层可行性（按当前代码）。**
+
+| 层 | 结论 | 证据与说明 |
+|---|---|---|
+| PIO 分频 | 成立 | `tdma_origin_cadence_calculate()` 用 `divider256 = clk_sys × 256 / (baud × 6)`；10 kHz 得 1,066,666（整数 4166、小数 170），低于 16-bit 上限；PIO 可达最低约 636 Hz。 |
+| slot 与 guard | 成立（有下界） | 同一函数要求 `required_cycles > fixed_cycles`，即 slot 必须比帧时多出整数个 guard 量子；slot 等于帧时会被直接拒绝。10 kHz 量子为 533 µs。 |
+| 帧长与 tail | 成立 | `tdma_pio_spi_phys_arm()` 组帧为 `4 + 32 + 每节点 32 + trailer 4 + tail`；tail 随 `loop_delay_ns × baud` 缩小，低速下不超过 `TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES`。 |
+| 运行态 baud 准入 | **不成立** | `tdma_ring_runtime.c` 与 `tdma_pio_spi_ring_adapter_tx.c` 两处硬性要求 baud 落在 1 MHz 到 50 MHz，10 kHz 在 ARM 前即 `BAD_CONFIG`。 |
+| 档位目录 | **不成立** | `s_tdma_operating_profiles` 仅 23 项，无 10 kHz / 100 kHz / 5 MHz；`TDMA_OPERATING_PROFILE_MIN/MAX_CYCLE_PERIOD_NS` 仍是 100 µs / 2 ms 语义。 |
+| TX 完成期限 | **不成立** | `tdma_pio_spi_phys_flight_io.c` 固定 `wire_ns + 1 ms`；Core1 服务粒度 1.5 ms 时，139 ms 的长帧在完成点附近可能被判超时并触发 `origin_recover`。 |
+| 参考发射调度 | 成立 | `tdma_pio_spi_ring_adapter_service.c` 以 `feedback_timeout_ns` 为发射周期，按绝对 deadline 累加并合并错过的拍；600 ms 周期无溢出。 |
+| RX 增量扫描 | 成立 | `tdma_pio_spi_phys_rx_scan.c` 按生产字数扫描、按窗口复制，不依赖比特时长；1024 word 的 RX ring 在 10 kHz 下约容 6 帧。 |
+| 免标定 ARM | **不成立（语义断点）** | 无 stage 时 `tdma_runtime_owner` 只有 topology-probe 相位；而 adapter 在 probe 模式下停用 flight engine，过程映像与维护邮箱不上线。 |
+| 维护命令 ACK | **不成立** | `tdma_maintenance_runtime.c` 固定 50 ms、3 次；10 kHz 单圈 600 ms，ACK 未到即超时，重试只递增 generation，命令无法完成。 |
+| CAL / P3 | **不成立** | P3 白名单 10/25/30 MHz；低速档没有 bit-level delay 测量，不能凭自身测量生成 `calibration_stage`，因此不能自行“修好”高速标定。 |
+| DPLL / VDC | **定位排除** | 600 ms 圈 → 1.67 Hz 样本；`vdc_time_mapping` 只校验非零，不会自动拒绝，必须由 STOP 流程保证 VDC 不在低速档运行。 |
+| 启动窗口 | 需改工具 | `TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES = 2`，ARM 前需要 2 圈对齐 = 1.2 s（4 节点）；工具窗口要按档位换算。 |
+| 诊断捕获 | 语义失效 | `8 × 32 × 4 ns = 1.024 µs` 的 SCK 波形捕获窗口，在 100 µs 位宽下只采到电平，不能作为低速波形证据。 |
+
+**关键算术（推导，非实测）。**
+
+- 分频：`divider256 = clk_sys × 256 / (baud × 6)`。10 kHz 整数分频 4166、小数 170，量化误差约 1/4166 ≈ 0.024%，比 10 MHz 档（clkdiv 约 4.17）更细；低速档的分频抖动不是瓶颈。
+- guard 量子：`32 × divider / clk_sys`，即 32 个 PIO 控制拍；10 kHz 为 533 µs。slot 必须取“帧时 + 整数个量子”，不能取帧时本身。
+- ARM 相位准入：`period_cycles = clk_sys / baud`，10 kHz 为 25,000；相位表只允许 1..31，远小于半个 bit（12,500 cycles），低速下相位准入反而最宽松。
+- 环回周期：`slot × 节点数`。它同时是参考发射周期、feedback 超时和维护 ACK 的物理上限，必须按“帧时 + 每跳重装余量”取，不能按帧时取。
+
+**速率阶梯（推导值；帧长 40/174 B 为命令/四节点实际帧快照）。**
+
+| baud | 位宽 | 40 B | 174 B | guard 量子 | 4 节点环回（按推荐档位） |
+|---|---:|---:|---:|---:|---:|
+| 10 kHz | 100 µs | 32.0 ms | 139.2 ms | 533 µs | 600 ms（slot 150 ms） |
+| 100 kHz | 10 µs | 3.2 ms | 13.9 ms | 53.3 µs | 60 ms（slot 15 ms） |
+| 1 MHz | 1 µs | 320 µs | 1.39 ms | 5.33 µs | 8 ms（level 19，slot 2 ms） |
+| 5 MHz | 200 ns | 64 µs | 278 µs | 1.07 µs | 2 ms（slot 500 µs） |
+| 10 MHz | 100 ns | 32 µs | 139 µs | 0.53 µs | 8 ms（level 0，slot 2 ms） |
+
+档位与帧长不是一回事：1 MHz 的 2 ms slot 对 174 B 留 0.61 ms 余量；10 kHz 的 150 ms slot 对 174 B 留 10.8 ms（约 7.7%），已含每跳重装余量。5 MHz 的 500 µs slot 对 174 B 留 222 µs，应在 L0 实测后再定。
+
+**档位生成（追加在 level 22 之后，保持 0..22 编号与既有 CRC 不变）。**
+
+| level | baud | slot | 定位 |
+|---|---|---|---|
+| 23 | 10 kHz | 150 ms | 4 节点引导环（174 B）；首个台架切片 |
+| 24 | 100 kHz | 15 ms | 4 节点中间档 |
+| 25 | 5 MHz | 500 µs | 4 节点补齐档 |
+
+1 MHz 与 10 MHz 复用既有 level 19 / level 0；不新增 8 节点项。`TDMA_OPERATING_PROFILE_COUNT` 为 26（23 + 3）。`TDMA_OPERATING_PROFILE_MIN/MAX_CYCLE_PERIOD_NS`、`tests/unit/test_tdma_operating_profile.c` 与 `OPMode:CATalog?` 工具解析必须同步；新增项只经 STOP 下的 `OPMode:STAGe/APPLy` 生效。`tdma_operating_profile_find_baud()` 只按 baud 返回首个匹配，选档须用 `find_pair(baud, slot)`。
+
+**低速档会打破的既有假设。**
+
+1. **线时 ≤ TDMA 相位 WCET 的编译期断言。** `app_runtime.c` 用编译期 `BOARD_TDMA_SPI_BAUD_HZ`（10 MHz）断言最大线时 ≤ `PROJECT_CORE1_TDMA_BACKGROUND_WCET_CYCLES`；10 kHz 的最坏帧线时约为该预算的 400 倍。flight 路径本身是“提交 + 有界轮询”的异步路径，参考侧也明确允许完成在后续服务拍才收割，但该前提被打破后必须用实测证明 TDMA 相位 WCET、迟到与 IRQ 预算均未变化，不能只靠“代码看起来不等待”。
+2. **固定 1 ms 的 TX 完成余量**，见上表；低速长帧在完成点附近可能被判超时。
+3. **固定 50 ms 的维护 ACK 超时**，见上表；600 ms 圈回时间大于超时，重试只会把 generation 推高。
+4. **“无标定 = topology probe”**：产品过程映像的 ARM 目前必须带 calibration stage，或落在会停用 flight engine 的 probe 模式；低速引导环如果要承载命令，必须新增一条显式的免标定产品 ARM 语义。
+5. **DPLL/VDC 的样本率假设**：1.5 ms 表与 600 ms 圈不是同一量纲；低速档必须把 VDC/DPLL 置于 STOP 或显式 SKIPPED，不能用“仍然收得到帧”推断锁相可用。
+6. **启动/工具窗口**：2 圈对齐在 4 节点 10 kHz 是 1.2 s；任何“5 s 内 UP”的脚本都要按档位换算，不能用固定帧数。
+7. **诊断捕获的语义**：4 ns 采样网格配 100 µs 位宽只看到电平；低速波形证据必须来自示波器或新的按位宽缩放的捕获，不能复用现有 SCK 捕获。
+
+**结论。** 物理与时序在算术上**成立**（物理层与从板重装仍须 L0 台架确认）：分频、guard、帧长、RX 扫描、ARM 相位准入都在低速下更宽松，10 kHz 甚至比 10 MHz 有更大的相位与量化余量。当前软件**不可行**：四处硬门槛（baud 区间、档位目录、TX 期限、维护 ACK）加一处语义断点（免标定 ARM）会分别把 10 kHz 拒在 ARM、发射、命令和标定之外。因此定位只能是**4 节点引导/诊断档**：可用来验证线序、心跳和少量命令，不能作为产品运行档，也不能替代高速标定。
+
+**执行路径（A 路：改现有基础件，不新写 PHY）。**
+
+| 阶段 | 目标 | 改动 | 门禁 / 回退 |
+|---|---|---|---|
+| L0 物理前置 | 把“100 µs 位宽、139 ms CS 低电平”从待测变已知 | 不改产品代码；用台架 SPI 主设备或临时测试固件在 STOP 下静态发 40/174 B 帧，示波器测 SCK/CS/DATA 与驱动/隔离器 | 边沿单调、CS 正常回高、误码 0/1e4；不通过则停止，不改固件 |
+| L1 目录与准入 | 让 10 kHz / 100 kHz / 5 MHz 成为 4 节点合法档位 | 追加 level 23–25；`COUNT` 同步；新增按 (baud, slot) 查档的助手；两处 baud 区间改为查表 + `slot ≥ slot_min(N)` 校验；host 覆盖 N=2..4 与 N>4 拒绝 | host 全绿；负测：目录外 baud、slot=帧时、N>4、旧档 CRC 不变；失败只回退新增项，不动 0..22 |
+| L2 TX 期限 | 长帧不再误判完成超时 | `tdma_pio_spi_phys_flight_io.c` 的 `+1 ms` 改为 `wire_ns + max(2 × Core1 表周期, 1 ms)`（或用 `2 × cycle_period_ns` 作保守上界）；host 覆盖 139 ms 帧 + 1.5 ms 服务 | 1 MHz/10 MHz quick P3 不回归；10 kHz 正常完成时 `tx_timeout_count == 0`；真挂死仍在派生期限内恢复 |
+| L3 免标定 ARM | 让过程映像与维护邮箱在无 stage 时上线 | **已批准 B（2026-11-04）**：`TDMA_RING_FLAG_BRINGUP_NO_CAL` + STOP-only `RING:BRINGup <0|1>`；无 stage ARM 固定相位 2..31、保持 flight engine，并按 slot 顺序填 bring-up topology（process image 需要），禁写 flash 标定、禁 DPLL 入口；A 合成 stage 不采用 | 未置 flag 仍拒绝；置 flag 后四板 10 kHz 有 UP/DOWN 与过程映像；不产生标定记录；失败回到 probe 模式 |
+| L4 命令通道 | 低速下 CAL/维护命令可完成 | `tdma_maintenance_runtime.c` 的 ACK 超时改为按 `feedback_timeout_ns` 派生并设上限；保留 3 次重试与 generation 语义；超时/nack 分开计数 | 单帧命令 ≤2 圈完成（7 帧命令按 7×2 圈预算，10 kHz 约 8.4 s）、`tx_retries == 0`、`tx_fail == 0`；断链时 3 次后 fail 且可恢复；不改变高速档 50 ms 行为 |
+| L5 阶梯与切换 | 4 节点 10k→100k→1M→5M→10M 可重复 | 每档 STOP → STAGE → APPLY →（高速段重新 stage calibration）→ ARM → START；低速段只 `clear_calibration_stage()`，不 commit；每档 60 s 观测 | 每档 `up_sequence` 单调、无 `WINDOW_MISSED`、无 `PAYLOAD_STARVATION`；切换前后 `config_seq/applied_config_seq` 对账；DPLL 只在 ≥1 MHz 评估 |
+| L6 退出/回退 | 失败可回到产品档 | STOP → 默认 level 0 → 必要时重上电恢复训练记录 → 重新 stage/ARM；低速档不写 flash | 回退后 1 MHz/10 MHz 基线复跑通过；旧的低速计数不进入新产品会话 |
+
+**验收矩阵。**
+
+| 层 | 用例 | 通过判据 |
+|---|---|---|
+| host | 档位目录、分频与 guard、(baud, slot) 一致性、N=2..4 准入、N>4 拒绝、TX 期限派生、ACK 超时派生 | 新增/既有用例全绿；负测按预期拒绝；不改变既有档 CRC |
+| 四板（4 节点，必验） | 10 kHz/150 ms 引导环、过程映像、命令/ACK、STOP/APPLY、无 stage ARM | UP/DOWN 单调；命令 ≤2 圈；无标定写入；STOP 后无残留 |
+| 示波器 | SCK/CS/DATA 在 100 µs 位宽与长 CS 下的波形 | 边沿、电平、占空比符合驱动规格；CS 低电平期间无异常 |
+| 负测 | 目录外 baud、slot=帧时、N>4、未授权免标定 ARM | 分别拒绝且 reason/计数正确，不静默降级 |
+
+**禁止改。** `clk_sys`；PIO 程序与 `TDMA_ORIGIN_CONTROL_CYCLES_PER_BIT` / guard 常量；`physical_bytes` 上界；wire 帧型/长度；标定 flash 单记录 schema；Core1 相内阻塞；运行中热切换。不得把低速档设为 `PROJECT_TDMA_SPI_BAUD_HZ` 的编译期默认值：CMake 白名单只服务 10–50 MHz 的默认构建，低速默认值会让 `APP_REALTIME_WIRE_MAX_CYCLES` 断言直接失败。低速会话只 `clear_calibration_stage()`，**禁止 commit**，避免覆盖 flash 唯一标定记录。
+
+**未决项（台架）。** 100 µs 位宽与 139 ms CS 低电平在 ISO1452/线缆上的眼图与共模；从板 RX→TX 重装（cut-through）延迟的实测上界，它决定 slot 余量而不是 guard 量子；600 ms 圈 + 1.5 ms Core1 服务下发射相位抖动与环内多帧重叠；`tdma_event_observer` 在 600 ms 周期下的 `join_timeout_cycles` 与 history 容量；OTA/BOOTSEL 刷写路径的 counter/签名门禁。以上均需实测，不能由 host 结果替代。
 
 ### Ring reason code
 
@@ -411,7 +498,7 @@ Core0 准备、Core1 固定窗口选择、PIO/DMA 发送；`TDMA_RECOVERY_BUFFER
 
 维护流 RX 重组器在 **header 不一致**时放弃未完成的旧帧并以新帧头重启，不永久拒绝后续帧；重复 chunk 只计 `duplicate_count`，不重复复制。单次 chunk 丢失不得 wedge 整个 run；整帧丢失的补偿属于上层 per-stream ACK/重试，不在重组器内伪造完成。
 
-维护帧采用 stop-and-wait ACK：TX 在整帧发完后保留队列槽位，接收端经 process-image ACK 席位回 `stream_id:generation + result`（诊断字节 `0xA0|result`，与命令回复的 `ACK_FLAG_COMMAND` 区分）；源端 50 ms 超时、最多 3 次、每次重试 generation+1，接收端按新 generation 重启重组。ACK 丢失/超时重传不得静默丢帧；重试耗尽计数并释放槽位。每个目标各回一份维护 ACK，源端按 required_mask 全覆盖才释放；命令回复优先占用 ACK 席位，维护 ACK 仅在无命令回复时发布，避免延迟命令终态；7 帧命令的 stop-and-wait 需 ≥2 s 环窗口预算。
+维护帧采用 stop-and-wait ACK：TX 在整帧发完后保留队列槽位，接收端经 process-image ACK 席位回 `stream_id:generation + result`（诊断字节 `0xA0|result`，与命令回复的 `ACK_FLAG_COMMAND` 区分）；源端 50 ms 超时（高速档基线；低速引导档按 `feedback_timeout_ns` 派生，见低速档一节）、最多 3 次、每次重试 generation+1，接收端按新 generation 重启重组。ACK 丢失/超时重传不得静默丢帧；重试耗尽计数并释放槽位。每个目标各回一份维护 ACK，源端按 required_mask 全覆盖才释放；命令回复优先占用 ACK 席位，维护 ACK 仅在无命令回复时发布，避免延迟命令终态；7 帧命令的 stop-and-wait 需 ≥2 s 环窗口预算。
 
 维护 TX 队列为 16 槽（可用 15），可在一个环启动内预排两条 7 帧命令并按序执行；环运行中再入队需要并发测试驱动，当前 HIL 覆盖预排队多批。队列满时显式拒绝，不静默覆盖。
 
