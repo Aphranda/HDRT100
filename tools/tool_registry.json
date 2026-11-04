@@ -2,404 +2,37 @@
   "schema_version": 1,
   "tools": [
     {
-      "id": "TOOL-TDMA-SEAT-ACCEPTANCE",
-      "purpose": "Read-only first-class seat acceptance: judge SYSTem:TDMA:SEAT:HEALth? and its evidence pages, or re-evaluate a saved capture offline",
-      "domain": "TRIGGER",
-      "owner": "TRIGGER tool maintenance",
-      "lifecycle": "EXPERIMENTAL",
-      "operation": "DEVICE_READ",
-      "entrypoints": [
-        "tools/sync_trigger/seat_acceptance.py"
-      ],
-      "files": [
-        {
-          "path": "tools/sync_trigger/seat_acceptance.py",
-          "role": "entrypoint"
-        }
-      ],
-      "depends_on": [],
-      "external_dependencies": [
-        "pyserial"
-      ],
-      "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
-      "handoff_evidence": null,
-      "notes": "Issues queries only: STOP/START/config commands are never sent, so it cannot disturb a bench session owned by another operator. Modes are mutually exclusive and required (--port / --from-json / --self-test), so there is no fallback that opens a port by accident. Field counts are cross-checked against the firmware SCPI handlers by tests/python/test_seat_acceptance_tool.py."
-    },
-    {
-      "id": "TOOL-T2-BENCH-PROBE",
-      "purpose": "T2 four-board bench chain: enable/verify the reservation runtime and collect prediction, action, seat and lane evidence",
-      "domain": "TRIGGER",
-      "owner": "TRIGGER tool maintenance",
-      "lifecycle": "EXPERIMENTAL",
-      "operation": "DEVICE_CONFIGURE",
-      "entrypoints": [
-        "tools/sync_trigger/t2_bench_probe.py",
-        "tools/sync_trigger/t2_workflow.py"
-      ],
-      "files": [
-        {
-          "path": "tools/sync_trigger/t2_bench_probe.py",
-          "role": "entrypoint"
-        },
-        {
-          "path": "tools/sync_trigger/t2_workflow.py",
-          "role": "entrypoint"
-        }
-      ],
-      "depends_on": [
-        "TOOL-SCPI-COMMON"
-      ],
-      "external_dependencies": [],
-      "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
-      "handoff_evidence": null,
-      "notes": "Registered late: both scripts were added by the T2 bench work and were missing from this registry. t2_bench_probe drives a live four-board run (STOP-configure-ARM-START, sampling, STOP) and writes an evidence bundle under out/HardwareAcceptance; it must be invoked with an explicit output directory or an intended mode, because an unknown argument falls through to a full default run."
-    },
-    {
-      "id": "TOOL-T2-DEPLOY-ACTION-PROBE",
-      "purpose": "T2 deploy/action/fence host model: archived implementation plus an import-safe compatibility wrapper",
-      "domain": "TRIGGER",
-      "owner": "TRIGGER tool maintenance",
-      "lifecycle": "UNASSESSED",
-      "operation": "OFFLINE",
-      "entrypoints": [
-        "tools/t2_deploy_action_probe/t2_deploy_action_probe.py"
-      ],
-      "files": [
-        {
-          "path": "tools/t2_deploy_action_probe/t2_deploy_action_probe.py",
-          "role": "compatibility_wrapper"
-        }
-      ],
-      "depends_on": [],
-      "external_dependencies": [],
-      "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
-      "handoff_evidence": null,
-      "notes": "Import-safe wrapper keeps tests/python/test_t2_deploy_action_probe.py runnable; the tools migration archived the implementation as a deletable candidate and its reference audit missed this test import (also not importable because the archive directory name contains a hyphen). Retire wrapper and test together once the TOOLS owner confirms the model is no longer wanted."
-    },
-    {
-      "id": "TOOL-HOST-EVIDENCE-CLOCK",
-      "purpose": "High-resolution monotonic host timestamp identity for auditable evidence",
+      "id": "TOOL-ACCEPTANCE-GATE",
+      "purpose": "Credential routing and host acceptance gate: classify a staged change, run host tests, verify the staged receipt.",
       "domain": "TOOLS",
-      "owner": "Host evidence maintenance",
+      "owner": "TOOLS tool maintenance",
       "lifecycle": "EXPERIMENTAL",
       "operation": "OFFLINE",
-      "entrypoints": [],
+      "entrypoints": [
+        "tools/acceptance/host_acceptance.py",
+        "tools/acceptance/host_acceptance_workflow.py"
+      ],
       "files": [
         {
-          "path": "tools/common/host_evidence_clock.py",
+          "path": "tools/acceptance/credential_scope.py",
           "role": "module"
+        },
+        {
+          "path": "tools/acceptance/host_acceptance.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/acceptance/host_acceptance_workflow.py",
+          "role": "entrypoint"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
-      "dependency_review": "COMPLETE",
+      "dependency_review": "PENDING",
       "aliases": [],
-      "validation": [
-        "tests/python/test_host_evidence_clock.py"
-      ],
-      "handoff_evidence": "docs/tools/DOCS_TOOLS_TASK_PROGRESS.md",
-      "notes": "Pure standard-library capability using perf_counter/QPC identity. Consumers bind schema, implementation, monotonicity, adjustability and declared resolution; it does not synchronize clocks or qualify physical event timing."
-    },
-    {
-      "id": "TOOL-VDC-JOINT-WORKFLOW",
-      "purpose": "Pinned inputs and outer four-board lifecycle for VDC joint capture",
-      "domain": "VDC",
-      "owner": "VDC workflow maintenance",
-      "lifecycle": "EXPERIMENTAL",
-      "operation": "DEVICE_CONFIGURE",
-      "entrypoints": [],
-      "files": [
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/.gitattributes",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/base_probe.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/direct_rx.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/exact_match.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/external_monitor.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_native_report.json",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_phase_report.json",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_summary.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/late_scope_adapter.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/legacy_scope_reader.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/local_follow.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/longwindow.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/native_trace.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/observer_snapshot.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_hil.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_trial.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/parallel_startup.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/phase_timer1.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/probe_support.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/quiet_startup.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/run_output.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/stopped_baseline.json",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/tap_baseline.json",
-          "role": "resource"
-        },
-        {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/typed_tx.py",
-          "role": "resource"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/base.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/internal_seal.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/lifecycle.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/direct.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/follow.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/longwindow.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/match.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/observer.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/phase.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/run_output.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/runtime_base.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/trace.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/typed.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/workflows/vdc_joint_capture/README.md",
-          "role": "documentation"
-        }
-      ],
-      "depends_on": [
-        "TOOL-DPLL-OBSERVATION-DECODE",
-        "TOOL-HOST-EVIDENCE-CLOCK",
-        "TOOL-SCPI-COMMON",
-        "TOOL-TDMA-RING-MONITOR",
-        "TOOL-VDC-PROBE-SUPPORT"
-      ],
-      "external_dependencies": [
-        "pyserial for four-board hardware runs"
-      ],
-      "dependency_review": "COMPLETE",
-      "aliases": [],
-      "validation": [
-        "tests/python/test_vdc_priority_joint_capture.py",
-        "tests/python/test_vdc_joint_lifecycle.py",
-        "tests/python/test_vdc_internal_seal.py",
-        "tests/python/test_vdc_joint_runtime_base.py",
-        "tests/python/test_vdc_joint_run_output.py",
-        "tests/python/test_vdc_joint_phase.py",
-        "tests/python/test_vdc_joint_longwindow.py",
-        "tests/python/test_vdc_joint_trace.py",
-        "tests/python/test_vdc_joint_follow.py",
-        "tests/python/test_vdc_joint_observer.py",
-        "tests/python/test_vdc_joint_match.py",
-        "tests/python/test_vdc_joint_direct.py",
-        "tests/python/test_vdc_joint_typed.py",
-        "tests/python/test_vdc_joint_base.py",
-        "tests/python/test_vdc_probe_support.py"
-      ],
-      "handoff_evidence": "docs/tools/DOCS_TOOLS_TASK_PROGRESS.md",
-      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json before import; tracked code owns the complete internal-seal runtime from outer STOP/RAM/child/restore through base command/export state. Archived lineage stays pinned as evidence with a zero-file executable closure. Detached-worktree offline recomputation and hardware rerun handoff are recorded in DOCS_TOOLS_TASK_PROGRESS. No Flash writes; vector/reference-injection scenarios remain separate."
-    },
-    {
-      "id": "TOOL-VDC-PROBE-SUPPORT",
-      "purpose": "Pure parsing and provenance support for VDC four-board probes",
-      "domain": "VDC",
-      "owner": "VDC tool maintenance",
-      "lifecycle": "EXPERIMENTAL",
-      "operation": "OFFLINE",
-      "entrypoints": [],
-      "files": [
-        {
-          "path": "tools/domains/vdc/priority_trace/probe_support.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/vdc/priority_trace/README.md",
-          "role": "documentation"
-        }
-      ],
-      "depends_on": [],
-      "external_dependencies": [],
-      "dependency_review": "COMPLETE",
-      "aliases": [],
-      "validation": [
-        "tests/python/test_vdc_probe_support.py"
-      ],
+      "validation": [],
       "handoff_evidence": null,
-      "notes": "Pure host leaf shared by the joint workflow and priority-trace tools. Import has no device side effects; the archived source remains pinned as migrated lineage."
-    },
-    {
-      "id": "TOOL-HDO-RAW-READER",
-      "purpose": "HDO frozen RAW BYTE transport and offline block decoder",
-      "domain": "TOOLS",
-      "owner": "Scope transport maintenance",
-      "lifecycle": "EXPERIMENTAL",
-      "operation": "DEVICE_CONFIGURE",
-      "entrypoints": [],
-      "files": [
-        {
-          "path": "tools/common/hdo_scope/reader.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/common/hdo_scope/README.md",
-          "role": "documentation"
-        }
-      ],
-      "depends_on": [
-        "TOOL-HOST-EVIDENCE-CLOCK"
-      ],
-      "external_dependencies": [
-        "PyVISA and VISA/USB backend for hardware; Python standard library for decoding"
-      ],
-      "dependency_review": "COMPLETE",
-      "aliases": [],
-      "validation": [
-        "tests/python/test_hdo_scope_migration.py"
-      ],
-      "handoff_evidence": null,
-      "notes": "Extracted from frozen four-channel RAW reader; no out imports or board access. Explicit resource/identity, injected instrument for tests. Destination hardware acceptance and full handoff remain separately qualified."
-    },
-    {
-      "id": "TOOL-VDC-SPARSE-SCOPE",
-      "purpose": "Explicit HDO setup for sparse DPLL scope observation",
-      "domain": "VDC",
-      "owner": "VDC tool maintenance",
-      "lifecycle": "EXPERIMENTAL",
-      "operation": "DEVICE_CONFIGURE",
-      "entrypoints": [],
-      "files": [
-        {
-          "path": "tools/domains/vdc/scope_capture/sparse.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/vdc/scope_capture/migration.json",
-          "role": "resource"
-        },
-        {
-          "path": "tools/domains/vdc/scope_capture/README.md",
-          "role": "documentation"
-        }
-      ],
-      "depends_on": [
-        "TOOL-HDO-RAW-READER",
-        "TOOL-HOST-EVIDENCE-CLOCK"
-      ],
-      "external_dependencies": [],
-      "dependency_review": "COMPLETE",
-      "aliases": [],
-      "validation": [
-        "tests/python/test_hdo_scope_migration.py",
-        "tests/python/test_vdc_priority_joint_capture.py",
-        "tests/python/test_vdc_scope_evidence.py"
-      ],
-      "handoff_evidence": null,
-      "notes": "Explicit setup replaces historical scope inheritance/monkey patches for joint capture. Does not qualify the remaining board adapter chain or unsampled phase."
+      "notes": "Registered from the 2026-11-04 governance baseline."
     },
     {
       "id": "TOOL-ANALYZER-BURST",
@@ -668,6 +301,56 @@
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-ARCHIVE",
+      "purpose": "Frozen historical copies kept for traceability; never executed by the active workflow.",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "ARCHIVED",
+      "operation": "OFFLINE",
+      "entrypoints": [],
+      "files": [
+        {
+          "path": "tools/archive/hardware_acceptance/README.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/hardware_acceptance/p3_hardware_acceptance.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/archive/scratch/README.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/scratch/condense_overview_report.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/archive/scratch/report_logic_cleanup.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/archive/scratch/sync-build.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/archive/scratch/update_dpll_report_20260919.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/archive/scratch/update_overview_precision.py",
+          "role": "module"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Registered from the 2026-11-04 governance baseline."
     },
     {
       "id": "TOOL-ARTIFACT-CHECKSUM",
@@ -1372,6 +1055,117 @@
       "notes": "Host process supervisor and historical runtime-state JSON; personal paths/state are migration debt, not portable configuration. Do not launch during governance scans."
     },
     {
+      "id": "TOOL-CONSOLE-DEBUG-DEMO",
+      "purpose": "Single-port trigger debug demo: one Tk GUI and one local TCP pass-through share a single serial or USB TMC session, drive the REFMEM unified control plane across all boards, run conventional single-board OTA with automatic receipts, and expose node-sequence application SCPI",
+      "domain": "CONSOLE",
+      "owner": "CONSOLE domain owner",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "MIXED",
+      "entrypoints": [
+        "tools/domains/trigger/trigger_debug_demo/trigger_debug_demo.py",
+        "tools/domains/trigger/trigger_debug_demo/__main__.py"
+      ],
+      "files": [
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/trigger_debug_demo.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/__main__.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/app.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/catalog.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/device.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ota.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ota_workflow.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/state.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/scheduler.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/page.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/router.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/pump.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/dialogs.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/workflow.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/settings.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/errors.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/widgets.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/theme.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/README.md",
+          "role": "documentation"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [
+        "pyserial",
+        "pyvisa"
+      ],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [
+        "tests/python/test_trigger_debug_demo.py",
+        "tests/python/test_trigger_debug_ui.py"
+      ],
+      "handoff_evidence": null,
+      "notes": "GUI and TCP clients share one Dispatcher and therefore one transport session; no second port or second VISA session is opened. The REFMEM channel uses SYSTem:CTRL:EXECute with target/required masks and reads aggregate plus per-board ACK evidence. The application channel sends TRIGger/CONFigure SCPI to the coordinator. Conventional OTA uses BEGIN/PBEGIN+DATA+END and explicit BOOT/COMMIT, and writes an OTA receipt plus .sha256 sidecar automatically. TDMA stream OTA is read-only until the firmware path closes. Simulation mode implements the same surface for offline demos. Not yet bench-tested."
+    },
+    {
       "id": "TOOL-DEBUG-MODEL-OVERLAY-VALIDATE",
       "purpose": "debug model overlay validate",
       "domain": "SYNC",
@@ -2070,16 +1864,36 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/hardware_acceptance/p3_hardware_acceptance.py",
+        "tools/hardware_acceptance/hardware_acceptance_workflow.py",
         "tools/hardware_acceptance/single_board_hardware_acceptance.py",
-        "tools/vdc_priority_trace/vdc_priority_joint_capture.py",
+        "tools/hardware_acceptance/workflow_steps.py",
         "tools/vdc_priority_trace/DPLL60_workflow.py",
-        "tools/hardware_acceptance/hardware_acceptance_workflow.py"
+        "tools/vdc_priority_trace/vdc_priority_joint_capture.py"
       ],
       "files": [
         {
+          "path": "tools/hardware_acceptance/acceptance_errors.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/hardware_acceptance/bench_config.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/hardware_acceptance/check_board_firmware.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/hardware_acceptance/dpll_capture_retry.py",
+          "role": "module"
+        },
+        {
           "path": "tools/hardware_acceptance/hardware_acceptance_workflow.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/hardware_acceptance/night_preflight.py",
+          "role": "module"
         },
         {
           "path": "tools/hardware_acceptance/p3_alarm_policy.py",
@@ -2090,11 +1904,19 @@
           "role": "module"
         },
         {
-          "path": "tools/hardware_acceptance/p3_hardware_acceptance.py",
+          "path": "tools/hardware_acceptance/single_board_hardware_acceptance.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/hardware_acceptance/single_board_hardware_acceptance.py",
+          "path": "tools/hardware_acceptance/source_scope.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/hardware_acceptance/workflow_steps.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_priority_trace/DPLL60_workflow.py",
           "role": "entrypoint"
         },
         {
@@ -2104,10 +1926,6 @@
         {
           "path": "tools/workflows/vdc_joint_capture/inputs.py",
           "role": "module"
-        },
-        {
-          "path": "tools/vdc_priority_trace/DPLL60_workflow.py",
-          "role": "entrypoint"
         }
       ],
       "depends_on": [
@@ -2131,6 +1949,62 @@
       ],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-HDO-RAW-READER",
+      "purpose": "HDO frozen RAW BYTE transport and offline block decoder",
+      "domain": "TOOLS",
+      "owner": "Scope transport maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "DEVICE_CONFIGURE",
+      "entrypoints": [],
+      "files": [
+        {
+          "path": "tools/common/hdo_scope/reader.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/common/hdo_scope/README.md",
+          "role": "documentation"
+        }
+      ],
+      "depends_on": [
+        "TOOL-HOST-EVIDENCE-CLOCK"
+      ],
+      "external_dependencies": [
+        "PyVISA and VISA/USB backend for hardware; Python standard library for decoding"
+      ],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": [
+        "tests/python/test_hdo_scope_migration.py"
+      ],
+      "handoff_evidence": null,
+      "notes": "Extracted from frozen four-channel RAW reader; no out imports or board access. Explicit resource/identity, injected instrument for tests. Destination hardware acceptance and full handoff remain separately qualified."
+    },
+    {
+      "id": "TOOL-HOST-EVIDENCE-CLOCK",
+      "purpose": "High-resolution monotonic host timestamp identity for auditable evidence",
+      "domain": "TOOLS",
+      "owner": "Host evidence maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "OFFLINE",
+      "entrypoints": [],
+      "files": [
+        {
+          "path": "tools/common/host_evidence_clock.py",
+          "role": "module"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": [
+        "tests/python/test_host_evidence_clock.py"
+      ],
+      "handoff_evidence": "docs/tools/DOCS_TOOLS_TASK_PROGRESS.md",
+      "notes": "Pure standard-library capability using perf_counter/QPC identity. Consumers bind schema, implementation, monotonicity, adjustability and declared resolution; it does not synchronize clocks or qualify physical event timing."
     },
     {
       "id": "TOOL-MODEL-TURNTABLE-LOAD-VALIDATE",
@@ -2574,19 +2448,37 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota/ota_stream_send/ota_stream_send.py"
+        "tools/ota/ota_stream_send/night_runner.py",
+        "tools/ota/ota_stream_send/ota_stream_send.py",
+        "tools/ota/ota_stream_send/ota_workflow.py"
       ],
       "files": [
+        {
+          "path": "tools/ota/ota_stream_send/night_runner.py",
+          "role": "entrypoint"
+        },
         {
           "path": "tools/ota/ota_stream_send/ota_stream_send.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/ota_stream_send/ota_stream_send.py",
-          "role": "compatibility_wrapper"
+          "path": "tools/ota/ota_stream_send/ota_workflow.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota/ota_stream_send/tdma_matrix.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/ota/ota_stream_send/tdma_night.py",
+          "role": "module"
         },
         {
           "path": "tools/ota_stream_send/README.md",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_stream_send/ota_stream_send.py",
           "role": "compatibility_wrapper"
         }
       ],
@@ -2825,6 +2717,87 @@
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-CMD-HIL",
+      "purpose": "RefMem command-plane HIL runners and catalog generators.",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "MIXED",
+      "entrypoints": [
+        "tools/refmem/refmem_cmd_reply_hil/refmem_cmd_reply_hil.py",
+        "tools/refmem/refmem_cmd_tdma_workflow/refmem_cmd_tdma_workflow.py",
+        "tools/refmem/refmem_command_catalog_gen.py",
+        "tools/refmem/refmem_config_txn_hil/refmem_config_txn_hil.py",
+        "tools/refmem/refmem_function_catalog_gen.py",
+        "tools/refmem/refmem_idle_hil/refmem_idle_hil.py",
+        "tools/refmem/refmem_lease_hil/refmem_lease_hil.py",
+        "tools/refmem/refmem_remote_txn_hil/refmem_remote_txn_hil.py",
+        "tools/refmem/refmem_scpi_catalog_extract.py",
+        "tools/refmem/refmem_transport_diag_hil/refmem_transport_diag_hil.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem/refmem_cmd_reply_hil/refmem_cmd_reply_hil.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_cmd_tdma_workflow/README.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/refmem/refmem_cmd_tdma_workflow/refmem_cmd_tdma_workflow.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_cmd_tdma_workflow/run_refmem_parser_reject_suite.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/refmem/refmem_cmd_tdma_workflow/run_refmem_parser_suite.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/refmem/refmem_command_catalog_gen.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_config_txn_hil/refmem_config_txn_hil.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_function_catalog_gen.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_idle_hil/refmem_idle_hil.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_lease_hil/refmem_lease_hil.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_remote_txn_hil/refmem_remote_txn_hil.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_scpi_catalog_extract.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_transport_diag_hil/refmem_transport_diag_hil.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Registered from the 2026-11-04 governance baseline."
     },
     {
       "id": "TOOL-REFMEM-NETWORK-VALIDATE",
@@ -4153,6 +4126,110 @@
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
     },
     {
+      "id": "TOOL-SYNC-T2-TOOLS",
+      "purpose": "T2 trigger bench probes and sequence workflow helpers.",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "MIXED",
+      "entrypoints": [
+        "tools/sync_trigger/sequence_workflow.py",
+        "tools/sync_trigger/t2_declare_lead_sweep.py",
+        "tools/sync_trigger/t2_iterate.py",
+        "tools/sync_trigger/t2_position_status_probe.py",
+        "tools/sync_trigger/t2_receipt.py",
+        "tools/sync_trigger/t2_sequence_sweep.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sync_trigger/sequence_workflow.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sync_trigger/t2_declare_lead_sweep.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sync_trigger/t2_iterate.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sync_trigger/t2_position_status_probe.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sync_trigger/t2_receipt.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sync_trigger/t2_sequence_sweep.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Registered from the 2026-11-04 governance baseline."
+    },
+    {
+      "id": "TOOL-T2-BENCH-PROBE",
+      "purpose": "T2 four-board bench chain: enable/verify the reservation runtime and collect prediction, action, seat and lane evidence",
+      "domain": "TRIGGER",
+      "owner": "TRIGGER tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "DEVICE_CONFIGURE",
+      "entrypoints": [
+        "tools/sync_trigger/t2_bench_probe.py",
+        "tools/sync_trigger/t2_workflow.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sync_trigger/t2_bench_probe.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sync_trigger/t2_workflow.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Registered late: both scripts were added by the T2 bench work and were missing from this registry. t2_bench_probe drives a live four-board run (STOP-configure-ARM-START, sampling, STOP) and writes an evidence bundle under out/HardwareAcceptance; it must be invoked with an explicit output directory or an intended mode, because an unknown argument falls through to a full default run."
+    },
+    {
+      "id": "TOOL-T2-DEPLOY-ACTION-PROBE",
+      "purpose": "T2 deploy/action/fence host model: archived implementation plus an import-safe compatibility wrapper",
+      "domain": "TRIGGER",
+      "owner": "TRIGGER tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "OFFLINE",
+      "entrypoints": [
+        "tools/t2_deploy_action_probe/t2_deploy_action_probe.py"
+      ],
+      "files": [
+        {
+          "path": "tools/t2_deploy_action_probe/t2_deploy_action_probe.py",
+          "role": "compatibility_wrapper"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Import-safe wrapper keeps tests/python/test_t2_deploy_action_probe.py runnable; the tools migration archived the implementation as a deletable candidate and its reference audit missed this test import (also not importable because the archive directory name contains a hyphen). Retire wrapper and test together once the TOOLS owner confirms the model is no longer wanted."
+    },
+    {
       "id": "TOOL-TDMA-RING-MONITOR",
       "purpose": "tdma ring monitor",
       "domain": "TDMA",
@@ -4241,6 +4318,56 @@
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
     },
     {
+      "id": "TOOL-TDMA-SEAT-ACCEPTANCE",
+      "purpose": "Read-only first-class seat acceptance: judge SYSTem:TDMA:SEAT:HEALth? and its evidence pages, or re-evaluate a saved capture offline",
+      "domain": "TRIGGER",
+      "owner": "TRIGGER tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "DEVICE_READ",
+      "entrypoints": [
+        "tools/sync_trigger/seat_acceptance.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sync_trigger/seat_acceptance.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [
+        "pyserial"
+      ],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Issues queries only: STOP/START/config commands are never sent, so it cannot disturb a bench session owned by another operator. Modes are mutually exclusive and required (--port / --from-json / --self-test), so there is no fallback that opens a port by accident. Field counts are cross-checked against the firmware SCPI handlers by tests/python/test_seat_acceptance_tool.py."
+    },
+    {
+      "id": "TOOL-TDMA-WORKFLOW",
+      "purpose": "TDMA bring-up workflow (bootstrap to ring) as a staged orchestration.",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "MIXED",
+      "entrypoints": [
+        "tools/tdma/tdma_workflow.py"
+      ],
+      "files": [
+        {
+          "path": "tools/tdma/tdma_workflow.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Registered from the 2026-11-04 governance baseline."
+    },
+    {
       "id": "TOOL-TESTS",
       "purpose": "tests",
       "domain": "VALIDATION",
@@ -4248,9 +4375,7 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/validation/run_biss_protocol_tests.ps1",
         "tools/project/run_portable_log_tests.ps1",
-        "tools/validation/run_portable_ota_tests.ps1",
         "tools/tests/run_biss_protocol_tests.ps1",
         "tools/tests/run_calibration_bias_tests.ps1",
         "tools/tests/run_calibration_bidirectional_tests.ps1",
@@ -4303,19 +4428,25 @@
         "tools/tests/run_tdma_traffic_scheduler_tests.ps1",
         "tools/tests/run_tdma_transport_frame_tests.ps1",
         "tools/tests/run_vdc_domain_tests.ps1",
-        "tools/tests/run_vdc_time_mapping_tests.ps1"
+        "tools/tests/run_vdc_time_mapping_tests.ps1",
+        "tools/validation/run_biss_protocol_tests.ps1",
+        "tools/validation/run_portable_ota_tests.ps1"
       ],
       "files": [
-        {
-          "path": "tools/validation/run_biss_protocol_tests.ps1",
-          "role": "compatibility_wrapper"
-        },
         {
           "path": "tools/project/run_portable_log_tests.ps1",
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/validation/run_portable_ota_tests.ps1",
+          "path": "tools/run_biss_protocol_tests.ps1",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/run_portable_log_tests.ps1",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/run_portable_ota_tests.ps1",
           "role": "compatibility_wrapper"
         },
         {
@@ -4383,6 +4514,50 @@
           "role": "test_runner"
         },
         {
+          "path": "tools/tests/run_ota_progress_watch_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_binding_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_bridge_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_carrier_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_codec_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_ingress_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_loopback_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_pump_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_relay_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_session_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_tdma_v2_adapter_tests.ps1",
+          "role": "test_runner"
+        },
+        {
           "path": "tools/tests/run_portable_log_tests.ps1",
           "role": "test_runner"
         },
@@ -4395,7 +4570,55 @@
           "role": "test_runner"
         },
         {
+          "path": "tools/tests/run_refmem_action_registry_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_all_host_tests.ps1",
+          "role": "test_runner"
+        },
+        {
           "path": "tools/tests/run_refmem_application_contract_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_bootstrap_hello_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_bootstrap_relay_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_bootstrap_transport_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_cmd_codec_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_cmd_fragment_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_cmd_frame_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_cmd_reply_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_command_aggregate_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_command_authority_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_command_catalog_tests.ps1",
           "role": "test_runner"
         },
         {
@@ -4403,11 +4626,47 @@
           "role": "test_runner"
         },
         {
+          "path": "tools/tests/run_refmem_control_route_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_domain_config_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_function_catalog_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_function_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_lease_table_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_lease_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_node_control_tests.ps1",
+          "role": "test_runner"
+        },
+        {
           "path": "tools/tests/run_refmem_node_load_sync_tests.ps1",
           "role": "test_runner"
         },
         {
+          "path": "tools/tests/run_refmem_param_pool_tests.ps1",
+          "role": "test_runner"
+        },
+        {
           "path": "tools/tests/run_refmem_pio_spi_adapter_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_position_reset_policy_tests.ps1",
           "role": "test_runner"
         },
         {
@@ -4427,6 +4686,10 @@
           "role": "test_runner"
         },
         {
+          "path": "tools/tests/run_refmem_sync_command_frame_tests.ps1",
+          "role": "test_runner"
+        },
+        {
           "path": "tools/tests/run_refmem_sync_frame_tests.ps1",
           "role": "test_runner"
         },
@@ -4440,6 +4703,14 @@
         },
         {
           "path": "tools/tests/run_refmem_table_registry_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_trigger_session_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_unified_control_host_tests.ps1",
           "role": "test_runner"
         },
         {
@@ -4472,6 +4743,22 @@
         },
         {
           "path": "tools/tests/run_tdma_flight_overlay_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_long_frame_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_maintenance_load_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_maintenance_stream_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_maintenance_tests.ps1",
           "role": "test_runner"
         },
         {
@@ -4511,7 +4798,19 @@
           "role": "test_runner"
         },
         {
+          "path": "tools/tests/run_tdma_seat_rotation_online_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_second_class_parser_tests.ps1",
+          "role": "test_runner"
+        },
+        {
           "path": "tools/tests/run_tdma_service_scheduler_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_spsc_index_tests.ps1",
           "role": "test_runner"
         },
         {
@@ -4523,6 +4822,10 @@
           "role": "test_runner"
         },
         {
+          "path": "tools/tests/run_tdma_transport_load_tests.ps1",
+          "role": "test_runner"
+        },
+        {
           "path": "tools/tests/run_vdc_domain_tests.ps1",
           "role": "test_runner"
         },
@@ -4531,15 +4834,11 @@
           "role": "test_runner"
         },
         {
-          "path": "tools/run_biss_protocol_tests.ps1",
+          "path": "tools/validation/run_biss_protocol_tests.ps1",
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/run_portable_log_tests.ps1",
-          "role": "compatibility_wrapper"
-        },
-        {
-          "path": "tools/run_portable_ota_tests.ps1",
+          "path": "tools/validation/run_portable_ota_tests.ps1",
           "role": "compatibility_wrapper"
         }
       ],
@@ -4584,7 +4883,8 @@
       "lifecycle": "EXPERIMENTAL",
       "operation": "OFFLINE",
       "entrypoints": [
-        "tools/tool_governance/tool_governance.py"
+        "tools/tool_governance/tool_governance.py",
+        "tools/tool_governance/workflow_triage.py"
       ],
       "files": [
         {
@@ -4600,6 +4900,10 @@
           "role": "entrypoint"
         },
         {
+          "path": "tools/tool_governance/workflow_triage.py",
+          "role": "entrypoint"
+        },
+        {
           "path": "tools/tool_layout.json",
           "role": "resource"
         },
@@ -4609,6 +4913,10 @@
         },
         {
           "path": "tools/tool_registry.schema.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/tool_workflow_triage.json",
           "role": "resource"
         }
       ],
@@ -4625,117 +4933,6 @@
       ],
       "handoff_evidence": null,
       "notes": "Explicit invocation only; no pre-commit integration, entrypoint imports or hardware access. The versioned layout baseline rejects new root files, new top-level directories and new files inside frozen legacy roots while allowing classified roots to grow. Inventory hints are not a complete runtime graph; handoff qualification pending."
-    },
-    {
-      "id": "TOOL-CONSOLE-DEBUG-DEMO",
-      "purpose": "Single-port trigger debug demo: one Tk GUI and one local TCP pass-through share a single serial or USB TMC session, drive the REFMEM unified control plane across all boards, run conventional single-board OTA with automatic receipts, and expose node-sequence application SCPI",
-      "domain": "CONSOLE",
-      "owner": "CONSOLE domain owner",
-      "lifecycle": "EXPERIMENTAL",
-      "operation": "MIXED",
-      "entrypoints": [
-        "tools/domains/trigger/trigger_debug_demo/trigger_debug_demo.py",
-        "tools/domains/trigger/trigger_debug_demo/__main__.py"
-      ],
-      "files": [
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/trigger_debug_demo.py",
-          "role": "entrypoint"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/__main__.py",
-          "role": "entrypoint"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/app.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/catalog.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/device.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ota.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ota_workflow.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/__init__.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/state.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/scheduler.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/page.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/router.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/pump.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/dialogs.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/workflow.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/settings.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/errors.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/widgets.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/ui/theme.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/__init__.py",
-          "role": "module"
-        },
-        {
-          "path": "tools/domains/trigger/trigger_debug_demo/README.md",
-          "role": "documentation"
-        }
-      ],
-      "depends_on": [],
-      "external_dependencies": [
-        "pyserial",
-        "pyvisa"
-      ],
-      "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [
-        "tests/python/test_trigger_debug_demo.py",
-        "tests/python/test_trigger_debug_ui.py"
-      ],
-      "handoff_evidence": null,
-      "notes": "GUI and TCP clients share one Dispatcher and therefore one transport session; no second port or second VISA session is opened. The REFMEM channel uses SYSTem:CTRL:EXECute with target/required masks and reads aggregate plus per-board ACK evidence. The application channel sends TRIGger/CONFigure SCPI to the coordinator. Conventional OTA uses BEGIN/PBEGIN+DATA+END and explicit BOOT/COMMIT, and writes an OTA receipt plus .sha256 sidecar automatically. TDMA stream OTA is read-only until the firmware path closes. Simulation mode implements the same surface for offline demos. Not yet bench-tested."
     },
     {
       "id": "TOOL-TRIGGER-MEAS",
@@ -5070,6 +5267,204 @@
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
     },
     {
+      "id": "TOOL-VDC-JOINT-WORKFLOW",
+      "purpose": "Pinned inputs and outer four-board lifecycle for VDC joint capture",
+      "domain": "VDC",
+      "owner": "VDC workflow maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "DEVICE_CONFIGURE",
+      "entrypoints": [],
+      "files": [
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/.gitattributes",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/base_probe.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/direct_rx.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/exact_match.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/external_monitor.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_native_report.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_phase_report.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_summary.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/late_scope_adapter.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/legacy_scope_reader.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/local_follow.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/longwindow.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/native_trace.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/observer_snapshot.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_hil.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_trial.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/parallel_startup.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/phase_timer1.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/probe_support.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/quiet_startup.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/run_output.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/stopped_baseline.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/tap_baseline.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/typed_tx.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/base.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/internal_seal.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/lifecycle.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/direct.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/follow.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/longwindow.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/match.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/observer.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/phase.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/run_output.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/runtime_base.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/trace.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/typed.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/README.md",
+          "role": "documentation"
+        }
+      ],
+      "depends_on": [
+        "TOOL-DPLL-OBSERVATION-DECODE",
+        "TOOL-HOST-EVIDENCE-CLOCK",
+        "TOOL-SCPI-COMMON",
+        "TOOL-TDMA-RING-MONITOR",
+        "TOOL-VDC-PROBE-SUPPORT"
+      ],
+      "external_dependencies": [
+        "pyserial for four-board hardware runs"
+      ],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": [
+        "tests/python/test_vdc_priority_joint_capture.py",
+        "tests/python/test_vdc_joint_lifecycle.py",
+        "tests/python/test_vdc_internal_seal.py",
+        "tests/python/test_vdc_joint_runtime_base.py",
+        "tests/python/test_vdc_joint_run_output.py",
+        "tests/python/test_vdc_joint_phase.py",
+        "tests/python/test_vdc_joint_longwindow.py",
+        "tests/python/test_vdc_joint_trace.py",
+        "tests/python/test_vdc_joint_follow.py",
+        "tests/python/test_vdc_joint_observer.py",
+        "tests/python/test_vdc_joint_match.py",
+        "tests/python/test_vdc_joint_direct.py",
+        "tests/python/test_vdc_joint_typed.py",
+        "tests/python/test_vdc_joint_base.py",
+        "tests/python/test_vdc_probe_support.py"
+      ],
+      "handoff_evidence": "docs/tools/DOCS_TOOLS_TASK_PROGRESS.md",
+      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json before import; tracked code owns the complete internal-seal runtime from outer STOP/RAM/child/restore through base command/export state. Archived lineage stays pinned as evidence with a zero-file executable closure. Detached-worktree offline recomputation and hardware rerun handoff are recorded in DOCS_TOOLS_TASK_PROGRESS. No Flash writes; vector/reference-injection scenarios remain separate."
+    },
+    {
       "id": "TOOL-VDC-LATCH-VALIDATE",
       "purpose": "vdc latch validate",
       "domain": "VDC",
@@ -5258,6 +5653,71 @@
       "validation": [],
       "handoff_evidence": null,
       "notes": "Joint capture keeps the archived internal-seal path as a compatibility selector and pinned lineage evidence; tracked code owns the complete internal-seal runtime including base command/export state and pure probe support. Runtime out-code debt is closed; historical baseline and cross-workspace handoff remain explicit work. Do not assume vector fault-injection adapter is normal capture."
+    },
+    {
+      "id": "TOOL-VDC-PROBE-SUPPORT",
+      "purpose": "Pure parsing and provenance support for VDC four-board probes",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "OFFLINE",
+      "entrypoints": [],
+      "files": [
+        {
+          "path": "tools/domains/vdc/priority_trace/probe_support.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/vdc/priority_trace/README.md",
+          "role": "documentation"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": [
+        "tests/python/test_vdc_probe_support.py"
+      ],
+      "handoff_evidence": null,
+      "notes": "Pure host leaf shared by the joint workflow and priority-trace tools. Import has no device side effects; the archived source remains pinned as migrated lineage."
+    },
+    {
+      "id": "TOOL-VDC-SPARSE-SCOPE",
+      "purpose": "Explicit HDO setup for sparse DPLL scope observation",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "DEVICE_CONFIGURE",
+      "entrypoints": [],
+      "files": [
+        {
+          "path": "tools/domains/vdc/scope_capture/sparse.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/vdc/scope_capture/migration.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/vdc/scope_capture/README.md",
+          "role": "documentation"
+        }
+      ],
+      "depends_on": [
+        "TOOL-HDO-RAW-READER",
+        "TOOL-HOST-EVIDENCE-CLOCK"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": [
+        "tests/python/test_hdo_scope_migration.py",
+        "tests/python/test_vdc_priority_joint_capture.py",
+        "tests/python/test_vdc_scope_evidence.py"
+      ],
+      "handoff_evidence": null,
+      "notes": "Explicit setup replaces historical scope inheritance/monkey patches for joint capture. Does not qualify the remaining board adapter chain or unsampled phase."
     },
     {
       "id": "TOOL-VDC-SYNC-METROLOGY",

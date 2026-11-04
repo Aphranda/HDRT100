@@ -107,3 +107,23 @@ def test_unknown_tool_and_duplicate_rows_fail(tmp_path: Path) -> None:
     errors, _warnings = workflow_triage.check(root)
     assert any("duplicate triage row" in e for e in errors)
     assert any("not in tool_registry.json" in e for e in errors)
+
+
+def test_migration_target_is_reported_as_warning(tmp_path: Path) -> None:
+    root = _tree(
+        tmp_path, [_tool("TOOL-A")],
+        [{"tool": "TOOL-A", "form": "STANDALONE", "target_form": "WORKFLOW",
+          "milestone": "M7 校准训练 workflow", "reason": "x"}])
+    errors, warnings = workflow_triage.check(root)
+    assert errors == []
+    assert any("migration pending STANDALONE -> WORKFLOW (M7 校准训练 workflow)" in w
+               for w in warnings)
+
+
+def test_invalid_target_form_fails(tmp_path: Path) -> None:
+    root = _tree(
+        tmp_path, [_tool("TOOL-A")],
+        [{"tool": "TOOL-A", "form": "STANDALONE", "target_form": "BOGUS",
+          "reason": "x"}])
+    errors, _warnings = workflow_triage.check(root)
+    assert any("target_form 'BOGUS'" in e for e in errors)

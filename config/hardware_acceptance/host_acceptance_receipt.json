@@ -21,24 +21,24 @@
     "tests/python/test_docs_check.py",
     "tests/python/test_constraint_sync.py"
   ],
-  "duration_s": 8.969,
+  "duration_s": 10.188,
   "returncode": 0,
   "summary": {
-    "passed": 80,
+    "passed": 82,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "80 passed in 8.16s",
+  "summary_line": "82 passed in 9.12s",
   "tail": [
-    "........................................................................ [ 90%]",
-    "........                                                                 [100%]",
-    "80 passed in 8.16s"
+    "........................................................................ [ 87%]",
+    "..........                                                               [100%]",
+    "82 passed in 9.12s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "1ab3685f97b6311193e652e960a963f7423f5352e27b2e5aabe8841a0bd5d3dc",
+  "fingerprint": "8bb75b4a7091005e13be5c5202fcbb76f358b0af14ee844c58f5199a8c68fc89",
   "file_count": 1142,
-  "working_fingerprint": "d4f1441e46e678b1efea452ace26d4e1bef283d1a7eb093844eaf09eae137db7",
-  "started_at_utc": "2026-11-04T10:12:35.184024+00:00"
+  "working_fingerprint": "894da07a17e4ac4bfb1b218fe691375b0703cec78645cbe83dce8d7b15e1cbea",
+  "started_at_utc": "2026-11-04T10:16:35.377514+00:00"
 }

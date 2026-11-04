@@ -178,20 +178,30 @@ def check(root: Path, registry: dict, schema: dict, layout: dict | None = None) 
 
 
 def _check_registry(root: Path, registry: dict, schema: dict) -> dict:
-    from jsonschema import Draft202012Validator
-    from referencing import Registry
+    try:
+        from jsonschema import Draft202012Validator
+        from referencing import Registry
+    except ImportError:  # C2: pre-commit must run without third-party packages
+        Draft202012Validator = None
+        Registry = None
 
     errors, warnings = [], []
     if not isinstance(schema, dict) or schema.get("$id") != "urn:hdrt100:tools-registry:v1":
         return dict(passed=False, errors=["schema identity missing or unsupported"], warnings=[])
-    try:
-        Draft202012Validator.check_schema(schema)
-        validator = Draft202012Validator(schema, registry=Registry())
-        errors.extend(f"schema {list(e.absolute_path)}: {e.message}" for e in validator.iter_errors(registry))
-    except Exception as exc:
-        # Invalid schemas and unresolved references must fail closed. An empty
-        # resource registry never retrieves remote schema documents.
-        errors.append(f"schema validation failed: {type(exc).__name__}: {exc}")
+    if Draft202012Validator is None:
+        warnings.append(
+            "jsonschema not installed: schema validation skipped "
+            "(ownership/layout/catalog checks still run)")
+    else:
+        try:
+            Draft202012Validator.check_schema(schema)
+            validator = Draft202012Validator(schema, registry=Registry())
+            errors.extend(f"schema {list(e.absolute_path)}: {e.message}"
+                          for e in validator.iter_errors(registry))
+        except Exception as exc:
+            # Invalid schemas and unresolved references must fail closed. An empty
+            # resource registry never retrieves remote schema documents.
+            errors.append(f"schema validation failed: {type(exc).__name__}: {exc}")
     if errors:
         return dict(passed=False, errors=errors, warnings=warnings)
     ids, ownership = {}, {}
@@ -369,6 +379,8 @@ def main(argv=None) -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--check-catalog", action="store_true",
                         help="with check, also verify the generated README block")
+    parser.add_argument("--quiet", action="store_true",
+                        help="with check, print the summary and first errors only")
     args = parser.parse_args(argv)
     if args.check_catalog and args.command != "check":
         parser.error("--check-catalog is only valid with check")
@@ -387,6 +399,12 @@ def main(argv=None) -> int:
             if args.command == "catalog" and not code:
                 print(catalog(registry), end="")
                 return 0
+        if args.quiet:
+            print(f"SUMMARY {'PASS' if result['passed'] else 'FAIL'} "
+                  f"errors={len(result['errors'])} warnings={len(result['warnings'])}")
+            for error in result["errors"][:8]:
+                print(f"  FAIL {error}")
+            return code
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return code
     except (ValueError, OSError, ImportError, subprocess.SubprocessError) as exc:

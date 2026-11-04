@@ -53,6 +53,11 @@ if [ "$needs_host_gate" -eq 1 ]; then
         echo "workflow triage FAILED - judge the tool in tools/tool_workflow_triage.json"
         exit 1
     }
+    echo "[pre-commit] tool governance (registry/layout/catalog)..."
+    python tools/tool_governance/tool_governance.py check --check-catalog --quiet || {
+        echo "tool governance FAILED - register the file/fix the layout baseline"
+        exit 1
+    }
     echo "[pre-commit] host acceptance (host test receipt)..."
     python tools/acceptance/host_acceptance.py check-staged || {
         echo "host acceptance FAILED - run python tools/acceptance/host_acceptance.py run and stage the receipt"

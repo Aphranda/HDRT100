@@ -1,6 +1,6 @@
 {
   "schema": "TOOLS_WORKFLOW_TRIAGE_V1",
-  "rule": "Every tool family is judged once: WORKFLOW (staged orchestration with a declared evidence root and resume path, satisfying docs/console/CONSOLE_WORKFLOW_ARCHITECTURE.md WorkflowSpec), STEP (invoked by a WORKFLOW, no standalone side effects), STANDALONE (single-purpose tool), or LIBRARY (imported, no entrypoint). New scripts must be judged before they are used: a *_workflow.py entrypoint that is not triaged WORKFLOW fails the gate. Non-UNASSESSED families without a row fail; UNASSESSED legacy families warn until qualified.",
+  "rule": "Every tool family is judged once: WORKFLOW (staged orchestration with a declared evidence root and resume path, satisfying docs/console/CONSOLE_WORKFLOW_ARCHITECTURE.md WorkflowSpec), STEP (invoked by a WORKFLOW, no standalone side effects), STANDALONE (single-purpose tool), or LIBRARY (imported, no entrypoint). New scripts must be judged before use, and new scripts are expected to be workflow form unless the row says why not; a *_workflow.py entrypoint that is not triaged WORKFLOW fails the gate. Existing scripts migrate in reviewed batches: a row that is not yet workflow form carries target_form + milestone and shows up as a migration warning until it is converted. Non-UNASSESSED families without a row fail; UNASSESSED legacy families warn until qualified.",
   "entries": [
     {
       "tool": "TOOL-HARDWARE-ACCEPTANCE",
@@ -95,6 +95,72 @@
       "tool": "TOOL-SCPI-COMMON",
       "form": "LIBRARY",
       "reason": "共享 SCPI 串口/身份/OTA 时序模块，被多个工具 import。"
+    },
+    {
+      "tool": "TOOL-CALIBRATION-RING-VALIDATE",
+      "form": "STANDALONE",
+      "target_form": "WORKFLOW",
+      "milestone": "M7 校准训练 workflow",
+      "reason": "当前是多个独立 CLI 的集合；按 console workflow 定义应收敛为 BIAS→MARK→SCK→DATA→CLK→STAGE→ACTIVE 的分阶段 workflow。"
+    },
+    {
+      "tool": "TOOL-TDMA-RING-MONITOR",
+      "form": "STANDALONE",
+      "target_form": "WORKFLOW",
+      "milestone": "M7 TDMA 启环 workflow",
+      "reason": "启环步骤分散在多个脚本；目标是 bootstrap→OPMode→topology→TRAIN→ARM→START 单 workflow。"
+    },
+    {
+      "tool": "TOOL-REFMEM-CMD-HIL",
+      "form": "WORKFLOW",
+      "entry": "tools/refmem/refmem_cmd_tdma_workflow/refmem_cmd_tdma_workflow.py",
+      "evidence_root": "out/",
+      "resume": "rerun from the failing stage; parser suites are re-runnable",
+      "reason": "RefMem 命令面 HIL 分阶段编排，入口为 *_workflow.py。"
+    },
+    {
+      "tool": "TOOL-DPLL-OBSERVATION-CAPTURE",
+      "form": "STANDALONE",
+      "target_form": "WORKFLOW",
+      "milestone": "M7 DPLL 采集 workflow",
+      "reason": "采集/解码/残差分析分散；目标 role→tune→capture→lock 证据链单 workflow。"
+    },
+    {
+      "tool": "TOOL-ACCEPTANCE-GATE",
+      "form": "WORKFLOW",
+      "entry": "tools/acceptance/host_acceptance_workflow.py",
+      "evidence_root": "out/pytest/runs/",
+      "resume": "rerun the whole gate (no partial resume); receipt binds the staged host fingerprint",
+      "reason": "Host 凭证门禁的分步编排（fingerprint→pytest→receipt），入口为 *_workflow.py。"
+    },
+    {
+      "tool": "TOOL-OTA-STREAM-SEND",
+      "form": "WORKFLOW",
+      "entry": "tools/ota/ota_stream_send/ota_workflow.py",
+      "evidence_root": "out/",
+      "resume": "rerun workflow from the last durable offset recorded under out/",
+      "reason": "TDMA 流式 OTA 分阶段编排（open→data→durable wait→close→boot），入口为 *_workflow.py。"
+    },
+    {
+      "tool": "TOOL-SYNC-T2-TOOLS",
+      "form": "WORKFLOW",
+      "entry": "tools/sync_trigger/sequence_workflow.py",
+      "evidence_root": "out/",
+      "resume": "rerun from the first stage; stage outputs stay under out/",
+      "reason": "T2 序列编排（多阶段、跨板、需人工门），入口为 *_workflow.py。"
+    },
+    {
+      "tool": "TOOL-TDMA-WORKFLOW",
+      "form": "WORKFLOW",
+      "entry": "tools/tdma/tdma_workflow.py",
+      "evidence_root": "out/",
+      "resume": "rerun from the failing stage; ring evidence stays under out/",
+      "reason": "TDMA 启环分阶段编排（bootstrap→OPMode→topology→TRAIN→ARM→START）。"
+    },
+    {
+      "tool": "TOOL-ARCHIVE",
+      "form": "LIBRARY",
+      "reason": "归档冻结件只作历史追溯，从不执行；无入口。"
     }
   ]
 }

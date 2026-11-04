@@ -8,6 +8,8 @@ with evidence + resume), a **STEP** invoked by a workflow, a single-purpose
 The rule this enforces, from the 2026-11-04 user directive: a script that is
 actually used must be judged, and new scripts must be judged before they are
 used -- an untriaged ``*_workflow.py`` entrypoint is a failure, not a style nit.
+Scripts that are not yet workflow form carry ``target_form`` + ``milestone`` so
+the migration is visible (warning now, error when the milestone is due).
 UNASSESSED legacy families stay warnings until they are qualified, so the gate
 can be wired into pre-commit without freezing every commit.
 
@@ -99,6 +101,14 @@ def check(root: Path) -> tuple[list[str], list[str]]:
                 errors.append(f"{label}: STEP must name an earlier WORKFLOW row ('workflow': id)")
         if form == "LIBRARY" and tool_id in tools and tools[tool_id].get("entrypoints"):
             errors.append(f"{label}: LIBRARY must not declare entrypoints")
+        target = row.get("target_form")
+        if target:
+            if target not in FORMS:
+                errors.append(f"{label}: target_form {target!r} must be one of {FORMS}")
+            elif target != form:
+                milestone = row.get("milestone") or "unassigned milestone"
+                warnings.append(
+                    f"{label}: migration pending {form} -> {target} ({milestone})")
     for tool_id, tool in tools.items():
         if tool_id in seen:
             continue
