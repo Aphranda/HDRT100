@@ -12,6 +12,16 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-015：workflow 定义单独成文并成为 tools 归型依据
+
+- TODO task ID：`TOOLS-CHECK-001`。按用户 2026-11-04 指令：「console 文档里应有非常详细的 workflow 定义，可以单独摘出来」。
+- **新增 canonical** `docs/console/CONSOLE_WORKFLOW_ARCHITECTURE.md`：从 `CONSOLE_ARCHITECTURE.md` §7 原样摘出（WorkflowSpec、形式与定义、步骤模型、能力范围、能力矩阵、成熟度、待定选择、运行语义、证据与版本、UI 约束、必须工作流化的流程、禁止），并保留「何时必须 workflow 化」的判定规则；成为 **workflow 唯一定义**。
+- **主域架构收缩**：`CONSOLE_ARCHITECTURE.md` §7 改为 5 行指针（448→258 行），文档内 3 处 `§7.x` 引用改指新文档（§6/§12）；索引与 console README 阅读顺序同步。
+- **tools 约束接上定义**：`EXE-TOOL-03` 明确 `WORKFLOW` 归型必须满足该文档的 WorkflowSpec（id/version、inputs、preconditions、steps、transport、receipt_schema）；`tool_workflow_triage.json` 的 `rule` 同步指向该文档。
+- **验证**：`docs_check` 253 files OK（新文档元数据/命名/索引通过）；`doc_regression` PASS；triage `errors=0 / warnings=92`。
+- **残余**：M6 注册表补登记未做（layout 基线里 20 个顶层目录仍 unclassified、87 个文件未登记、`p3_hardware_acceptance.py` 旧路径未改）；下一轮继续。
+- 下一 gate：M6 后半（layout 基线 + 注册表补登记 → `--check-catalog` 转绿并接线）。
+
 ### TOOLS-PROGRESS-20261104-014：M6——tools 按 workflow 归型并进门禁
 
 - TODO task ID：`TOOLS-CHECK-001`。按用户 2026-11-04 指令「tools 的约束按 workflow 定义执行；新增脚本都必须判断是否该做成 workflow」。

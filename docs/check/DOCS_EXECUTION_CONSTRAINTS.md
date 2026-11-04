@@ -56,7 +56,9 @@ Last updated: 2026-11-04
 用户要求（2026-11-04）：tools 的约束按 workflow 定义执行——**任何在用的脚本都要先判型，新增脚本先判型再使用**。
 
 - 归型唯一事实源：`tools/tool_workflow_triage.json`（schema `TOOLS_WORKFLOW_TRIAGE_V1`），四种形态：
-  - `WORKFLOW`：分阶段编排，必须声明入口、`out/` 证据根、续跑方式；
+  - `WORKFLOW`：分阶段编排，必须声明入口、`out/` 证据根、续跑方式；**并满足
+    `docs/console/CONSOLE_WORKFLOW_ARCHITECTURE.md` 的 WorkflowSpec**（id/version、inputs、preconditions、
+    steps、transport、receipt_schema）与步骤模型；不满足的不得标 WORKFLOW，应按 STEP/STANDALONE 归型并登记迁移；
   - `STEP`：由某个 WORKFLOW 调用，必须用 `workflow` 指向该 WORKFLOW；
   - `STANDALONE`：单次命令、单一目的；
   - `LIBRARY`：被 import 复用，不得声明入口。

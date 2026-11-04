@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-11-02
+Last updated: 2026-11-04
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -90,6 +90,7 @@ docs/
 | TOOLS | `tools/DOCS_TOOLS_ARCHITECTURE.md` | 工具域治理草案，定义工具、组件、工作流、证据及交接边界；自动化尚待实施。 |
 | CONSOLE | `console/CONSOLE_ARCHITECTURE.md` | 运维与调试控制面主域：域边界、子域、单端口/多端口原则、契约候选、证据与验收；调试 Demo 为首个交付物。 |
 | CONSOLE/TK | `console/CONSOLE_TK_ARCHITECTURE.md` | Tk 应用框架：Shell/Router/Page/Store/Intent/UiPump/Dialog/WidgetKit、测试与迁移。 |
+| CONSOLE/WORKFLOW | `console/CONSOLE_WORKFLOW_ARCHITECTURE.md` | **Workflow 唯一定义**：WorkflowSpec、步骤模型、能力范围/矩阵、成熟度、运行语义、证据与版本、必须工作流化的流程与禁止（从主域架构 §7 摘出）。 |
 | CONSOLE/TODO | `console/CONSOLE_DOMAIN_TODO.md` | CONSOLE 任务表（P0/P1/P2）、阻塞与验收口径。 |
 | CONSOLE/PROGRESS | `console/CONSOLE_TASK_PROGRESS.md` | CONSOLE 真实执行、证据、失败与下一 gate。 |
 | ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
@@ -109,6 +110,7 @@ docs/
 | REFMEM/EVENT | `refmem/event/REFMEM_EVENT_ARCHITECTURE.md` | RefMem Event Plane 子域（静态域）canonical：EventPack/Catalog/Map/Alias/EventVector；运行时分发/执行归 RefMem/TRIGGER。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 域 owner、OtaAO/OtaFB/OtaVector、BCB selection 和 Boot 交接；跨域 Flash 语义服从 `arch/HAOFV_FLASH_ARCHITECTURE.md`。 |
+| OTA/OPS | `ota/OTA_OPERATIONS_PLAYBOOK.md` | OTA 日常操作：单板/四板刷写、失败分类、恢复与证据留档。 |
 | SD | `storage/SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
 | LOG | `storage/LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |
 | SCPI | `interface/SCPI_COMMANDS.md` | SCPI 命令语义、兼容性和用户可调用接口入口。 |
