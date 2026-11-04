@@ -22,6 +22,8 @@ from tools.hardware_acceptance import workflow_steps
     ("tools/acceptance/host_acceptance.py", ["host"]),
     ("tests/python/test_vdc_priority_phase.py", ["host"]),
     (".githooks/pre-commit", ["host"]),
+    (".agents/skills/doc-self-regression/doc_regression_check.py", ["host"]),
+    ("tools/README.md", ["docs"]),
     ("docs/vdc/VDC_TASK_PROGRESS.md", ["docs"]),
     ("AGENTS.md", ["docs"]),
     ("docs/validation/P3_FLOW.html", ["docs"]),
@@ -116,6 +118,29 @@ def test_check_staged_rejects_missing_or_stale_receipt(tmp_path, monkeypatch):
         "summary_line": "1 passed", "paths": ["tests/python/test_a.py"],
     }), encoding="utf-8")
     host_acceptance.check_staged()  # no exception
+
+
+def test_check_staged_rejects_worktree_only_receipt(tmp_path, monkeypatch):
+    """The receipt must be in the index, not just in the working tree."""
+    repo = _repo(tmp_path)
+    monkeypatch.setattr(credential_scope, "ROOT", repo)
+    monkeypatch.setattr(host_acceptance, "ROOT", repo)
+    receipt = repo / "config" / "hardware_acceptance" / "host_acceptance_receipt.json"
+    receipt.parent.mkdir(parents=True)
+    digest, count = credential_scope.staged_scope_fingerprint("host", repo)
+    receipt.write_text(json.dumps({
+        "schema": host_acceptance.SCHEMA, "passed": True,
+        "fingerprint": digest, "file_count": count,
+        "summary_line": "1 passed", "paths": ["tests/python/test_a.py"],
+    }), encoding="utf-8")
+    monkeypatch.setattr(host_acceptance, "RECEIPT", receipt)
+
+    with pytest.raises(host_acceptance.HostAcceptanceError,
+                       match="differs from the index"):
+        host_acceptance.check_staged()
+
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    host_acceptance.check_staged()  # no exception once the receipt is staged
 
 
 def test_p3_fingerprint_ignores_host_credential_scope():

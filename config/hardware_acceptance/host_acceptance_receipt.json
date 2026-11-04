@@ -5,40 +5,40 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_owner_hook_link.py",
-    "tests/python/test_refmem_host_units.py",
-    "tests/python/test_refmem_spi_rx_dma_width.py",
-    "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_vdc_host_harness.py",
+    "tests/python/test_credential_scope.py",
+    "tests/python/test_host_acceptance_workflow.py",
+    "tests/python/test_doc_regression.py",
+    "tests/python/test_docs_check.py",
+    "tests/python/test_constraint_sync.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_owner_hook_link.py",
-    "tests/python/test_refmem_host_units.py",
-    "tests/python/test_refmem_spi_rx_dma_width.py",
-    "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_vdc_host_harness.py"
+    "tests/python/test_credential_scope.py",
+    "tests/python/test_host_acceptance_workflow.py",
+    "tests/python/test_doc_regression.py",
+    "tests/python/test_docs_check.py",
+    "tests/python/test_constraint_sync.py"
   ],
-  "duration_s": 7.25,
+  "duration_s": 11.625,
   "returncode": 0,
   "summary": {
-    "passed": 79,
+    "passed": 77,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "79 passed in 6.62s",
+  "summary_line": "77 passed in 11.00s",
   "tail": [
-    "........................................................................ [ 91%]",
-    ".......                                                                  [100%]",
-    "79 passed in 6.62s"
+    "........................................................................ [ 93%]",
+    ".....                                                                    [100%]",
+    "77 passed in 11.00s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "d7bc65c2e61499afd6bd617af973c1e79ce2f8c3c96d87a35a40985c18988835",
-  "file_count": 566,
-  "working_fingerprint": "d7bc65c2e61499afd6bd617af973c1e79ce2f8c3c96d87a35a40985c18988835",
-  "started_at_utc": "2026-11-04T08:43:47.368387+00:00"
+  "fingerprint": "29b52af2c24dafdd53e4c461557e507f1a1d715342e0cb6e7d4f733040395a49",
+  "file_count": 1139,
+  "working_fingerprint": "eaaa9a4042a0efc779860330cda4416791c85218af9ed099891b4e34900f9d48",
+  "started_at_utc": "2026-11-04T09:55:41.399500+00:00"
 }

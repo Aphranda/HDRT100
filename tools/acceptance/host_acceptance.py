@@ -4,7 +4,8 @@
 The P3 credential certifies firmware behaviour on the bench; it is the wrong
 (and expensive) credential for a change that only touches host tests. This tool
 runs the host tests that a staged change touches and records a receipt bound to
-the *host* fingerprint (``tests/``, ``.githooks/``, ``tools/acceptance/``).
+the *host* fingerprint (``tests/``, ``.githooks/``, ``tools/`` non-``.md``,
+``.agents/**/*.py`` and ``pytest.ini``).
 
     python tools/acceptance/host_acceptance.py run [--paths FILE ...]
     python tools/acceptance/host_acceptance.py check-staged
@@ -90,10 +91,35 @@ def run(paths: list[str]) -> dict:
     return receipt
 
 
+def _receipt_matches_index() -> bool:
+    """The receipt must be the *staged* one.
+
+    ``check-staged`` certifies the staged tests, so a worktree-only receipt
+    would let a commit carry a receipt the index does not contain. Test fixtures
+    point RECEIPT outside the repository, where the index check does not apply.
+    """
+    try:
+        rel = RECEIPT.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return True
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", rel.as_posix()],
+        cwd=ROOT, capture_output=True)
+    if tracked.returncode != 0:
+        return False
+    unstaged = subprocess.run(
+        ["git", "diff", "--quiet", "--", rel.as_posix()], cwd=ROOT)
+    return unstaged.returncode == 0
+
+
 def check_staged() -> None:
     if not RECEIPT.is_file():
         raise HostAcceptanceError(
             "no host acceptance receipt; run tools/acceptance/host_acceptance.py run")
+    if not _receipt_matches_index():
+        raise HostAcceptanceError(
+            "host acceptance receipt differs from the index; stage it "
+            "(git add config/hardware_acceptance/host_acceptance_receipt.json)")
     receipt = json.loads(RECEIPT.read_text(encoding="utf-8"))
     if receipt.get("schema") != SCHEMA or receipt.get("passed") is not True:
         raise HostAcceptanceError("host acceptance receipt is not PASS")

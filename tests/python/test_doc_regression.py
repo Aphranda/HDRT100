@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from pathlib import Path
 
 from tools.doc_regression_check import (
@@ -83,16 +84,62 @@ def test_registry_rejects_missing_code_anchor(tmp_path: Path) -> None:
     assert any("code_anchor" in f for f in result.failures)
 
 
-def test_registry_warns_nonconforming_row_id(tmp_path: Path) -> None:
-    """P3-8: a row that looks like a contract row but does not match ROW_RE
-    (e.g. double-segment id TDMA-FLIGHT-BITMAP-01) must be WARNed, not
-    silently skipped from counting/validation."""
+def test_registry_rejects_malformed_row_id(tmp_path: Path) -> None:
+    """A row that claims a contract id must be validated, never silently skipped."""
     _make_registry_tree(tmp_path)
-    row = VALID_ROW.replace("TDMA-REASON-01", "TDMA-FLIGHT-BITMAP-01")
+    row = VALID_ROW.replace("TDMA-REASON-01", "TDMA_reason-01")
     (tmp_path / "docs" / "check" / "DOCS_REGISTRY.md").write_text(row, encoding="utf-8")
     result = Result(failures=[], warnings=[])
     check_registry(tmp_path, result)
-    assert any("does not match ROW_RE" in w for w in result.warnings)
+    assert any("malformed contract_id" in f for f in result.failures)
+
+
+def test_registry_accepts_multi_segment_id_and_path_anchor(tmp_path: Path) -> None:
+    """TDMA-SEAT-SHARE-01 style ids and path-shaped anchors must be validated."""
+    _make_registry_tree(tmp_path)
+    (tmp_path / "components" / "tdma" / "inc" / "tdma_pio_spi_ring_adapter.h").write_text(
+        "", encoding="utf-8")
+    row = VALID_ROW.replace("TDMA-REASON-01", "TDMA-SEAT-SHARE-01").replace(
+        "tdma_ring_runtime.h", "components/tdma/inc/tdma_pio_spi_ring_adapter.h")
+    (tmp_path / "docs" / "check" / "DOCS_REGISTRY.md").write_text(row, encoding="utf-8")
+    result = Result(failures=[], warnings=[])
+    check_registry(tmp_path, result)
+    assert result.failures == [] and result.warnings == []
+
+
+def test_registry_strips_backticks_from_clause_loc(tmp_path: Path) -> None:
+    """Backticked clause_loc values must still resolve (6 T2 rows were hidden)."""
+    _make_registry_tree(tmp_path)
+    row = VALID_ROW.replace(
+        "docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md", "`docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`")
+    (tmp_path / "docs" / "check" / "DOCS_REGISTRY.md").write_text(row, encoding="utf-8")
+    result = Result(failures=[], warnings=[])
+    check_registry(tmp_path, result)
+    assert result.failures == []
+
+
+def test_registry_draft_clause_debt_is_bounded(tmp_path: Path,
+                                               monkeypatch) -> None:
+    """C7/G7: a Draft clause_loc is debt with a deadline, then a failure."""
+    _make_registry_tree(tmp_path)
+    (tmp_path / "docs" / "tdma" / "TDMA_TODO.md").write_text(
+        "Status: Draft\n", encoding="utf-8")
+    row = VALID_ROW.replace(
+        "docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md", "docs/tdma/TDMA_TODO.md")
+    (tmp_path / "docs" / "check" / "DOCS_REGISTRY.md").write_text(row, encoding="utf-8")
+    monkeypatch.setattr(regress, "DRAFT_CLAUSE_DEBT",
+                        {"TDMA-REASON-01": "docs/tdma/TDMA_TODO.md"})
+
+    monkeypatch.setattr(regress, "DRAFT_CLAUSE_DEBT_UNTIL", datetime.date(2099, 1, 1))
+    result = Result(failures=[], warnings=[])
+    check_registry(tmp_path, result)
+    assert result.failures == []
+    assert any("C7/G7 debt" in w for w in result.warnings)
+
+    monkeypatch.setattr(regress, "DRAFT_CLAUSE_DEBT_UNTIL", datetime.date(2000, 1, 1))
+    result = Result(failures=[], warnings=[])
+    check_registry(tmp_path, result)
+    assert any("must be Active/Frozen" in f for f in result.failures)
 
 
 def test_freshness_rejects_stale_top_doc(tmp_path: Path) -> None:

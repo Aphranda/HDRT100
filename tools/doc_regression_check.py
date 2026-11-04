@@ -86,12 +86,25 @@ PROGRESS_CHECKPOINT_RE = re.compile(r"^#{2,3}.*checkpoint", re.IGNORECASE | re.M
 PROGRESS_ARCHIVE_NAME_RE = re.compile(r"^LEGACY_[A-Z0-9_]+_TASK_PROGRESS_\d+\.md$")
 
 DATE_RE = re.compile(r"Last updated:\s*(\d{4})-(\d{2})-(\d{2})")
-ROW_RE = re.compile(
-    r"^\|\s*(TDMA|VDC|REFMEM|RTOS|INTERFACE|HARDWARE|ARCH|DOCS|CALIBRATION)-[A-Z0-9]+-\d+\s*\|"
-)
+# A contract id is <DOMAIN>-<TOPIC>-<NN>. The topic may itself carry hyphens
+# (TDMA-SEAT-SHARE-01), so the middle part is not a single segment; requiring
+# exactly two segments silently skipped 10 real rows (7 of them active).
+ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+$")
 CLAUSE_ROW_RE = re.compile(r"^\|\s*HAOFV-\d+\s*\|")
 STATUS_RE = re.compile(r"^Status:\s*(\w+)", re.MULTILINE)
 HARD_CONSTRAINTS_HEADING = "### 顶层安全硬约束"
+
+# C7/G7: a registered contract must point at an Active/Frozen doc. Four T2 rows
+# were registered against the Draft TRIGGER_T2_TODO.md while the id gate could
+# not see them. The baseline is delete-only and expires, so the debt cannot
+# become permanent, and new rows can never be grandfathered.
+DRAFT_CLAUSE_DEBT = {
+    "T2-DEPLOY-003": "docs/trigger/t2/TRIGGER_T2_TODO.md",
+    "T2-IDENT-002": "docs/trigger/t2/TRIGGER_T2_TODO.md",
+    "T2-GROUPCOUNT-01": "docs/trigger/t2/TRIGGER_T2_TODO.md",
+    "T2-TURNTABLE-002": "docs/trigger/t2/TRIGGER_T2_TODO.md",
+}
+DRAFT_CLAUSE_DEBT_UNTIL = datetime.date(2026, 11, 18)
 
 # Loop 3: docs must not hand-write #define numbers (single source of truth).
 DEFINE_RE = re.compile(r"#define\s+([A-Z_][A-Z0-9_]*)\s+(\d+)")
@@ -184,9 +197,26 @@ def check_freshness(root: Path, result: Result, scope: set[str]) -> None:
 def registry_rows(text: str) -> list[list[str]]:
     rows = []
     for ln in text.splitlines():
-        if ROW_RE.match(ln):
-            rows.append([c.strip() for c in ln.split("|")])
+        if not ln.lstrip().startswith("|"):
+            continue
+        cells = [c.strip() for c in ln.split("|")]
+        if len(cells) < 10:
+            continue
+        cid = cells[1]
+        if not cid or cid.startswith("HAOFV-") or not ID_RE.match(cid):
+            continue
+        rows.append(cells)
     return rows
+
+
+def anchor_exists(root: Path, index: dict[str, Path], anchor: str) -> bool:
+    """Resolve a code anchor by basename or by repository-relative path."""
+    normalized = anchor.strip().strip("`").replace("\\", "/")
+    if not normalized:
+        return False
+    if "/" in normalized:
+        return (root / normalized).is_file()
+    return normalized in index
 
 
 def source_files(root: Path):
@@ -206,22 +236,29 @@ def check_registry(root: Path, result: Result) -> None:
         return
     text = read_text(reg)
 
-    # P3: rows that look like contract rows but do not match ROW_RE (e.g. a
-    # double-segment id like TDMA-FLIGHT-BITMAP-01) are silently skipped by
-    # registry_rows; surface them as WARN instead of silently ignoring.
+    # Every row that claims a contract id must be validated. A malformed id used
+    # to be skipped with a WARN, which left 7 active contracts outside the gate;
+    # a row that cannot be parsed is now a FAIL, so the registry cannot grow
+    # unvalidated rows silently.
     for ln in text.splitlines():
-        if not ln.lstrip().startswith("|") or ROW_RE.match(ln):
+        if not ln.lstrip().startswith("|"):
             continue
         cells = [c.strip() for c in ln.split("|")]
-        if len(cells) < 10:
+        if len(cells) < 2:
             continue
         cid = cells[1]
-        if cid in ("contract_id", "---"):
+        if not cid or cid in ("contract_id", "---") or cid.startswith("HAOFV-"):
             continue
-        result.warn(
-            f"{REGISTRY_REL}: row id '{cid}' does not match ROW_RE "
-            "(not counted/validated; check id format)"
-        )
+        if len(cells) < 10:
+            if ID_RE.match(cid):
+                result.fail(
+                    f"{REGISTRY_REL}: malformed contract row '{cid}' "
+                    "(expected >=10 columns; not validated)")
+            continue
+        if not ID_RE.match(cid):
+            result.fail(
+                f"{REGISTRY_REL}: malformed contract_id '{cid}' "
+                "(expected <DOMAIN>-<TOPIC>-<NN>)")
 
     rows = registry_rows(text)
     if not rows:
@@ -246,7 +283,7 @@ def check_registry(root: Path, result: Result) -> None:
         if len(r) < 10:
             result.fail(f"{REGISTRY_REL}: malformed row: {'|'.join(r)[:80]}")
             continue
-        clause_loc = r[5]
+        clause_loc = r[5].strip().strip("`")
         code_anchor = r[6]
         doc_rel = clause_loc.split(":")[0]
         doc_path = root / doc_rel
@@ -255,11 +292,20 @@ def check_registry(root: Path, result: Result) -> None:
         else:
             doc_status = parse_doc_status(doc_path)
             if doc_status not in ("Active", "Frozen"):
-                result.fail(
-                    f"{REGISTRY_REL}: clause_loc doc {doc_rel} Status="
-                    f"{doc_status or 'missing'} (must be Active/Frozen)"
-                )
-        if code_anchor not in anchor_index:
+                debt_key = r[1]
+                in_debt = DRAFT_CLAUSE_DEBT.get(debt_key) == doc_rel
+                if in_debt and datetime.date.today() <= DRAFT_CLAUSE_DEBT_UNTIL:
+                    result.warn(
+                        f"{REGISTRY_REL}: {debt_key} clause_loc doc {doc_rel} "
+                        f"Status={doc_status or 'missing'} (C7/G7 debt until "
+                        f"{DRAFT_CLAUSE_DEBT_UNTIL.isoformat()}; repoint to a "
+                        "frozen doc or freeze the target)")
+                else:
+                    result.fail(
+                        f"{REGISTRY_REL}: clause_loc doc {doc_rel} Status="
+                        f"{doc_status or 'missing'} (must be Active/Frozen)"
+                    )
+        if not anchor_exists(root, anchor_index, code_anchor):
             result.fail(f"{REGISTRY_REL}: code_anchor not found: {code_anchor}")
 
 
