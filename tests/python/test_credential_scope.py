@@ -142,6 +142,17 @@ def test_check_staged_rejects_worktree_only_receipt(tmp_path, monkeypatch):
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     host_acceptance.check_staged()  # no exception once the receipt is staged
 
+    # Staged, but the worktree copy was rewritten afterwards: the index version
+    # is what the commit would carry, so this must fail too.
+    receipt.write_text(json.dumps({
+        "schema": host_acceptance.SCHEMA, "passed": True,
+        "fingerprint": digest, "file_count": count,
+        "summary_line": "2 passed", "paths": ["tests/python/test_a.py"],
+    }), encoding="utf-8")
+    with pytest.raises(host_acceptance.HostAcceptanceError,
+                       match="differs from the index"):
+        host_acceptance.check_staged()
+
 
 def test_p3_fingerprint_ignores_host_credential_scope():
     """A test, hook, doc or Python-tool change must not invalidate the credential."""
