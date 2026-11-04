@@ -21,6 +21,12 @@ typedef void (*scpi_port_flush_fn_t)(void *context);
 bool scpi_port_init(void);
 void scpi_port_service(void);
 void scpi_port_feed(const char *data, size_t len);
+/* Drop a partially received command and reset the parser.  Called by the USB
+ * transport when the host disconnects in the middle of an arbitrary block. */
+void scpi_port_reset_input(void);
+/* Poll the inter-byte timeout.  The USB transport owns SCPI input in CDC mode,
+ * so it must call this from its own service loop. */
+void scpi_port_poll_input_timeout(void);
 void scpi_port_set_stream(scpi_port_write_fn_t write_fn, scpi_port_flush_fn_t flush_fn, void *context);
 void scpi_port_flush_now(void);
 bool scpi_uart_mode_is_scpi(void);

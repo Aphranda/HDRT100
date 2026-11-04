@@ -460,10 +460,32 @@ void diagnostics_watchdog_flash_transaction_progress(void)
                              __ATOMIC_RELAXED);
 }
 
+#define DIAGNOSTICS_WATCHDOG_OTA_FINALIZE_LIMIT_MS 60000u
+
+static bool s_watchdog_ota_finalizing;
+static uint32_t s_watchdog_ota_finalize_since_ms;
+
 void diagnostics_watchdog_mark_ota_phase(uint32_t phase)
 {
     s_watchdog_status.ota_phase = phase;
     drv_watchdog_mark_ota_phase(phase);
+    /* The asynchronous END (verify -> manifest -> pending BCB) owns the flash
+     * and keeps core0 out of its heartbeat loop, so the health gate would stop
+     * feeding and the 3 s window would reset the board mid-finalise.  Treat the
+     * bounded finalise window as a controlled owner transition instead. */
+    /* Trace phases 1..19 are the END sequence; 24/25/26 are the close
+     * breadcrumbs written by the SCPI close path.  The relay pump marks
+     * 400000+offset while streaming DATA and must not open this window. */
+    const bool finalizing =
+        (phase >= (uint32_t)OTA_TRACE_PHASE_END_BEGIN &&
+         phase <= (uint32_t)OTA_TRACE_PHASE_MARK_PENDING_STORE_INIT_DONE) ||
+        (phase >= 24u && phase <= 26u) ||
+        (phase >= 400000u && phase <= 500000u);
+    if (finalizing && !s_watchdog_ota_finalizing) {
+        s_watchdog_ota_finalize_since_ms =
+            to_ms_since_boot(get_absolute_time());
+    }
+    s_watchdog_ota_finalizing = finalizing;
 }
 
 void diagnostics_watchdog_enable(uint32_t timeout_ms)
@@ -530,7 +552,19 @@ void diagnostics_watchdog_service(void)
     s_watchdog_status.supervisor_count++;
     diagnostics_watchdog_status_write_end();
 
-    if ((stale_mask & s_watchdog_required_mask) == 0u) {
+    const bool ota_finalize_window =
+        s_watchdog_ota_finalizing &&
+        (uint32_t)(now_ms - s_watchdog_ota_finalize_since_ms) <
+            DIAGNOSTICS_WATCHDOG_OTA_FINALIZE_LIMIT_MS;
+    /* While an OTA session owns the flash the UI task cannot reach its loop, so
+     * only that heartbeat is exempted; every other task, the OTA task included,
+     * must still report before the gate feeds. */
+    const uint32_t ota_exempt_mask = ota_finalize_window
+        ? (1u << (uint32_t)DIAGNOSTICS_WATCHDOG_TASK_UI) : 0u;
+    const bool ota_gate_ok =
+        ota_exempt_mask != 0u &&
+        ((stale_mask & ~ota_exempt_mask) & s_watchdog_required_mask) == 0u;
+    if (((stale_mask & s_watchdog_required_mask) == 0u) || ota_gate_ok) {
         s_watchdog_stale_logged = false;
         drv_watchdog_feed();
         return;

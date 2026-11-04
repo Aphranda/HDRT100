@@ -17,7 +17,10 @@
 /* 97 KiB: the 12 KiB storage evidence window (three 4 KB groups) is restored so
  * the 15-sample TDMA recorder fits again; the 4 KiB comes out of this heap,
  * whose measured free floor at idle was 5.4 KiB (SYST:RTOS:STAT?). */
-#define configTOTAL_HEAP_SIZE                   (97 * 1024 - 64)
+/* v2 TDMA->AB bridge needs a 512-byte staging block plus adapter state
+ * (~0.4 KiB); it comes out of the same heap so the recorder window and the
+ * flash/OTA statics keep their sizes. */
+#define configTOTAL_HEAP_SIZE                   (97 * 1024 - 576)
 #else
 #define configTOTAL_HEAP_SIZE                   (106 * 1024)
 #endif

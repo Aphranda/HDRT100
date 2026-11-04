@@ -4,6 +4,10 @@
 
 #include <string.h>
 
+/* One FlashTransaction per 64 KiB of inactive-slot erase.  The platform erase
+ * callback still walks 4 KiB sectors and feeds the watchdog per sector. */
+#define POTA_ERASE_CHUNK_SIZE (64u * 1024u)
+
 static uint32_t pota_align_up(uint32_t value, uint32_t alignment)
 {
     return (value + alignment - 1u) & ~(alignment - 1u);
@@ -171,8 +175,13 @@ static pota_error_t pota_accept_package_header(
 static pota_error_t pota_erase_one_step(pota_context_t *context)
 {
     const uint32_t remaining = context->target_erase_size - context->target_erase_offset;
-    const uint32_t erase_size = remaining > context->platform.info.flash_sector_size ?
-                                    context->platform.info.flash_sector_size :
+    /* Erase a whole 64 KiB block per FlashTransaction.  The previous 4 KiB
+     * granularity created 279 full transactions (park/erase/verify/journal)
+     * for a 1.14 MiB image and measured ~59 s.  The driver still erases one
+     * 4 KiB sector per XIP-disabled section and feeds the watchdog between
+     * sectors, so the C1 critical-section bound is unchanged. */
+    const uint32_t erase_size = remaining > POTA_ERASE_CHUNK_SIZE ?
+                                    POTA_ERASE_CHUNK_SIZE :
                                     remaining;
 
     if (erase_size == 0u) {

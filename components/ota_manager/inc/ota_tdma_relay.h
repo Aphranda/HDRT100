@@ -17,6 +17,8 @@
  * mechanism. */
 
 #define OTA_TDMA_RELAY_WINDOW 2048u
+/* Bounded OPEN retransmissions (200 ms apart) before DATA gets the window. */
+#define OTA_TDMA_RELAY_OPEN_RESEND_MAX 5u
 
 typedef struct {
     ota_tdma_session_t session;
@@ -32,6 +34,11 @@ typedef struct {
     uint32_t durable_offset;
     uint32_t open_resend_ms;
     uint32_t open_sent_ms;
+    /* Bounded OPEN retransmissions: while `durable` stays 0 the tick used to
+     * resend the whole descriptor every 200 ms, which competed with the DATA
+     * frames for the same maintenance window and starved them (measured: the
+     * receiver staged 2 chunks in 6 s and then stopped). */
+    uint8_t open_resends;
     bool open;
 } ota_tdma_relay_t;
 
@@ -64,7 +71,14 @@ bool ota_tdma_relay_tick(ota_tdma_relay_t *relay, uint32_t now_ms);
 void ota_tdma_relay_abort(ota_tdma_relay_t *relay);
 
 bool ota_tdma_relay_active(const ota_tdma_relay_t *relay);
+/* True when the source session ended in failure (ABORT from the target or a
+ * local retry/protocol failure); the transfer will never reach durable. */
+bool ota_tdma_relay_failed(const ota_tdma_relay_t *relay);
 uint32_t ota_tdma_relay_durable(const ota_tdma_relay_t *relay);
+/* Diagnostics for the source pump: {last_sent_offset, send_count,
+ * timeout_replays}. */
+void ota_tdma_relay_pump_diag(const ota_tdma_relay_t *relay,
+                              uint32_t out[3]);
 bool ota_tdma_relay_done(const ota_tdma_relay_t *relay);
 
 #endif

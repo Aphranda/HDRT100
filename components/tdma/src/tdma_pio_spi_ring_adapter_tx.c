@@ -376,9 +376,23 @@ bool tdma_pio_spi_ring_adapter_start(
             .expected_segment_mask = expected_segment_mask,
             /* V1 is a diagnostic bring-up gate. Keep four complete cyclic
              * opportunities before declaring MISSING; product policy may
-             * tighten this after the raw link and scheduler are frozen. */
+             * tighten this after the raw link and scheduler are frozen.
+             * Clock-evidence mode roughly halves the ring cadence (measured
+             * 200 frames/s without it versus 130 with it), so the same four
+             * opportunities need twice the wall time; otherwise a single
+             * scheduler hiccup is counted as a missing frame. */
+            /* "Four complete cyclic opportunities" must be measured in the
+             * cadence the link actually runs at.  Clock-evidence mode halves it
+             * (measured 200 frames/s without it, 150 with it), so four
+             * opportunities need eight nominal cycles (8 x 4 ms = 32 ms) to
+             * keep the same physical margin; at 16 ms a single scan hiccup is
+             * counted as a missing frame. */
+            /* Four complete cyclic opportunities, measured in the cadence the
+             * link actually runs at: clock-evidence mode halves it (measured
+             * 200 frames/s without it, ~150 with it). */
             .stale_timeout_ns =
-                (uint64_t)config->feedback_timeout_ns * 4ull,
+                (uint64_t)config->feedback_timeout_ns *
+                (adapter->clock_evidence_enabled != 0u ? 8ull : 4ull),
         };
         if (!tdma_receive_health_configure_stopped(&adapter->receive_health,
                                                    &receive_config)) {

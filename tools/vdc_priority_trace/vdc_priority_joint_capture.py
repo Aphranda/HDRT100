@@ -33,6 +33,52 @@ from tools.workflows.vdc_joint_capture.lifecycle import ResumeTrial, SerialBacke
 DEFAULT_WORKFLOW_INPUTS = ROOT / 'config/tool_workflows/vdc_joint_capture_internal_seal.json'
 
 
+DPLL_REFERENCE_SLOT = 0
+
+
+def validate_dpll_role(raw, *, slot, uid, reference_slot=DPLL_REFERENCE_SLOT):
+    """Reject a capture whose DPLL control role cannot satisfy the matcher.
+
+    The ROLE page is ``mode, follow_master_slot_id, requested, applied, pending``
+    (``SYSTem:SYNC:VDC:DPLL:ROLE?``).  The matcher's ROLE gate requires every
+    follower to be ``VDC_DPLL_CONTROL_MODE_FOLLOWER`` with the ring reference
+    slot, and the ring origin to stay MASTER.  A pending request has not reached
+    the domain profile yet, so it is rejected here instead of after the 60 s
+    acquisition: the historical failure cost two full windows and ended the
+    whole acceptance run without a credential.
+    """
+    try:
+        fields = [int(value.strip().strip('"')) for value in str(raw).split(',')]
+    except ValueError as exc:
+        raise ValueError(f'{uid}: DPLL role page is not numeric') from exc
+    if len(fields) != 5:
+        raise ValueError(
+            f'{uid}: DPLL role page has {len(fields)} fields, expected 5')
+    mode, source, requested, applied, pending = fields
+    if pending or requested != applied:
+        raise ValueError(
+            f'{uid}: DPLL role is not applied '
+            f'(requested={requested}, applied={applied}, pending={pending})')
+    if slot == 0:
+        if mode != 0:
+            raise ValueError(
+                f'{uid}: DPLL role mode={mode}, expected MASTER(0) for the ring origin')
+    else:
+        if mode != 1:
+            raise ValueError(
+                f'{uid}: DPLL role mode={mode}, expected FOLLOWER(1); '
+                f'configure SYSTem:SYNC:VDC:DPLL:ROLE 1,{reference_slot} while stopped')
+        if source != reference_slot:
+            raise ValueError(
+                f'{uid}: DPLL role follows slot {source}, '
+                f'expected reference slot {reference_slot}')
+        if applied == 0:
+            raise ValueError(f'{uid}: DPLL role (follower) was never applied')
+    return dict(mode=mode, follow_master_slot_id=source,
+                requested_generation=requested, applied_generation=applied,
+                pending=pending)
+
+
 def verify_startup(probe):
     """Read-only admission on the adapter's existing STOP-owned connections."""
     from tools.calibration_ring_validate import trn03_stage as stage
@@ -70,6 +116,9 @@ def verify_startup(probe):
                 raise ValueError(f'{board.address}: IDN/board number mismatch')
             if query('SYSTem:FW:BUILD?').strip('"') != str(probe.receipt['build_id']):
                 raise ValueError(f'{board.address}: firmware build mismatch')
+            row['dpll_role'] = validate_dpll_role(
+                query('SYSTem:SYNC:VDC:DPLL:ROLE?'), slot=slot,
+                uid=board.address)
             ring = list(map(int, query('SYSTem:TDMA:RING:STATus?').split(',')))
             # The page is append-only: newer firmware appends fields after the
             # original 40 (e.g. the ring loop-time block), so require at least

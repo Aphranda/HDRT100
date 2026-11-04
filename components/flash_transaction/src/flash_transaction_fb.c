@@ -5,6 +5,16 @@
 
 #include "project_config.h"
 
+/* Which COMPLETION site failed (0 = none).  Diagnostic only. */
+static uint32_t s_completion_site;
+uint32_t flash_transaction_completion_site(void)
+{
+    return s_completion_site;
+}
+#define FLASH_COMPLETION_SITE(n) do { s_completion_site = (n); } while (0)
+
+
+
 #define FLASH_TRANSACTION_INVALID_PARTITION UINT32_MAX
 
 static uint32_t flash_transaction_request_fingerprint(
@@ -182,6 +192,16 @@ static bool flash_transaction_completion_append(
         !context->core1_parked) {
         return true;
     }
+    /* The OTA image path has a separate 64 KiB stream checkpoint.  Persisting
+     * PROGRAMMED and VERIFIED per 4 KiB transaction tripled journal writes
+     * without adding a recovery boundary: the checkpoint never advances until
+     * the terminal COMMITTED record is durable.  Keep one terminal record for
+     * OTA_IMAGE; BCB/metadata transactions keep the full sequence. */
+    if (context->request.requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE &&
+        (event == FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED ||
+         event == FLASH_TRANSACTION_JOURNAL_EVENT_VERIFIED)) {
+        return true;
+    }
     const flash_transaction_journal_record_t record = {
         .job_id = context->vector.job_id,
         .transaction_generation = context->vector.transaction_generation,
@@ -229,6 +249,7 @@ static bool flash_transaction_replay_terminal(
     if (record.event != FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED) {
         flash_transaction_write_begin(context);
         context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
+        FLASH_COMPLETION_SITE(91);
         context->vector.last_error = FLASH_TRANSACTION_ERROR_COMPLETION;
         context->vector.state = FLASH_TRANSACTION_STATE_RELEASE;
         flash_transaction_write_end(context);
@@ -455,6 +476,7 @@ static uint32_t flash_transaction_validate(
     }
     if (request->completion_lease != NULL &&
         !flash_transaction_completion_lease_valid(context)) {
+        FLASH_COMPLETION_SITE(90);
         return FLASH_TRANSACTION_ERROR_COMPLETION;
     }
     context->absolute_offset = partition->offset + request->relative_offset;
@@ -464,6 +486,12 @@ static uint32_t flash_transaction_validate(
 static void flash_transaction_fail(flash_transaction_fb_t *context,
                                    uint32_t error)
 {
+    /* Remember the FIRST failure of the current transaction.  The terminal
+     * journal publish can overwrite last_error with COMPLETION when the
+     * follow-up append collides, which masks the real cause. */
+    if (context->first_error == FLASH_TRANSACTION_ERROR_NONE) {
+        context->first_error = error;
+    }
     flash_transaction_write_begin(context);
     context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
     context->vector.last_error = error;
@@ -562,11 +590,45 @@ bool flash_transaction_fb_set_active_app_partition(
     return true;
 }
 
+/* ({occupied:1}{parked:1}) captured when the terminal journal append
+ * failed: 11 = still owning+parked, 10 = owning but not parked,
+ * 1 = parked but owner released, 0 = neither. */
+static uint32_t s_terminal_owner_state;
+uint32_t flash_transaction_fb_terminal_owner_state(void)
+{
+    return s_terminal_owner_state;
+}
+
+uint32_t flash_transaction_fb_first_error(const flash_transaction_fb_t *context)
+{
+    return context != NULL ? context->first_error : 0u;
+}
+
+static uint32_t s_submit_reject;
+
+uint32_t flash_transaction_fb_submit_reject(void)
+{
+    return s_submit_reject;
+}
+
 bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
                                  const flash_transaction_request_t *request)
 {
-    if (context == NULL || request == NULL || context->occupied ||
-        !flash_transaction_platform_valid(&context->platform)) {
+    s_submit_reject = 0u;
+    if (context == NULL || request == NULL) {
+        s_submit_reject = 1u;
+        return false;
+    }
+    if (context->occupied) {
+        /* The owner is still running the previous transaction: the caller's
+         * request never even becomes the current one, so the vector keeps the
+         * old terminal result (that stale read is what made an admission
+         * refusal look like a COMPLETION erase failure). */
+        s_submit_reject = 2u;
+        return false;
+    }
+    if (!flash_transaction_platform_valid(&context->platform)) {
+        s_submit_reject = 3u;
         return false;
     }
     /* A caller may retry a failed operation, but it must allocate a new job
@@ -574,6 +636,7 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
      * indistinguishable from a fresh erase/program request. */
     if (request->job_id != 0u && context->last_terminal_valid &&
         request->job_id == context->last_terminal_job_id) {
+        s_submit_reject = 4u; /* reused terminal job identity */
         return false;
     }
     context->request = *request;
@@ -593,6 +656,7 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
             context->next_job_id = 1u;
         }
     }
+    context->first_error = FLASH_TRANSACTION_ERROR_NONE;
     context->request_fingerprint =
         flash_transaction_request_fingerprint(&context->request);
     context->occupied = true;
@@ -662,7 +726,8 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
             break;
         }
         if (!flash_transaction_completion_retain(context)) {
-            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_COMPLETION);
+            FLASH_COMPLETION_SITE(1);
+            
             break;
         }
         if (flash_transaction_replay_terminal(context)) {
@@ -674,7 +739,8 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         flash_transaction_write_end(context);
         if (!flash_transaction_completion_append(
                 context, FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED)) {
-            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_COMPLETION);
+            FLASH_COMPLETION_SITE(2);
+            
         }
         break;
     }
@@ -764,7 +830,8 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         flash_transaction_write_end(context);
         if (ok && !flash_transaction_completion_append(
                        context, FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED)) {
-            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_COMPLETION);
+            FLASH_COMPLETION_SITE(3);
+            
         }
         if (!ok) {
             if (flash_transaction_provider_reset_is_pending(context)) {
@@ -803,7 +870,8 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         flash_transaction_write_end(context);
         if (ok && !flash_transaction_completion_append(
                        context, FLASH_TRANSACTION_JOURNAL_EVENT_VERIFIED)) {
-            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_COMPLETION);
+            FLASH_COMPLETION_SITE(4);
+            
         }
         break;
     }
@@ -836,7 +904,24 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
                        FLASH_TRANSACTION_STATE_ABORTED) {
                 event = FLASH_TRANSACTION_JOURNAL_EVENT_ABORTED;
             }
-            if (!flash_transaction_completion_append(context, event)) {
+            /* The append programs a journal slot through the nested journal
+             * path, which is only legal while core1 is parked.  A RELEASE pass
+             * can be re-entered after core1 was already released (measured:
+             * occupied=1, parked=0 when the OTA terminal append failed on the
+             * relay path), so re-park here before writing.  Parking is the C1
+             * sanctioned gate: without it the write must not happen at all.
+             * The session is released again by the code below. */
+            if (!context->core1_parked && context->platform.park_core1 != NULL) {
+                context->core1_parked = context->platform.park_core1();
+            }
+            if (!context->core1_parked ||
+                !flash_transaction_completion_append(context, event)) {
+                /* The nested journal path is only legal while this transaction
+                 * still owns flash and core1 is parked.  Record both flags so
+                 * a relay-only failure can be told apart from a slot problem. */
+                s_terminal_owner_state =
+                    (context->occupied ? 10u : 0u) +
+                    (context->core1_parked ? 1u : 0u);
                 context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
                 flash_transaction_write_begin(context);
                 context->vector.last_result =

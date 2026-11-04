@@ -13,6 +13,7 @@
 #include "pico/unique_id.h"
 #include "pico/error.h"
 #include "pico/stdio.h"
+#include "pico/time.h"
 #include "project_config.h"
 #include "pico/multicore.h"
 #include "osal.h"
@@ -50,7 +51,7 @@
 #define SCPI_PORT_IDN_VENDOR          PROJECT_VENDOR_NAME
 #define SCPI_PORT_IDN_MODEL           PROJECT_MODEL_NAME
 #define SCPI_PORT_IDN_SERIAL          NULL
-#define SCPI_PORT_POLL_CHARS          32u
+#define SCPI_PORT_POLL_CHARS          256u
 #define SCPI_PORT_STDIO_BATCH_BYTES   64u
 
 typedef struct {
@@ -72,6 +73,41 @@ static void *s_scpi_stream_context;
 static volatile uint32_t s_scpi_trigger_debug_stage;
 static volatile uint32_t s_scpi_trigger_debug_mode;
 static volatile uint32_t s_scpi_trigger_debug_posted;
+static uint32_t s_last_input_ms;
+
+/* A host that is killed in the middle of an arbitrary block leaves the SCPI
+ * parser waiting for the remaining bytes forever; every later command is then
+ * consumed as block data and the board stops answering until a reset.  There
+ * is no inter-byte timeout in libscpi, so add one at the port boundary.  A
+ * valid 4 KiB OTA block is delivered in well under 2 s. */
+static void scpi_port_reset_stalled_input(void)
+{
+    s_scpi_context.arbitrary_remaining = 0u;
+    s_scpi_context.buffer.position = 0u;
+    if (s_scpi_context.buffer.data != NULL) {
+        s_scpi_context.buffer.data[0] = '\0';
+    }
+    memset(&s_scpi_context.parser_state, 0,
+           sizeof(s_scpi_context.parser_state));
+    memset(&s_scpi_context.param_list, 0,
+           sizeof(s_scpi_context.param_list));
+}
+
+void scpi_port_reset_input(void)
+{
+    scpi_port_reset_stalled_input();
+}
+
+void scpi_port_poll_input_timeout(void)
+{
+    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    const bool partial =
+        s_scpi_context.arbitrary_remaining > 0u ||
+        s_scpi_context.buffer.position > 0u;
+    if (partial && (uint32_t)(now_ms - s_last_input_ms) > 2000u) {
+        scpi_port_reset_stalled_input();
+    }
+}
 
 static bool scpi_port_trigger_is_armed(void);
 static void scpi_port_flush_output(void);
@@ -413,11 +449,15 @@ bool scpi_port_init(void)
               SCPI_PORT_ERROR_QUEUE_SIZE);
 
     LOG_INFO("scpi", "SCPI service initialized");
+    s_last_input_ms = to_ms_since_boot(get_absolute_time());
     return true;
 }
 
 static void scpi_port_input(const char *data, int len)
 {
+    if (data != NULL && len > 0) {
+        s_last_input_ms = to_ms_since_boot(get_absolute_time());
+    }
     if (s_scpi_capture_buffer != NULL || s_scpi_stream_write != NULL) {
         SCPI_Input(&s_scpi_context, data, len);
         return;
@@ -435,6 +475,8 @@ void scpi_port_service(void)
 {
     char buffer[SCPI_PORT_POLL_CHARS];
     size_t count = 0u;
+
+    scpi_port_poll_input_timeout();
 
     while (count < sizeof(buffer)) {
         const int ch = getchar_timeout_us(0u);

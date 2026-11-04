@@ -840,9 +840,11 @@ def startup_fixture(tmp_path, monkeypatch):
         # STOP clears runtime topology; the frozen matrix retains its identity.
         ring[38:] = [3, 3]
         header = dict(matrix, tag='TRN03STG', enabled=1, complete=1, valid_link_bitmap=15)
+        role = [0, 0, 1, 1, 0] if index == 0 else [1, 0, 2, 2, 0]
         r = responses[uid] = {
             '*IDN?': f'NO.{index+1},DHRT100,{uid},0.1.0',
             'SYSTem:BOARD:NO?': str(index+1), 'SYSTem:FW:BUILD?': '"123"',
+            'SYSTem:SYNC:VDC:DPLL:ROLE?': ','.join(map(str, role)),
             'SYSTem:TDMA:RING:STATus?': ','.join(map(str, ring)),
             'SYSTem:TDMA:FLIGHT:MODE?': '2',
             'READ:CALibration:TRAINing:STAGe?': ','.join(str(header[k]) for k in stage.STAGE_QUERY_FIELDS),
@@ -871,6 +873,34 @@ def test_startup_accepts_complete_stop_configuration(tmp_path, monkeypatch):
     joint.verify_startup(probe)
     assert probe.report['startup_preflight']['passed']
     assert len([c for _, c in calls if ':LINK?' in c]) == 16
+    roles = probe.report['startup_preflight']['boards']
+    assert roles[0]['dpll_role']['mode'] == 0
+    assert all(row['dpll_role']['mode'] == 1 for row in roles[1:])
+
+
+@pytest.mark.parametrize('fault,page,match', [
+    ('follower_master', '0,0,1,1,0', 'expected FOLLOWER'),
+    ('follower_pending', '1,0,2,1,1', 'not applied'),
+    ('follower_source', '1,0,2,2,0', None),
+    ('follower_never_applied', '1,0,0,0,0', 'never applied'),
+    ('origin_follower', '1,0,2,2,0', 'expected MASTER'),
+    ('malformed', '1,0', 'expected 5'),
+])
+def test_startup_rejects_wrong_dpll_role_before_arm(
+        tmp_path, monkeypatch, fault, page, match):
+    probe, responses, calls = startup_fixture(tmp_path, monkeypatch)
+    uid = 'uid1' if fault == 'origin_follower' else 'uid2'
+    responses[uid]['SYSTem:SYNC:VDC:DPLL:ROLE?'] = page
+    if fault == 'follower_source':
+        responses[uid]['SYSTem:SYNC:VDC:DPLL:ROLE?'] = '1,1,2,2,0'
+        match = 'follows slot'
+    with pytest.raises(RuntimeError, match='DPLL role') as excinfo:
+        joint.verify_startup(probe)
+    assert match in str(excinfo.value)
+    assert not probe.report['startup_preflight']['passed']
+    assert probe.report['startup_preflight']['errors']
+    assert any('SYSTem:SYNC:VDC:DPLL:ROLE?' in cmd for _, cmd in calls)
+    assert all('?' in cmd for _, cmd in calls)
 
 
 @pytest.mark.parametrize('fault', ['empty', 'raw_mode', 'identity', 'duplicate_port',

@@ -269,6 +269,9 @@ scpi_result_t scpi_cmd_watchdog_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.last_seen_mask);
     SCPI_ResultUInt32(context, status.last_stale_mask);
     SCPI_ResultUInt32(context, status.supervisor_count);
+    /* Retained OTA breadcrumb (watchdog scratch[7] at the last reset):
+     * tells which finalise step was running when the board reset. */
+    SCPI_ResultUInt32(context, status.ota_phase);
     return SCPI_RES_OK;
 }
 

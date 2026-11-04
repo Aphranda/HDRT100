@@ -202,6 +202,21 @@ bool flash_transaction_ao_notify_provider_reset(uint32_t provider_generation);
 bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
                                   flash_transaction_completion_t *completion);
 
+/* Which COMPLETION failure site fired last (0 = none).  Diagnostic only. */
+uint32_t flash_transaction_completion_site(void);
+
+/* Why the last submit was refused: 0 = accepted, 1 = null argument,
+ * 2 = owner still occupied, 3 = platform invalid, 4 = reused terminal job id.
+ * A refused submit never touches the vector, so callers must consult this
+ * instead of the stale vector when execute() returns false immediately. */
+uint32_t flash_transaction_submit_reject(void);
+
+/* ({occupied}{parked}) captured when the terminal journal append failed. */
+uint32_t flash_transaction_terminal_owner_state(void);
+
+/* First error of the current transaction; COMPLETION only masks the real cause. */
+uint32_t flash_transaction_first_error(void);
+
 /* Execute one bounded OTA_JOURNAL physical operation inside the already
  * active FlashTransactionAO owner session.  These are the only journal
  * backend entry points; callers must not construct a second raw writer or
@@ -212,5 +227,27 @@ bool flash_transaction_ao_journal_program(uint32_t relative_offset,
 bool flash_transaction_ao_journal_erase(uint32_t relative_offset,
                                         uint32_t length);
 bool flash_transaction_ao_get_vector(flash_transaction_vector_t *vector);
+
+/* Weak application hooks around core1 parking.
+ *
+ * A running TDMA ring can keep core1 away from its flash-park poll for far
+ * longer than the lockout budget, so every erase/program fails with a park
+ * timeout.  When the first park attempt fails, the AO asks the application to
+ * stop the ring for the duration of this flash operation ("short stop"), then
+ * retries once; the ring is restarted when the session ends.  Both hooks have
+ * weak no-op defaults so host builds and single-core targets need no
+ * implementation. */
+bool app_flash_park_pause_ring(void);
+void app_flash_park_resume_ring(void);
+
+/* Transaction-scoped ring window.  The park hooks above only cover one
+ * handshake; the OTA journal also programs a completion record *after* core1 is
+ * released, and that write fails while the ring runs (observed: erase/program
+ * of the block succeeds, then COMPLETION at the journal append, relay path
+ * only).  These hooks bracket the whole flash transaction: stop the ring if it
+ * is running, run the transaction, restart it.  The stop hook returns true only
+ * when the ring was actually running and is now stopped. */
+bool app_flash_window_stop_ring(void);
+void app_flash_window_start_ring(void);
 
 #endif

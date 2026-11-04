@@ -60,6 +60,10 @@ bool flash_transaction_journal_init(
 bool flash_transaction_journal_append(
     flash_transaction_journal_store_t *store,
     const flash_transaction_journal_record_t *record);
+/* Why the last append was refused: 0 = none/accepted, 1 = null or
+ * uninitialised, 3 = same identity with a different payload, 4 = no reusable
+ * slot and no erase support, 5 = slot program failed.  Diagnostic only. */
+uint32_t flash_transaction_journal_append_reason(void);
 bool flash_transaction_journal_recover_latest(
     const flash_transaction_journal_store_t *store,
     flash_transaction_journal_record_t *record,

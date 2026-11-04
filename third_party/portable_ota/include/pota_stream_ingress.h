@@ -77,6 +77,10 @@ pota_stream_ingress_result_t pota_stream_ingress_abort(
     pota_stream_ingress_source_t source);
 bool pota_stream_ingress_get_status(const pota_stream_ingress_t *ingress,
                                     pota_stream_ingress_status_t *status);
+/* True while the ingress still owns an open session lease.  The lease can
+ * outlive a session reset (the session state returns to IDLE while the ingress
+ * flag remains set), so OPEN must clear it before calling ingress_open. */
+bool pota_stream_ingress_is_open(const pota_stream_ingress_t *ingress);
 
 #define POTA_STREAM_INGRESS_SOURCE_BIT(source) (1u << (uint32_t)(source))
 

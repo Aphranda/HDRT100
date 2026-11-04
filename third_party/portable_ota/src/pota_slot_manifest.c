@@ -93,47 +93,60 @@ static pota_slot_manifest_result_t read_lane(
     pota_slot_manifest_t *manifest,
     pota_slot_manifest_body_t *body_out)
 {
-    pota_slot_manifest_body_t body;
+    /* A 768-byte body on the stack overflows the OTA task (measured high-water
+     * already near the 1792-word budget), so reuse the manifest transaction's
+     * existing body buffer.  The lane read and the transaction body build are
+     * sequential steps of the same END pass, never concurrent. */
+    pota_slot_manifest_body_t *body = &s_txn_body;
     pota_slot_manifest_commit_t commit;
     const uint32_t offset = lane_offset(store, lane);
-    if (!store->config.read(store->config.context, offset, &body,
-                            sizeof(body)) ||
-        !store->config.read(store->config.context,
-                            offset + POTA_SLOT_MANIFEST_BODY_SIZE,
-                            &commit, sizeof(commit))) {
+    manifest_trace(20u); /* body read entry */
+    const bool body_ok = store->config.read(store->config.context, offset,
+                                            body, sizeof(*body));
+    manifest_trace(body_ok ? 21u : 29u); /* body read done/failed */
+    if (!body_ok) {
         return POTA_SLOT_MANIFEST_IO;
     }
+    manifest_trace(22u); /* commit read entry */
+    const bool commit_ok = store->config.read(store->config.context,
+                                              offset + POTA_SLOT_MANIFEST_BODY_SIZE,
+                                              &commit, sizeof(commit));
+    manifest_trace(commit_ok ? 23u : 28u); /* commit read done/failed */
+    if (!commit_ok) {
+        return POTA_SLOT_MANIFEST_IO;
+    }
+    manifest_trace(24u); /* both lanes read, validating */
 
-    if (body.magic == 0xFFFFFFFFu && commit.magic == 0xFFFFFFFFu) {
+    if (body->magic == 0xFFFFFFFFu && commit.magic == 0xFFFFFFFFu) {
         return POTA_SLOT_MANIFEST_NO_VALID;
     }
-    const uint32_t computed_body_crc = body_crc(&body);
-    if (body.magic != POTA_SLOT_MANIFEST_BODY_MAGIC ||
-        body.schema_version != POTA_SLOT_MANIFEST_SCHEMA_VERSION ||
-        body.map_version != store->config.map_version ||
-        body.slot != (uint32_t)store->config.slot ||
-        body.header_size != POTA_PACKAGE_HEADER_SIZE ||
-        body.header_crc32 !=
-            pota_crc32_compute(body.header, sizeof(body.header)) ||
-        body.body_crc32 != computed_body_crc ||
+    const uint32_t computed_body_crc = body_crc(body);
+    if (body->magic != POTA_SLOT_MANIFEST_BODY_MAGIC ||
+        body->schema_version != POTA_SLOT_MANIFEST_SCHEMA_VERSION ||
+        body->map_version != store->config.map_version ||
+        body->slot != (uint32_t)store->config.slot ||
+        body->header_size != POTA_PACKAGE_HEADER_SIZE ||
+        body->header_crc32 !=
+            pota_crc32_compute(body->header, sizeof(body->header)) ||
+        body->body_crc32 != computed_body_crc ||
         commit.magic != POTA_SLOT_MANIFEST_COMMIT_MAGIC ||
         commit.schema_version != POTA_SLOT_MANIFEST_SCHEMA_VERSION ||
-        commit.map_version != body.map_version ||
-        commit.sequence != body.sequence || commit.slot != body.slot ||
-        commit.body_crc32 != body.body_crc32 ||
+        commit.map_version != body->map_version ||
+        commit.sequence != body->sequence || commit.slot != body->slot ||
+        commit.body_crc32 != body->body_crc32 ||
         commit.marker !=
-            (POTA_SLOT_MANIFEST_COMMIT_MARKER ^ body.sequence)) {
+            (POTA_SLOT_MANIFEST_COMMIT_MARKER ^ body->sequence)) {
         return POTA_SLOT_MANIFEST_CORRUPT;
     }
 
     if (manifest != NULL) {
-        manifest->sequence = body.sequence;
+        manifest->sequence = body->sequence;
         manifest->lane = lane;
         manifest->slot = store->config.slot;
-        memcpy(manifest->header, body.header, sizeof(manifest->header));
+        memcpy(manifest->header, body->header, sizeof(manifest->header));
     }
     if (body_out != NULL) {
-        *body_out = body;
+        *body_out = *body;
     }
     return POTA_SLOT_MANIFEST_OK;
 }

@@ -9,6 +9,9 @@
 #include "ota_metadata_flash.h"
 #include "pota_boot_control_facade.h"
 #include "portable_ota_port.h"
+#if !defined(PROJECT_BOOTLOADER) || !PROJECT_BOOTLOADER
+#include "resource_arbiter.h"
+#endif
 
 
 #define OTA_METADATA_COPY_SIZE    DRV_FLASH_SECTOR_SIZE
@@ -457,7 +460,24 @@ bool ota_metadata_confirm_active_snapshot(ota_metadata_t *committed_metadata)
         return false;
     }
 
-    if (!ota_metadata_store(&metadata)) {
+#if defined(PROJECT_BOOTLOADER) && PROJECT_BOOTLOADER
+    const bool stored = ota_metadata_store(&metadata);
+#else
+    /* Boot/manual confirmation is a maintenance write, but there is no OTA
+     * session.  FlashTransactionAO correctly refuses OTA_METADATA writes
+     * without an OTA admission, so take the bounded maintenance admission for
+     * this single synchronous append and release it immediately.  An already
+     * active session (finalize/commit path) keeps its own lease. */
+    const bool borrowed_admission = !resource_arbiter_ota_admission_active();
+    if (borrowed_admission && !resource_arbiter_request_ota_admission()) {
+        return false;
+    }
+    const bool stored = ota_metadata_store(&metadata);
+    if (borrowed_admission) {
+        resource_arbiter_release_ota_admission();
+    }
+#endif
+    if (!stored) {
         return false;
     }
     if (committed_metadata != NULL) {

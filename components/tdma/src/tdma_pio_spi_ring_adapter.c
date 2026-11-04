@@ -849,7 +849,16 @@ void tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
     tdma_ring_maintenance_mailbox_fn provider,
     void *context)
 {
-    if (adapter == NULL) {
+    if (adapter == NULL || provider == NULL) {
+        return;
+    }
+    /* First registration wins.  The TDMA runtime registers the provider that
+     * drains the OTA/maintenance TX queue at boot; a later SCPI-only
+     * registration must not silently replace it, otherwise queued OTA frames
+     * are never pulled (observed: mailbox_calls stayed 0 while window_open
+     * grew). */
+    if (adapter->maintenance_mailbox != NULL &&
+        adapter->maintenance_mailbox != provider) {
         return;
     }
     adapter->maintenance_mailbox = provider;

@@ -29,6 +29,12 @@ typedef enum {
     OTA_EVENT_FLASH_JOB_DONE,
     OTA_EVENT_FLASH_JOB_FAILED,
     OTA_EVENT_BOOT_RESULT,
+    /* Stream DATA is copied into the EventBus fast-block pool and written by
+     * OtaAO, not by the SCPI/USB task. */
+    OTA_EVENT_STREAM_DATA,
+    /* Stream CLOSE is queued so finalisation also runs in OtaAO.  The union
+     * value carries the pota_stream_ingress_source_t. */
+    OTA_EVENT_STREAM_CLOSE,
 } ota_event_type_t;
 
 typedef struct {

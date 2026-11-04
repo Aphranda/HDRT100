@@ -13,6 +13,9 @@ scpi_result_t scpi_cmd_ota_end(scpi_t *context);
 scpi_result_t scpi_cmd_ota_abort(scpi_t *context);
 scpi_result_t scpi_cmd_ota_boot(scpi_t *context);
 scpi_result_t scpi_cmd_ota_commit(scpi_t *context);
+scpi_result_t scpi_cmd_ota_confirm(scpi_t *context);
+scpi_result_t scpi_cmd_ota_bcb_q(scpi_t *context);
+scpi_result_t scpi_cmd_ota_ft_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_slot_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_result_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_transaction_q(scpi_t *context);
@@ -29,6 +32,9 @@ scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context);
 scpi_result_t scpi_cmd_ota_stream_boot(scpi_t *context);
 scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_stream_capability_q(scpi_t *context);
+scpi_result_t scpi_cmd_ota_stream_init_q(scpi_t *context);
+scpi_result_t scpi_cmd_ota_stream_erase_q(scpi_t *context);
+scpi_result_t scpi_cmd_ota_perf_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_tdma_diag_q(scpi_t *context);
 
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
@@ -70,6 +76,9 @@ scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
     {.pattern = "SYSTem:OTA:ABORt", .callback = scpi_cmd_ota_abort}, \
     {.pattern = "SYSTem:OTA:BOOT", .callback = scpi_cmd_ota_boot}, \
     {.pattern = "SYSTem:OTA:COMMit", .callback = scpi_cmd_ota_commit}, \
+    {.pattern = "SYSTem:OTA:CONFirm", .callback = scpi_cmd_ota_confirm}, \
+    {.pattern = "SYSTem:OTA:BCB?", .callback = scpi_cmd_ota_bcb_q}, \
+    {.pattern = "SYSTem:OTA:FT?", .callback = scpi_cmd_ota_ft_q}, \
     {.pattern = "SYSTem:OTA:SLOT?", .callback = scpi_cmd_ota_slot_q}, \
     {.pattern = "SYSTem:OTA:RESult?", .callback = scpi_cmd_ota_result_q}, \
     {.pattern = "SYSTem:OTA:TXN?", .callback = scpi_cmd_ota_transaction_q}, \
@@ -87,6 +96,9 @@ scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
     {.pattern = "SYSTem:OTA:STReam:BOOT", .callback = scpi_cmd_ota_stream_boot}, \
     {.pattern = "SYSTem:OTA:STReam:STATus?", .callback = scpi_cmd_ota_stream_status_q}, \
     {.pattern = "SYSTem:OTA:STReam:CAPability?", .callback = scpi_cmd_ota_stream_capability_q}, \
+    {.pattern = "SYSTem:OTA:STReam:INIT?", .callback = scpi_cmd_ota_stream_init_q}, \
+    {.pattern = "SYSTem:OTA:STReam:ERASE?", .callback = scpi_cmd_ota_stream_erase_q}, \
+    {.pattern = "SYSTem:OTA:PERF?", .callback = scpi_cmd_ota_perf_q}, \
     {.pattern = "SYSTem:OTA:TDMA:DIAG?", .callback = scpi_cmd_ota_tdma_diag_q} \
     SCPI_OTA_FAULT_INJECTION_COMMANDS
 

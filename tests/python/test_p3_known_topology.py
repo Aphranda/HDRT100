@@ -155,6 +155,7 @@ def test_run_reuses_topology_then_reaches_fresh_calibration(tmp_path, monkeypatc
     package = tmp_path / 'build' / 'DHRT100_UPDATE.pkg'
     package.parent.mkdir()
     package.write_bytes(b'fake package')
+    (package.parent / 'DHRT100.elf').write_bytes(b'\x7fELF')
     out = tmp_path / 'run'
     (out / 'ota-four-board').mkdir(parents=True)
     (out / 'ota-four-board' / 'summary.json').write_text('{}')
@@ -173,6 +174,7 @@ def test_run_reuses_topology_then_reaches_fresh_calibration(tmp_path, monkeypatc
     monkeypatch.setattr(p3, 'working_source_fingerprint', lambda _: ('source', 1))
     monkeypatch.setattr(p3, '_run_step', step)
     monkeypatch.setattr(p3, '_read_package_build_id', lambda _: 'new')
+    monkeypatch.setattr(p3, 'verify_owner_hook_symbols', lambda _elf: None)
     monkeypatch.setattr(p3, 'validate_ota', lambda *args: None)
     monkeypatch.setattr(p3, 'reset_acceptance_boards', lambda *args: {'elapsed_s': 0})
     args = SimpleNamespace(root=tmp_path, config=p3.DEFAULT_CONFIG, receipt=Path('receipt.json'),

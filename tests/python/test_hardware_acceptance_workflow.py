@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
 import p3_hardware_acceptance as p3  # noqa: E402
 import hardware_acceptance_workflow as workflow  # noqa: E402
+from test_dpll_capture_retry import write_probe  # noqa: E402
 
 
 def make_args(tmp_path, **overrides):
@@ -255,6 +256,110 @@ def test_capture_rerun_uses_a_fresh_directory(tmp_path, monkeypatch):
     assert [row[0] for row in seen] == ["dpll-four-board-short", "dpll-four-board-short-attempt2"]
     assert seen[1][1] == "dpll-short-attempt2.log" and seen[0][2] == 10.0
     assert second.name == "dpll-four-board-short-attempt2"
+
+
+class _FakeRun:
+    def __init__(self, out_dir, outcomes, on_fail=None):
+        self.out_dir = out_dir
+        self.root = out_dir
+        self.config = {}
+        self.state = {"steps": {}}
+        self._outcomes = list(outcomes)
+        self._on_fail = on_fail
+        self.calls = 0
+        self.saved = 0
+
+    def save(self):
+        self.saved += 1
+
+    def execute(self, number):
+        self.calls += 1
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            if self._on_fail is not None:
+                self._on_fail()
+            self.state["steps"][str(number)] = {
+                "status": "FAIL", "seconds": 0.0, "reason": str(outcome)}
+            raise outcome
+        return outcome
+
+
+def test_workflow_retries_step29_only_when_policy_allows(tmp_path):
+    def partial_match():
+        write_probe(tmp_path / "dpll-four-board-short",
+                    followers=[(6000, 9), (6000, 9), (6000, 9)])
+    run = _FakeRun(
+        tmp_path,
+        [RuntimeError("Capture exited 2"), {"status": "OK", "seconds": 1.0}],
+        on_fail=partial_match)
+    record, error = workflow.execute_step_with_retry(run, 29)
+    assert run.calls == 2 and error is None and record["status"] == "OK"
+    assert run.config["dpll_short_capture_attempts"] == 1
+
+
+def test_workflow_does_not_retry_deterministic_step29(tmp_path):
+    def role_reject():
+        write_probe(tmp_path / "dpll-four-board-short", preflight=False,
+                    followers=[(0, 4), (0, 4), (0, 4)])
+    run = _FakeRun(tmp_path, [RuntimeError("Capture exited 2")],
+                   on_fail=role_reject)
+    record, error = workflow.execute_step_with_retry(run, 29)
+    assert run.calls == 1 and error is not None and record["status"] == "FAIL"
+
+
+def test_workflow_does_not_retry_other_steps(tmp_path):
+    run = _FakeRun(tmp_path, [RuntimeError("boom")])
+    record, error = workflow.execute_step_with_retry(run, 1)
+    assert run.calls == 1 and error is not None and record["status"] == "FAIL"
+
+
+def test_blocking_diagnostic_failure_is_visible_to_the_workflow():
+    run = SimpleNamespace(diagnostic_failures=[
+        {"step": 26, "phase": "warn-only", "error": "not blocking"},
+        {"step": 26, "phase": "TDMA stopped-record handoff", "blocking": True,
+         "error": "explicit startup barrier timed out"},
+    ])
+    blocking = workflow.blocking_diagnostic_failure(run, 26)
+    assert blocking is not None
+    assert blocking["phase"] == "TDMA stopped-record handoff"
+    # An earlier step's blocking failure must not fail a later step.
+    assert workflow.blocking_diagnostic_failure(run, 27) is None
+
+
+def test_no_blocking_failure_returns_none():
+    run = SimpleNamespace(diagnostic_failures=[{"step": 26, "phase": "warn-only"}])
+    assert workflow.blocking_diagnostic_failure(run, 26) is None
+
+
+def test_workflow_rejects_changed_tree_before_step29(tmp_path, monkeypatch):
+    run = _FakeRun(tmp_path, [{"status": "OK", "seconds": 1.0}])
+    run.state.update(fingerprint_before="a" * 64, source_count=10,
+                     invocations=[{}], sequence=0)
+    monkeypatch.setattr(p3, "working_source_fingerprint",
+                        lambda root: ("b" * 64, 10))
+    record, error = workflow.execute_step_with_retry(run, 29)
+    assert run.calls == 0
+    assert record["status"] == "FAIL"
+    assert "source changed since step 1" in str(error)
+    assert run.state["steps"]["29"] is record and run.saved == 1
+
+
+def test_workflow_runs_step29_on_a_matching_tree(tmp_path, monkeypatch):
+    run = _FakeRun(tmp_path, [{"status": "OK", "seconds": 1.0}])
+    run.state.update(fingerprint_before="a" * 64, source_count=10,
+                     invocations=[{}], sequence=0)
+    monkeypatch.setattr(p3, "working_source_fingerprint",
+                        lambda root: ("a" * 64, 10))
+    record, error = workflow.execute_step_with_retry(run, 29)
+    assert run.calls == 1 and error is None and record["status"] == "OK"
+    assert run.config["dpll_short_capture_attempts"] == 1
+
+
+def test_time_budget_override_is_parsed_and_bounded():
+    assert workflow.parse_time_budget("900,1200") == (900.0, 1200.0)
+    for raw in ("900", "900,800", "0,1200", "x,1200"):
+        with pytest.raises(SystemExit):
+            workflow.parse_time_budget(raw)
 
 
 def test_tdma_rerun_discards_the_previous_recorder(tmp_path, fingerprint, monkeypatch):

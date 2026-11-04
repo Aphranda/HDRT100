@@ -19,6 +19,10 @@ const ota_package_image_t *portable_ota_port_find_package_image(const ota_packag
                                                                 ota_slot_t slot);
 uint32_t portable_ota_port_crc32_update(uint32_t crc, const uint8_t *data, size_t length);
 uint32_t portable_ota_port_crc32_compute(const uint8_t *data, size_t length);
+/* Last flash-execute failure token: 0 = OK, 1 = range/permission rejected,
+ * else 200 + 10*error_class + failing_state.  Read-only diagnostic used to tell
+ * a park problem (state PARK_CORE1) from a raw erase/verify problem. */
+uint32_t portable_ota_port_flash_stage(void);
 bool portable_ota_port_validate_app_vector(uint32_t app_flash_offset,
                                            uint32_t app_size,
                                            uint32_t run_flash_offset);
@@ -59,6 +63,12 @@ bool portable_ota_port_stream_force_reset(void);
 
 /* Raw pota_stream_result_t of the last ingestion session open (diagnostics). */
 uint32_t portable_ota_port_stream_last_session_result(void);
+/* Stage code of the last stream-init attempt: 0 never run, 100..106 init
+ * sub-steps, 200/201/202 the platform-recovery path. */
+uint32_t portable_ota_port_stream_init_stage(void);
+/* Last stream write/service failure code: 5xxx = pota_stream_result_t,
+ * 6xxx = 6000 + pota_error_t (diagnostics). */
+uint32_t portable_ota_port_stream_last_service_result(void);
 uint32_t portable_ota_port_stream_platform_map_version(void);
 
 pota_stream_ingress_result_t portable_ota_port_stream_abort(
@@ -67,6 +77,17 @@ bool portable_ota_port_stream_is_active(void);
 bool portable_ota_port_stream_get_status(pota_stream_ingress_status_t *status);
 uint32_t portable_ota_port_stream_core_state(void);
 uint32_t portable_ota_port_stream_total_size(void);
+/* Inactive-slot erase progress for host polling: core state (pota_state_t),
+ * bytes already erased, and total bytes to erase. */
+bool portable_ota_port_stream_erase_progress(uint32_t *core_state,
+                                             uint32_t *erased_bytes,
+                                             uint32_t *erase_bytes);
+/* Lightweight OTA performance counters (milliseconds): [0]=flash execute,
+ * [1]=stream write, [2]=stream service, [3]=stream close.  Count is reserved
+ * (0) so the RAM cost stays 16 bytes.  Diagnostic only. */
+#define PORTABLE_OTA_PORT_PERF_COUNT 4u
+void portable_ota_port_perf_get(uint32_t *last_us, uint32_t *max_us,
+                                uint32_t *count);
 const char *portable_ota_port_state_to_string(ota_state_t state);
 const char *portable_ota_port_error_to_string(uint32_t error_code);
 const char *portable_ota_port_result_to_string(ota_result_t result);

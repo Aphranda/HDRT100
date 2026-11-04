@@ -12,6 +12,7 @@
 #include "calibration_manager.h"
 #include "board_identity.h"
 #include "diagnostics.h"
+#include "drv_flash.h"
 #include "drv_watchdog.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
@@ -1263,6 +1264,15 @@ static void app_realtime_trigger_measure_phase(void)
 
 void app_realtime_run_once(void)
 {
+    /* C1 flash park, first thing in the cycle: when core0 owns a flash
+     * transaction it raises a park request, and core1 must acknowledge it
+     * BEFORE any ring work.  The existing poll in app_runtime.c sits outside
+     * this call, so a long ring cycle could swallow it and every erase/program
+     * would time out (field: FLASH_ERASE whenever the ring was running, while
+     * the same path succeeded with the ring stopped).  The poll is a no-op
+     * unless a request is outstanding; when one is, core1 spins here until
+     * core0 releases the session, which is the agreed short ring stop. */
+    drv_flash_core1_lockout_poll();
     /* Offline personas, cycle sleep and GUARD have no ingress reservation. */
     tdma_runtime_owner_priority_rx_window_core1(false, 0u, 0u);
     /* A stopped maintenance persona may have touched the timer. No clock
@@ -1361,4 +1371,42 @@ void app_realtime_run_once(void)
                                  APP_REALTIME_PHASE_TRIGGER_MEASURE,
                                  APP_REALTIME_LOAD_TRIGGER_MEASURE,
                                  app_realtime_trigger_measure_phase);
+}
+
+/* ---- REFMEM control plane: flash park window ----------------------------- */
+
+/* The TDMA ring runs on core1 and keeps it away from its flash-park poll, so a
+ * flash erase/program issued while the ring is up times out in the lockout
+ * handshake.  These two hooks are the agreed "short stop": core0 asks REFMEM to
+ * stop the ring, parks core1, performs the flash operation and restarts the
+ * ring.  The OTA session state lives in the AO vector (and is mirrored to the
+ * REFMEM control plane), so nothing is lost while the ring is briefly down. */
+bool app_flash_park_pause_ring(void)
+{
+    return distributed_refmem_tdma_ring_stop();
+}
+
+void app_flash_park_resume_ring(void)
+{
+    (void)distributed_refmem_tdma_ring_start();
+}/* ---- REFMEM control plane: transaction-scoped ring window ---------------- */
+
+/* Every flash program/erase needs core1 out of flash, and the OTA journal also
+ * programs a completion record after the block itself is written.  The whole
+ * transaction therefore runs with the TDMA ring stopped; it is restarted right
+ * after, so the ring sees one short gap per OTA block instead of a broken
+ * transfer.  Only stop a ring that is actually running: boot-time journal work
+ * must never start one. */
+bool app_flash_window_stop_ring(void)
+{
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (!tdma_runtime_owner_get_ring_snapshot(&snapshot) || snapshot.enabled == 0u) {
+        return false;
+    }
+    return distributed_refmem_tdma_ring_stop();
+}
+
+void app_flash_window_start_ring(void)
+{
+    (void)distributed_refmem_tdma_ring_start();
 }

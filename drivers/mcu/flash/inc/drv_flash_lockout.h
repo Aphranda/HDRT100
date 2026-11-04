@@ -4,6 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* A 50M-spin probe (build 20261031204000) showed that enlarging this budget
+ * does NOT make the park succeed while the ring runs: core1 never reaches its
+ * lockout poll during ring service, so the erase keeps failing with
+ * FLASH_ERASE.  The budget is therefore not the fix; the caller must stop the
+ * ring (or core1 must yield inside its cycle) before any erase/program. */
 #define DRV_FLASH_LOCKOUT_DEFAULT_WAIT_LOOPS 1000000u
 
 typedef enum {

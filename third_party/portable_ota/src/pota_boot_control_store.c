@@ -707,6 +707,26 @@ pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
     }
 
     if (!write_record(store, lane, slot, lane_generation, update)) {
+        /* A worn/verify-failed current lane must not make metadata permanently
+         * unconfirmable.  Retry once on the alternate lane: erase it, program
+         * the record at slot 0, and seal it.  This is the same two-lane
+         * rotation the normal full-lane path uses, without extra RAM. */
+        if (!new_lane && POTA_BCB_LANE_COUNT > 1u) {
+            const uint32_t alternate_lane =
+                (lane + 1u) % POTA_BCB_LANE_COUNT;
+            const uint32_t alternate_generation =
+                next_generation(lane_generation);
+            if (erase_lane(store, alternate_lane) &&
+                write_record(store, alternate_lane, 0u,
+                             alternate_generation, update) &&
+                write_seal(store, alternate_lane, alternate_generation)) {
+                view->lane = alternate_lane;
+                view->record_page = 0u;
+                view->lane_generation = alternate_generation;
+                view->update = *update;
+                return POTA_BCB_RESULT_OK;
+            }
+        }
         return POTA_BCB_RESULT_VERIFY;
     }
     if (new_lane && !write_seal(store, lane, lane_generation)) {

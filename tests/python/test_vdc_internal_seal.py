@@ -231,3 +231,21 @@ def test_tracked_run_recomputes_qualification_after_inherited_cleanup(tmp_path):
     assert qualification["base_health_passed"] is False
     assert qualification["passed"] is False
     assert "No runtime queries or scope acquisition" in probe.report["conclusion_scope"]
+
+
+def test_drain_scpi_error_queue_stops_at_no_error():
+    replies = iter(["-200,\"Execution error\"", "0,\"No error\""])
+    drained = internal_seal.drain_scpi_error_queue(lambda command: next(replies))
+    assert drained == ["-200,\"Execution error\"", "0,\"No error\""]
+
+
+def test_drain_scpi_error_queue_is_bounded():
+    calls = []
+
+    def command(text):
+        calls.append(text)
+        return "-1,\"stuck\""
+
+    drained = internal_seal.drain_scpi_error_queue(command, limit=3)
+    assert len(drained) == 3 == len(calls)
+    assert all(text == "SYSTem:ERR?" for text in calls)

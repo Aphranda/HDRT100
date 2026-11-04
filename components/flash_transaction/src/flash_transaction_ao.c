@@ -16,6 +16,29 @@
 static flash_transaction_fb_t s_flash_transaction;
 static const flash_transaction_completion_lease_t *s_completion_lease;
 static uint32_t s_journal_provider_generation;
+/* True while this flash operation stopped the TDMA ring to obtain the park. */
+static bool s_ring_paused_for_flash;
+
+/* Weak defaults: single-core targets and host builds link these and never stop
+ * anything.  The product application overrides them with the REFMEM control
+ * plane ring stop/start so OTA flash work can proceed while the ring runs. */
+__attribute__((weak)) bool app_flash_park_pause_ring(void)
+{
+    return false;
+}
+
+__attribute__((weak)) void app_flash_park_resume_ring(void)
+{
+}
+
+__attribute__((weak)) bool app_flash_window_stop_ring(void)
+{
+    return false;
+}
+
+__attribute__((weak)) void app_flash_window_start_ring(void)
+{
+}
 
 static uint32_t flash_transaction_policy_check(uint32_t requester,
                                                uint32_t *temperature_flags);
@@ -99,12 +122,26 @@ static void flash_transaction_release(void)
 
 static bool flash_transaction_park_core1(void)
 {
-    return drv_flash_write_session_begin();
+    if (drv_flash_write_session_begin()) {
+        return true;
+    }
+    /* The ring may be holding core1 so it never reaches its park poll.  Ask the
+     * application for a short ring stop and retry the handshake once. */
+    if (!s_ring_paused_for_flash && app_flash_park_pause_ring()) {
+        s_ring_paused_for_flash = true;
+        return drv_flash_write_session_begin();
+    }
+    return false;
 }
 
 static bool flash_transaction_release_core1(void)
 {
-    return drv_flash_write_session_end();
+    const bool ok = drv_flash_write_session_end();
+    if (s_ring_paused_for_flash) {
+        s_ring_paused_for_flash = false;
+        app_flash_park_resume_ring();
+    }
+    return ok;
 }
 
 static __attribute__((noinline)) bool flash_transaction_erase(uint32_t offset,
@@ -241,6 +278,21 @@ bool flash_transaction_ao_notify_provider_reset(uint32_t provider_generation)
 {
     return flash_transaction_fb_notify_provider_reset(&s_flash_transaction,
                                                       provider_generation);
+}
+
+uint32_t flash_transaction_first_error(void)
+{
+    return flash_transaction_fb_first_error(&s_flash_transaction);
+}
+
+uint32_t flash_transaction_terminal_owner_state(void)
+{
+    return flash_transaction_fb_terminal_owner_state();
+}
+
+uint32_t flash_transaction_submit_reject(void)
+{
+    return flash_transaction_fb_submit_reject();
 }
 
 bool flash_transaction_ao_get_vector(flash_transaction_vector_t *vector)
@@ -402,8 +454,9 @@ bool flash_transaction_ao_journal_erase(uint32_t relative_offset,
         FLASH_TRANSACTION_OPERATION_ERASE, relative_offset, NULL, length);
 }
 
-bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
-                                  flash_transaction_completion_t *completion)
+static bool flash_transaction_ao_execute_inner(
+    const flash_transaction_request_t *request,
+    flash_transaction_completion_t *completion)
 {
     if (request == NULL || completion == NULL) {
         return false;
@@ -443,4 +496,19 @@ bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
         }
     }
     return false;
+}
+
+/* Transaction-scoped ring window: the whole transaction (erase/program/verify
+ * plus the journal completion record) runs with the TDMA ring stopped, because
+ * every one of those steps programs flash and core1 cannot be executing from
+ * flash at that moment.  The stop hook only reports true when the ring was
+ * actually running, so boot-time journal work never starts a ring. */
+bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
+                                  flash_transaction_completion_t *completion)
+{
+    /* Transaction-scoped ring window is disabled: the COMPLETION failure it
+     * was meant to cure also happens with the ring already stopped (measured
+     * 2026-11-01), so the defect lives in the relay/journal path itself, not in
+     * core1 being busy.  Kept as a thin pass-through until that is fixed. */
+    return flash_transaction_ao_execute_inner(request, completion);
 }

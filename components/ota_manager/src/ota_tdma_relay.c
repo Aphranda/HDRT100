@@ -144,10 +144,13 @@ bool ota_tdma_relay_tick(ota_tdma_relay_t *relay, uint32_t now_ms)
         return ota_tdma_session_resume(&relay->session, now_ms);
     }
     /* No ACK yet: the target may have missed the one-shot OPEN fragments.
-     * Re-send them every 200 ms until the pump records durable progress. */
+     * Re-send them a bounded number of times; an unbounded 200 ms resend
+     * starves the DATA frames that would produce the ACK in the first place. */
     if (ota_tdma_pump_durable(&relay->session.pump) == 0u &&
+        relay->open_resends < OTA_TDMA_RELAY_OPEN_RESEND_MAX &&
         (uint32_t)(now_ms - relay->open_resend_ms) >= 200u) {
         relay->open_resend_ms = now_ms;
+        relay->open_resends++;
         (void)ota_tdma_session_resend_open(&relay->session);
     }
     return true;
@@ -168,9 +171,27 @@ bool ota_tdma_relay_active(const ota_tdma_relay_t *relay)
     return relay != NULL && relay->open;
 }
 
+/* The transport is already closed here; the host only needs to stop waiting
+ * for a durable offset that will never advance. */
+bool ota_tdma_relay_failed(const ota_tdma_relay_t *relay)
+{
+    return relay != NULL &&
+           ota_tdma_session_state(&relay->session) == OTA_TDMA_SESSION_FAILED;
+}
+
 uint32_t ota_tdma_relay_durable(const ota_tdma_relay_t *relay)
 {
     return relay == NULL ? 0u : relay->durable_offset;
+}
+
+void ota_tdma_relay_pump_diag(const ota_tdma_relay_t *relay, uint32_t out[3])
+{
+    if (out == NULL) {
+        return;
+    }
+    out[0] = relay == NULL ? 0u : relay->session.pump.last_sent_offset;
+    out[1] = relay == NULL ? 0u : relay->session.pump.send_count;
+    out[2] = relay == NULL ? 0u : relay->session.pump.timeout_replays;
 }
 
 bool ota_tdma_relay_done(const ota_tdma_relay_t *relay)

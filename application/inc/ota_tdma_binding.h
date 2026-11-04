@@ -42,6 +42,9 @@ void ota_tdma_binding_relay_abort(void);
  * sessions; ignored when a relay is still in flight. */
 void ota_tdma_binding_relay_clear(void);
 bool ota_tdma_binding_relay_active(void);
+/* Sticky: the last relay ended in failure (target ABORT / retry exhaustion),
+ * cleared by the next relay_start or relay_clear. */
+bool ota_tdma_binding_relay_failed(void);
 uint32_t ota_tdma_binding_relay_durable(void);
 bool ota_tdma_binding_relay_done(void);
 

@@ -41,6 +41,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
 import p3_hardware_acceptance as p3  # noqa: E402
+import dpll_capture_retry as dpll_retry  # noqa: E402
 
 LOG_DIR = ROOT / "out" / "HardwareAcceptance"
 HTML_VIEW = ROOT / "docs" / "validation" / "P3_FLOW.html"
@@ -312,7 +313,142 @@ def selection_for(ns: argparse.Namespace, run: p3.AcceptanceRun) -> list[int]:
     return list(profile["steps"]) if profile["steps"] else p3.acceptance_step_plan(run.args)
 
 
+
+BENCH_LOCK = ROOT / "out" / "HardwareAcceptance" / ".bench.lock"
+
+
+def acquire_bench_lock() -> None:
+    """Refuse to drive the bench while another acceptance run holds it."""
+    import json
+    import os
+
+    BENCH_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    if BENCH_LOCK.exists():
+        try:
+            held = json.loads(BENCH_LOCK.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            held = {}
+        pid = held.get("pid")
+        alive = False
+        if isinstance(pid, int):
+            try:
+                os.kill(pid, 0)
+                alive = True
+            except OSError:
+                alive = False
+        if alive:
+            raise SystemExit(
+                f"bench busy: pid {pid} {held.get('run_dir', '')} "
+                f"(started {held.get('started_at', '')}); "
+                "remove out/HardwareAcceptance/.bench.lock if that process is gone")
+        try:
+            BENCH_LOCK.unlink()
+        except OSError:
+            pass
+    BENCH_LOCK.write_text(json.dumps({
+        "pid": os.getpid(),
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "argv": " ".join(sys.argv[1:]),
+    }), encoding="utf-8")
+
+
+def release_bench_lock() -> None:
+    try:
+        BENCH_LOCK.unlink()
+    except OSError:
+        pass
+
+
 def run_selection(ns: argparse.Namespace) -> int:
+    acquire_bench_lock()
+    try:
+        return _run_selection_locked(ns)
+    finally:
+        release_bench_lock()
+
+
+def blocking_diagnostic_failure(run: p3.AcceptanceRun, number: int | None = None):
+    """First diagnostic failure a step explicitly marked as blocking.
+
+    With ``number``, only that step's own failure is returned, so a blocking
+    failure from an earlier step cannot make every later step look failed.
+    """
+    return next((row for row in run.diagnostic_failures
+                 if row.get("blocking") and
+                 (number is None or row.get("step") == number)), None)
+
+
+def fingerprint_mismatch(run: p3.AcceptanceRun, current) -> str | None:
+    """Explain a worktree change since step 1, or None when it still matches."""
+    before = run.state.get("fingerprint_before")
+    if before is None:
+        return None
+    expected = (before, run.state.get("source_count"))
+    if current == expected:
+        return None
+    return (f"source changed since step 1: {str(before)[:12]} -> "
+            f"{str(current[0])[:12]}; step 29 must run on the fingerprint "
+            "step 1 recorded")
+
+
+def execute_step_with_retry(run: p3.AcceptanceRun, number: int):
+    """Execute one step; retry step 29 once when the workflow policy allows.
+
+    Returns ``(record, error)``.  ``error`` is None on success (including a
+    successful retry); otherwise it is the exception that ended the step.
+    """
+    capture_dirs_before: set[Path] = set()
+    if number == 29:
+        # The workflow owns the step-29 retry policy. One physical window per
+        # attempt keeps that policy visible here instead of hiding a second
+        # window inside the step implementation.
+        run.config["dpll_short_capture_attempts"] = 1
+        capture_dirs_before = set(run.out_dir.glob("dpll-four-board-short*"))
+        mismatch = fingerprint_mismatch(
+            run, p3.working_source_fingerprint(run.root))
+        if mismatch is not None:
+            # Fail here in milliseconds instead of writing a provisional
+            # receipt and letting the child reject it 2-25 s later.
+            run.state["sequence"] = int(run.state.get("sequence", 0)) + 1
+            record = {
+                "title": p3.ACCEPTANCE_STEPS[number][0],
+                "sequence": run.state["sequence"],
+                "invocation": len(run.state.get("invocations") or [{}]) - 1,
+                "status": "FAIL", "reason": f"AcceptanceError: {mismatch}",
+                "seconds": 0.0,
+            }
+            run.state["steps"][str(number)] = record
+            run.save()
+            return record, p3.AcceptanceError(mismatch)
+    try:
+        return run.execute(number), None
+    except Exception as exc:                                          # noqa: BLE001
+        if (number != 29 or
+                not dpll_retry.step_29_is_retryable(
+                    run, exc, capture_dirs_before)):
+            return run.state["steps"][str(number)], exc
+        log("=== Step 29 RETRY    fresh 60 s window (retryable failure)")
+        try:
+            return run.execute(number), None
+        except Exception as retry_exc:                                # noqa: BLE001
+            return run.state["steps"][str(number)], retry_exc
+
+
+def parse_time_budget(raw: str) -> tuple[float, float]:
+    """Parse ``warning_s,error_s`` for the explicit acceptance budget override."""
+    parts = [value.strip() for value in str(raw).split(",")]
+    if len(parts) != 2:
+        raise SystemExit("--time-budget must be warning_s,error_s")
+    try:
+        warning, error = (float(value) for value in parts)
+    except ValueError as exc:
+        raise SystemExit("--time-budget values must be numeric") from exc
+    if not (0.0 < warning < error):
+        raise SystemExit("--time-budget requires 0 < warning_s < error_s")
+    return warning, error
+
+
+def _run_selection_locked(ns: argparse.Namespace) -> int:
     profile = PROFILES[ns.profile]
     if profile.get("continue") and not ns.run and not (ns.steps or ns.step is not None):
         raise SystemExit(f"profile {ns.profile} continues a run: pass --run <dir|latest>")
@@ -325,6 +461,15 @@ def run_selection(ns: argparse.Namespace) -> int:
     sys.stdout = _Tee(original, handle)
     failed = False
     try:
+        if getattr(ns, "time_budget", None):
+            warning, error = parse_time_budget(ns.time_budget)
+            run.config["acceptance_time_budget"] = {
+                "warning_s": warning, "error_s": error}
+            run.state["time_budget_override"] = dict(
+                run.config["acceptance_time_budget"])
+            run.save()
+            log(f"acceptance time budget override warning={warning:g}s "
+                f"error={error:g}s")
         selection = selection_for(ns, run)
         log(f"run {run.rel(run.out_dir)} invocation {invocation} profile {ns.profile}"
             f" steps {selection}")
@@ -336,15 +481,28 @@ def run_selection(ns: argparse.Namespace) -> int:
             title = p3.ACCEPTANCE_STEPS[number][0]
             bench = " [B]" if number in p3.ACCEPTANCE_BENCH_STEPS else ""
             log(f"=== Step {number}{bench} START  {title}")
-            try:
-                record = run.execute(number)
-            except Exception as exc:                                      # noqa: BLE001
-                record = run.state["steps"][str(number)]
+            record, error = execute_step_with_retry(run, number)
+            if error is not None:
                 failed = True
                 if (run.alarm_context is not None and
-                        not isinstance(exc, p3.MissingPrerequisite) and
+                        not isinstance(error, p3.MissingPrerequisite) and
                         run.state["steps"].get("34", {}).get("status") not in ("OK", "warn")):
-                    p3.write_alarm_report(run.alarm_context, error=str(exc))
+                    p3.write_alarm_report(run.alarm_context, error=str(error))
+            blocking = blocking_diagnostic_failure(run, number)
+            if blocking is not None:
+                # A step may downgrade a hard prerequisite to a warn diagnostic
+                # (for example the TDMA stopped handoff). Continuing would only
+                # fail later at step 29, so mark that step FAIL here: the run
+                # stops by default, stays non-zero under --keep-going, and the
+                # credential cannot treat the prerequisite as satisfied.
+                failed = True
+                record = run.state["steps"][str(number)]
+                if record.get("status") != "FAIL":
+                    record.update(status="FAIL",
+                                  reason=f"blocking: {blocking.get('error')}")
+                    run.save()
+                log(f"=== Step {number} BLOCKING diagnostic: "
+                    f"{blocking.get('error')}")
             log(f"=== Step {number} END    {record['status']}  {record['seconds']:.1f}s"
                 f"{'  ' + record['reason'] if record.get('reason') else ''}")
             if failed and not ns.keep_going:
@@ -518,8 +676,8 @@ def _synthesize_ota_summary(build_id: str) -> Path:
         "reused": True,
         "note": "boards already run this build; OTA skipped by --reuse-flashed",
         "boards": [
-            {"serial_number": board_id, "max_data_block_size": 4096,
-             "passed": True}
+            {"serial_number": board_id, "build_id": build_id,
+             "max_data_block_size": 4096, "passed": True}
             for board_id in board_ids
         ],
     }
@@ -553,6 +711,9 @@ def main(argv: list[str] | None = None) -> int:
                              "external_status=SKIPPED")
     parser.add_argument("--tdma-only", action="store_true")
     parser.add_argument("--diagnostic-continue", action="store_true")
+    parser.add_argument("--time-budget", default=None,
+                        help="explicit acceptance time budget warning_s,error_s "
+                             "(FULL configs may omit it; recorded in run state)")
     parser.add_argument("--keep-going", action="store_true")
     parser.add_argument("--interactive", action="store_true",
                         help="wait for Enter between steps")
@@ -567,9 +728,11 @@ def main(argv: list[str] | None = None) -> int:
         if match is not None:
             ns.package, build_id = match
             ns.build_dir = ns.package.parent
-            ns.ota_summary = _find_ota_summary(build_id)
-            if ns.ota_summary is None:
-                ns.ota_summary = _synthesize_ota_summary(build_id)
+            # Reuse means "live boards already run this build"; synthesize the
+            # OTA summary from the live four-board check.  Reusing an old
+            # OTA summary can carry stale board build_ids and make step24 fail
+            # on a mismatch that no longer exists.
+            ns.ota_summary = _synthesize_ota_summary(build_id)
             print(f"reuse-flashed: package={ns.package}")
             print(f"reuse-flashed: ota_summary={ns.ota_summary}")
     for stream in (sys.stdout, sys.stderr):

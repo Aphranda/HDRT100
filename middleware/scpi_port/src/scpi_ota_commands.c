@@ -8,6 +8,7 @@
 #include "distributed_config.h"
 #include "drv_flash.h"
 #include "drv_watchdog.h"
+#include "flash_transaction.h"
 #include "board_identity.h"
 #include "ota_ao.h"
 #include "ota_metadata.h"
@@ -58,6 +59,10 @@ scpi_result_t scpi_cmd_ota_progress_q(scpi_t *context)
     SCPI_ResultUInt32(context, vector.received_size);
     SCPI_ResultUInt32(context, vector.expected_size);
     SCPI_ResultUInt32(context, vector.progress_permille);
+    /* 4th field (append-only): last flash-execute token.  0 = OK, 1 = range or
+     * permission rejected, else 200 + 10*error_class + failing_state, which
+     * separates a core1 park failure from a raw erase/verify failure. */
+    SCPI_ResultUInt32(context, portable_ota_port_flash_stage());
     return SCPI_RES_OK;
 }
 
@@ -222,7 +227,76 @@ scpi_result_t scpi_cmd_ota_boot(scpi_t *context)
 
 scpi_result_t scpi_cmd_ota_commit(scpi_t *context)
 {
+    /* A stream session reaches READY only after its END already wrote the
+     * pending BCB/manifest.  Treat COMM as idempotent in that state instead of
+     * rejecting it and making a legacy host wait out its full timeout. */
+    if (portable_ota_port_stream_is_active()) {
+        pota_stream_ingress_status_t status;
+        if (portable_ota_port_stream_get_status(&status) &&
+            status.state == POTA_STREAM_STATE_READY_TO_REBOOT) {
+            return scpi_port_result_ok(context);
+        }
+        return SCPI_RES_ERR;
+    }
     return scpi_cmd_ota_simple_event_ack(context, OTA_EVENT_COMMIT);
+}
+
+scpi_result_t scpi_cmd_ota_confirm(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+    if (!ota_metadata_confirm_active()) {
+        return SCPI_RES_ERR;
+    }
+    ota_metadata_t metadata;
+    if (ota_metadata_load(&metadata)) {
+        ota_ao_publish_metadata_snapshot(&metadata);
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_ota_bcb_q(scpi_t *context)
+{
+    ota_metadata_bcb_health_t health;
+    ota_metadata_bcb_wear_t wear;
+    if (!ota_metadata_get_bcb_health(&health)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, health.valid_lane_count);
+    SCPI_ResultUInt32(context, health.valid_record_count);
+    SCPI_ResultUInt32(context, health.newest_lane_generation);
+    SCPI_ResultUInt32(context, health.newest_sequence);
+    SCPI_ResultUInt32(context, health.newest_security_counter);
+    SCPI_ResultUInt32(context, health.newest_lane);
+    SCPI_ResultUInt32(context, health.newest_record_page);
+    if (ota_metadata_get_bcb_wear(&wear)) {
+        SCPI_ResultUInt32(context, wear.program_page_count);
+        SCPI_ResultUInt32(context, wear.erase_lane_count);
+    } else {
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+    }
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ota_ft_q(scpi_t *context)
+{
+    flash_transaction_vector_t vector;
+    if (!flash_transaction_ao_get_vector(&vector)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, vector.state);
+    SCPI_ResultUInt32(context, vector.last_result);
+    SCPI_ResultUInt32(context, vector.last_error);
+    SCPI_ResultUInt32(context, vector.policy_gate_reason);
+    SCPI_ResultUInt32(context, vector.verify_failure_count);
+    SCPI_ResultUInt32(context, vector.requested_bytes);
+    SCPI_ResultUInt32(context, vector.processed_bytes);
+    SCPI_ResultUInt32(context, vector.completion_level);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_cmd_ota_slot_q(scpi_t *context)
@@ -607,36 +681,39 @@ scpi_result_t scpi_cmd_ota_stream_data(scpi_t *context)
                    ? scpi_port_result_ok(context)
                    : SCPI_RES_ERR;
     }
-    /* The final block can trigger the manifest/hash finalize inside the write
-     * path; widen the supervisor budget for OTA data traffic. */
+    /* Data is copied into the EventBus fast-block pool and written by OtaAO.
+     * The SCPI/USB task only enqueues; it must not call the flash path
+     * synchronously (HAOFV single-owner / non-blocking budget). */
     drv_watchdog_enable(30000u);
-    /* The first DATA after the package header arrives while the inactive slot
-     * is still being erased.  The core rejects writes in ERASE_SLOT, which
-     * would fail a healthy session, so wait (bounded) for the AO to finish the
-     * erase before applying the block. */
-    for (uint32_t waited_ms = 0u; waited_ms < 300000u; waited_ms += 5u) {
-        const uint32_t core_state = portable_ota_port_stream_core_state();
-        if (core_state != (uint32_t)POTA_STATE_CHECK_PERMISSION &&
-            core_state != (uint32_t)POTA_STATE_ERASE_SLOT) {
-            break;
-        }
-        osal_task_delay_ms(5u);
+    const uint32_t core_state = portable_ota_port_stream_core_state();
+    if (core_state == (uint32_t)POTA_STATE_CHECK_PERMISSION ||
+        core_state == (uint32_t)POTA_STATE_ERASE_SLOT) {
+        SCPI_ResultCharacters(context, "BUSY", 4u);
+        return SCPI_RES_OK;
     }
-    drv_watchdog_mark_ota_phase(20u); /* before data write */
-    const pota_stream_ingress_result_t write_result =
-        portable_ota_port_stream_write(
-            source, offset, (const uint8_t *)data, (uint32_t)length,
-            true, crc32);
-    drv_watchdog_mark_ota_phase(
-        write_result == POTA_STREAM_INGRESS_OK ? 21u : 22u);
-    if (write_result == POTA_STREAM_INGRESS_OK &&
-        (offset + (uint32_t)length) >=
-            portable_ota_port_stream_total_size()) {
-        drv_watchdog_mark_ota_phase(23u); /* final block accepted */
+    if (core_state == (uint32_t)POTA_STATE_FAILED ||
+        core_state == (uint32_t)POTA_STATE_ABORTED ||
+        !portable_ota_port_stream_is_active()) {
+        return SCPI_RES_ERR;
     }
-    return write_result == POTA_STREAM_INGRESS_OK
-               ? scpi_port_result_ok(context)
-               : SCPI_RES_ERR;
+    /* OtaAO recomputes the CRC from the queued copy; the SCPI-side value was
+     * already parsed for protocol compatibility. */
+    (void)crc32;
+    const ota_event_t event = {
+        .type = OTA_EVENT_STREAM_DATA,
+        .payload.data = {
+            .data = (const uint8_t *)data,
+            .length = (uint32_t)length,
+            .block_index = offset,
+        },
+    };
+    if (!ota_ao_post_event(&event)) {
+        SCPI_ResultCharacters(context, "BUSY", 4u);
+        return SCPI_RES_OK;
+    }
+    drv_watchdog_mark_ota_phase(21u); /* stream block queued */
+    SCPI_ResultCharacters(context, "QUEUED", 6u);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_cmd_ota_stream_close(scpi_t *context)
@@ -653,32 +730,32 @@ scpi_result_t scpi_cmd_ota_stream_close(scpi_t *context)
     }
     if (ota_tdma_binding_relay_active() ||
         ota_tdma_binding_relay_done()) {
+        /* The relay owns the target-side finalisation, but this board still has
+         * to survive the same asynchronous END window; keep the widened
+         * supervisor budget until the relay reports a terminal state. */
+        drv_watchdog_enable(30000u);
+        drv_watchdog_mark_ota_phase(26u);
         return scpi_port_result_ok(context);
     }
     /* Finalization (manifest hash + signature + BCB commit) legitimately takes
      * longer than the 3 s supervisor budget; widen it for the close path. */
     drv_watchdog_enable(30000u);
-    drv_watchdog_mark_ota_phase(24u); /* before close */
-    const pota_stream_ingress_result_t result =
-        portable_ota_port_stream_close(source);
-    drv_watchdog_mark_ota_phase(25u); /* close returned */
-    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
-    if (result == POTA_STREAM_INGRESS_OK) {
-        /* CLOSE only queues the bounded END transaction.  Keep the OTA
-         * admission lease until FlashTransaction-owned verification,
-         * manifest append and pending-BCB commit reach READY_TO_REBOOT;
-         * releasing here would let RUN owners race the remaining steps. */
-        return scpi_port_result_ok(context);
+    if (!portable_ota_port_stream_is_active()) {
+        return SCPI_RES_ERR;
     }
-    /* A failed close leaves no valid transaction to service.  Release the
-     * lease so a subsequent OPEN is not permanently blocked. */
-    pota_stream_ingress_status_t status;
-    if (portable_ota_port_stream_get_status(&status) &&
-        (status.state == POTA_STREAM_STATE_FAILED ||
-         status.state == POTA_STREAM_STATE_ABORTED)) {
-        resource_arbiter_release_ota_admission();
+    const ota_event_t event = {
+        .type = OTA_EVENT_STREAM_CLOSE,
+        .payload.value = (uint32_t)source,
+    };
+    if (!ota_ao_post_event(&event)) {
+        return SCPI_RES_ERR;
     }
-    return SCPI_RES_ERR;
+    drv_watchdog_mark_ota_phase(24u); /* close queued */
+    /* CLOSE is queued; OtaAO owns the session and runs END -> READY.  The host
+     * polls STREAM:STAT? and releases the widened watchdog on the terminal
+     * state. */
+    SCPI_ResultCharacters(context, "QUEUED", 6u);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context)
@@ -738,6 +815,17 @@ scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context)
         SCPI_ResultUInt32(context, ota_tdma_binding_last_result());
         return SCPI_RES_OK;
     }
+    if (ota_tdma_binding_relay_failed()) {
+        /* The relay ended in failure: report it as FAILED so the host stops
+         * waiting for a durable offset that can never arrive (the target's
+         * ABORT otherwise only surfaces as the host's own timeout). */
+        SCPI_ResultUInt32(context, (uint32_t)POTA_STREAM_INGRESS_TDMA);
+        SCPI_ResultUInt32(context, (uint32_t)POTA_STREAM_STATE_FAILED);
+        SCPI_ResultUInt32(context, ota_tdma_binding_relay_durable());
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, ota_tdma_binding_last_result());
+        return SCPI_RES_OK;
+    }
     pota_stream_ingress_status_t status;
     if (!portable_ota_port_stream_get_status(&status)) {
         return SCPI_RES_ERR;
@@ -747,6 +835,15 @@ scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.durable_offset);
     SCPI_ResultUInt32(context, status.stream_token);
     SCPI_ResultUInt32(context, (uint32_t)status.last_result);
+    /* The close path widens the supervisor window so the asynchronous END
+     * transaction can finish; release it here once the session reaches a
+     * terminal state so normal 3 s supervision resumes. */
+    if (status.state == POTA_STREAM_STATE_READY_TO_REBOOT ||
+        status.state == POTA_STREAM_STATE_FAILED ||
+        status.state == POTA_STREAM_STATE_ABORTED ||
+        status.state == POTA_STREAM_STATE_IDLE) {
+        drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
+    }
     return SCPI_RES_OK;
 }
 
@@ -778,6 +875,45 @@ scpi_result_t scpi_cmd_ota_stream_capability_q(scpi_t *context)
     SCPI_ResultUInt32(context, 0u);
     SCPI_ResultUInt32(context, 1u);
 #endif
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ota_stream_init_q(scpi_t *context)
+{
+    /* Stream-init diagnostics: stage tells which sub-step failed, the two
+     * results are the raw pota_stream_result_t/ingress codes. */
+    SCPI_ResultUInt32(context, portable_ota_port_stream_init_stage());
+    SCPI_ResultUInt32(context, portable_ota_port_stream_last_session_result());
+    SCPI_ResultUInt32(context, portable_ota_port_stream_last_service_result());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ota_stream_erase_q(scpi_t *context)
+{
+    uint32_t core_state = 0u;
+    uint32_t erased_bytes = 0u;
+    uint32_t erase_bytes = 0u;
+    if (!portable_ota_port_stream_erase_progress(
+            &core_state, &erased_bytes, &erase_bytes)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, core_state);
+    SCPI_ResultUInt32(context, erased_bytes);
+    SCPI_ResultUInt32(context, erase_bytes);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ota_perf_q(scpi_t *context)
+{
+    uint32_t last_us[PORTABLE_OTA_PORT_PERF_COUNT] = {0};
+    uint32_t max_us[PORTABLE_OTA_PORT_PERF_COUNT] = {0};
+    uint32_t count[PORTABLE_OTA_PORT_PERF_COUNT] = {0};
+    portable_ota_port_perf_get(last_us, max_us, count);
+    for (uint32_t index = 0u; index < PORTABLE_OTA_PORT_PERF_COUNT; ++index) {
+        SCPI_ResultUInt32(context, last_us[index]);
+        SCPI_ResultUInt32(context, max_us[index]);
+        SCPI_ResultUInt32(context, count[index]);
+    }
     return SCPI_RES_OK;
 }
 

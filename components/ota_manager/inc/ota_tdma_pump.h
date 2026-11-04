@@ -51,6 +51,14 @@ typedef struct {
     uint32_t durable_offset;
     uint32_t sent_offset;
     uint32_t sent_length;
+    /* First chunk of the in-flight block that has not been submitted yet.  A
+     * maintenance window can admit only part of a block per opportunity, so a
+     * retry must continue here instead of replaying the block head forever. */
+    uint32_t send_cursor;
+    /* Diagnostics: offset of the last frame the transport accepted. */
+    uint32_t last_sent_offset;
+    uint32_t send_count;
+    uint32_t timeout_replays;
     uint32_t timeout_ms;
     uint32_t deadline_ms;
     ota_tdma_pump_crc_fn crc32;

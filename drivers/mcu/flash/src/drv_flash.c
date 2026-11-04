@@ -1,5 +1,7 @@
 #include "drv_flash_write.h"
 
+#include "drv_watchdog.h"
+
 #include <string.h>
 
 #include "hardware/flash.h"
@@ -184,6 +186,10 @@ bool drv_flash_erase_parked(uint32_t flash_offset, size_t length)
         const uint32_t irq_state = save_and_disable_interrupts();
         flash_range_erase(flash_offset, DRV_FLASH_SECTOR_SIZE);
         restore_interrupts(irq_state);
+        /* An OTA erase runs on the OTA task, not on the supervisor loop, so the
+         * health gate cannot refresh the watchdog while the sector loop is
+         * busy.  Feed per sector here: bounded work, no extra owner. */
+        drv_watchdog_feed();
     }
     return drv_flash_is_erased(start_offset, length);
 }
@@ -204,16 +210,16 @@ bool drv_flash_program_parked(uint32_t flash_offset, const uint8_t *data,
         return false;
     }
 
-    for (size_t remaining = length; remaining != 0u;
-         remaining -= DRV_FLASH_PAGE_SIZE,
-         flash_offset += DRV_FLASH_PAGE_SIZE,
-         data += DRV_FLASH_PAGE_SIZE) {
-        const uint32_t irq_state = save_and_disable_interrupts();
-        flash_range_program(flash_offset, data, DRV_FLASH_PAGE_SIZE);
-        restore_interrupts(irq_state);
-    }
-    flash_offset -= (uint32_t)length;
-    data -= length;
+    /* Program the whole request in one XIP-disabled section.  The previous
+     * per-256 B loop re-entered flash_range_program 16 times for a 4 KiB OTA
+     * block; the SDK already walks pages internally, so the loop only added
+     * per-call overhead (measured ~233 ms per 4 KiB transaction).  4 KiB is
+     * still far below the watchdog budget and C1 only requires that core1 is
+     * parked and no XIP/USB/SD access happens inside the section. */
+    const uint32_t irq_state = save_and_disable_interrupts();
+    flash_range_program(flash_offset, data, length);
+    restore_interrupts(irq_state);
+    drv_watchdog_feed();
     return memcmp(drv_flash_xip_ptr(flash_offset), data, length) == 0;
 }
 

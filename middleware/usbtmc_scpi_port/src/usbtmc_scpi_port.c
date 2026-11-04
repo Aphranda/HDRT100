@@ -5,6 +5,7 @@
 
 #include "class/usbtmc/usbtmc.h"
 #include "class/usbtmc/usbtmc_device.h"
+#include "pico/time.h"
 #include "pico/unique_id.h"
 #include "product_config.h"
 #include "project_config.h"
@@ -44,6 +45,9 @@ static bool s_bulk_in_requested;
 static uint8_t s_status_byte;
 
 #if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+#define USB_CDC_WRITE_TIMEOUT_MS 250u
+static bool s_cdc_was_connected;
+
 static size_t usb_cdc_scpi_write(const char *data, size_t len, void *context)
 {
     (void)context;
@@ -52,17 +56,38 @@ static size_t usb_cdc_scpi_write(const char *data, size_t len, void *context)
     }
 
     if (tud_cdc_connected()) {
+        const uint32_t started_ms =
+            to_ms_since_boot(get_absolute_time());
         size_t written = 0u;
         while (written < len) {
-            const uint32_t chunk = tud_cdc_write(&data[written], (uint32_t)(len - written));
-            if (chunk == 0u) {
-                tud_task();
+            if (!tud_cdc_connected()) {
+                (void)tud_cdc_write_clear();
+                break;
+            }
+            const uint32_t chunk =
+                tud_cdc_write(&data[written], (uint32_t)(len - written));
+            if (chunk != 0u) {
+                written += chunk;
                 continue;
             }
-            written += chunk;
+            /* A host that stopped reading (crash/kill/close) leaves the CDC
+             * IN endpoint with no consumer; the old loop spun here forever and
+             * blocked the whole SCPI task.  Drop the response after a bounded
+             * stall and reset the transport so the next command can proceed. */
+            if ((uint32_t)(to_ms_since_boot(get_absolute_time()) - started_ms) >=
+                USB_CDC_WRITE_TIMEOUT_MS) {
+                (void)tud_cdc_write_clear();
+                tud_cdc_n_read_flush(0);
+                scpi_port_reset_input();
+                break;
+            }
+            tud_task();
         }
     }
 
+    /* Report the response as accepted even when it was dropped: libscpi must
+     * not retry into the same dead endpoint.  The host sees a timeout and
+     * retries the command after the transport has been reset. */
     return len;
 }
 
@@ -75,6 +100,18 @@ static void usb_cdc_scpi_flush(void *context)
 static void usb_cdc_scpi_service(void)
 {
     uint8_t buffer[64];
+
+    scpi_port_poll_input_timeout();
+
+    const bool connected = tud_cdc_connected();
+    if (s_cdc_was_connected && !connected) {
+        /* DTR/line-state drop: discard the partial command and any queued
+         * response so a reopened port starts from a clean parser state. */
+        tud_cdc_n_read_flush(0);
+        (void)tud_cdc_write_clear();
+        scpi_port_reset_input();
+    }
+    s_cdc_was_connected = connected;
 
     while (tud_cdc_available() > 0u) {
         const uint32_t count = tud_cdc_read(buffer, sizeof(buffer));

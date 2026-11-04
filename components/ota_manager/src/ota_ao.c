@@ -18,7 +18,16 @@
 #define OTA_SESSION_NO_PROGRESS_TIMEOUT_MS OTA_PROGRESS_WATCH_DEFAULT_TIMEOUT_MS
 #endif
 
+/* The TDMA bridge only produces one write per complete block, and a block is
+ * several maintenance frames.  Until the first block is acknowledged the AO
+ * sees no progress by design, so give the first block a budget that covers a
+ * lossy maintenance window instead of declaring NO_PROGRESS after 10 s. */
+#ifndef OTA_FIRST_BLOCK_TIMEOUT_MS
+#define OTA_FIRST_BLOCK_TIMEOUT_MS 40000u
+#endif
+
 static struct ota_ao_context s_ota_context;
+static bool s_boot_confirm_done;
 static ota_vector_t s_vector_snapshot[2];
 static ota_metadata_t s_metadata_snapshot[2];
 static uint32_t s_vector_active_index;
@@ -163,6 +172,15 @@ bool ota_ao_init(void)
     return true;
 }
 
+static ota_ao_data_done_fn s_data_done_hook;
+static void *s_data_done_context;
+
+void ota_ao_set_data_done_hook(ota_ao_data_done_fn hook, void *context)
+{
+    s_data_done_hook = hook;
+    s_data_done_context = context;
+}
+
 bool ota_ao_post_event(const ota_event_t *event)
 {
     if (!event_bus_post_ota_event(event)) {
@@ -180,18 +198,54 @@ void ota_ao_service(uint32_t budget_us)
         return;
     }
 
+    /* OTA-HAOFV-013: confirm the running slot once the application has been up
+     * long enough to count as healthy.  Without this the confirmed slot stays
+     * behind the active one, so the next update targets the only rollback
+     * target and any interrupted finalise leaves no bootable slot. */
+    if (!s_boot_confirm_done && board_uptime_ms() >= 1000u &&
+        !portable_ota_port_stream_is_active() &&
+        s_ota_context.vector.state == (uint32_t)OTA_STATE_IDLE) {
+        ota_metadata_t boot_metadata;
+        if (ota_metadata_load(&boot_metadata) &&
+            boot_metadata.pending_slot == (uint32_t)OTA_SLOT_NONE &&
+            boot_metadata.confirmed_slot != boot_metadata.active_slot &&
+            boot_metadata.last_boot_result <=
+                (uint32_t)OTA_BOOT_RESULT_APPLIED) {
+            /* Only latch once the metadata is durable; a transient load/store
+             * failure must not leave the confirmed slot behind the active one,
+             * because that makes the next update overwrite the only rollback
+             * image. */
+            const bool confirmed = ota_metadata_confirm_active();
+            if (confirmed) {
+                ota_metadata_t confirmed_metadata;
+                if (ota_metadata_load(&confirmed_metadata)) {
+                    ota_ao_publish_metadata(&s_ota_context,
+                                            &confirmed_metadata);
+                }
+            }
+            s_boot_confirm_done = confirmed;
+        } else if (boot_metadata.confirmed_slot == boot_metadata.active_slot) {
+            s_boot_confirm_done = true;
+        }
+    }
+
     s_ota_context.vector.timestamp_ms = board_uptime_ms();
     ota_ao_publish_vector(&s_ota_context);
 
     /* A host that dies mid-transfer must not hold the maintenance admission
      * forever (OTA-HAOFV-012).  Watch the published vector before any routing
      * so both the legacy event path and the stream path are covered. */
+    const bool awaiting_first_block =
+        s_ota_context.vector.state == (uint32_t)OTA_STATE_RECEIVING &&
+        s_ota_context.vector.received_size == 0u;
     if (ota_progress_watch_step(&s_progress_watch,
                                 s_ota_context.vector.timestamp_ms,
                                 s_ota_context.vector.state,
                                 s_ota_context.vector.received_size,
                                 s_ota_context.vector.programmed_size,
-                                OTA_SESSION_NO_PROGRESS_TIMEOUT_MS) ==
+                                awaiting_first_block
+                                    ? OTA_FIRST_BLOCK_TIMEOUT_MS
+                                    : OTA_SESSION_NO_PROGRESS_TIMEOUT_MS) ==
         OTA_PROGRESS_WATCH_TIMEOUT) {
         ota_ao_fail_no_progress(&s_ota_context);
         ota_ao_publish_vector(&s_ota_context);
@@ -211,10 +265,63 @@ void ota_ao_service(uint32_t budget_us)
         return;
     }
 
+    /* The package header starts the inactive-slot erase.  A pipelined DATA
+     * event may already be queued behind it; advance the erase first and keep
+     * that event queued instead of failing it with INVALID_STATE. */
+    if (portable_ota_port_stream_is_active()) {
+        const uint32_t stream_core_state = portable_ota_port_stream_core_state();
+        if (stream_core_state == (uint32_t)POTA_STATE_CHECK_PERMISSION ||
+            stream_core_state == (uint32_t)POTA_STATE_ERASE_SLOT) {
+            (void)portable_ota_port_stream_service(budget_us);
+            return;
+        }
+    }
+
     ota_event_t event;
     if (event_bus_try_recv_ota_event(&event)) {
+        if (event.type == OTA_EVENT_STREAM_DATA) {
+            /* Single writer: the USB/SCPI task only queued this block; OtaAO
+             * performs the stream write and publishes the durable offset. */
+            const uint32_t stream_crc = pota_crc32_compute(
+                event.payload.data.data, event.payload.data.length);
+            const pota_stream_ingress_result_t stream_result =
+                portable_ota_port_stream_write(
+                    POTA_STREAM_INGRESS_USB_CDC,
+                    event.payload.data.block_index,
+                    event.payload.data.data,
+                    event.payload.data.length, true, stream_crc);
+            event_bus_complete_ota_event(&event);
+            if (stream_result != POTA_STREAM_INGRESS_OK) {
+                pota_stream_ingress_status_t status;
+                if (portable_ota_port_stream_get_status(&status) &&
+                    (status.state == POTA_STREAM_STATE_FAILED ||
+                     status.state == POTA_STREAM_STATE_ABORTED)) {
+                    resource_arbiter_release_ota_admission();
+                }
+            }
+            return;
+        }
+        if (event.type == OTA_EVENT_STREAM_CLOSE) {
+            const pota_stream_ingress_result_t close_result =
+                portable_ota_port_stream_close(
+                    (pota_stream_ingress_source_t)event.payload.value);
+            event_bus_complete_ota_event(&event);
+            if (close_result != POTA_STREAM_INGRESS_OK) {
+                pota_stream_ingress_status_t status;
+                if (portable_ota_port_stream_get_status(&status) &&
+                    (status.state == POTA_STREAM_STATE_FAILED ||
+                     status.state == POTA_STREAM_STATE_ABORTED)) {
+                    resource_arbiter_release_ota_admission();
+                }
+            }
+            return;
+        }
+        const bool was_data = event.type == OTA_EVENT_DATA_BLOCK;
         ota_fb_execute(&s_ota_context, &event);
         event_bus_complete_ota_event(&event);
+        if (was_data && s_data_done_hook != NULL) {
+            s_data_done_hook(s_data_done_context);
+        }
         return;
     }
 
@@ -273,9 +380,16 @@ bool ota_ao_get_metadata_snapshot(ota_metadata_t *metadata)
     return true;
 }
 
+static bool s_tdma_maintenance_required;
+
+void ota_ao_set_tdma_maintenance_required(bool required)
+{
+    s_tdma_maintenance_required = required;
+}
+
 bool ota_ao_tdma_maintenance_allowed(void)
 {
-    return portable_ota_port_stream_is_active();
+    return portable_ota_port_stream_is_active() || s_tdma_maintenance_required;
 }
 
 bool ota_ao_is_active(void)

@@ -59,10 +59,18 @@ static bool flash_transaction_journal_identity_equal(
     const flash_transaction_journal_record_t *left,
     const flash_transaction_journal_record_t *right)
 {
-    const bool durable_identity = left->request_fingerprint != 0u &&
-                                  right->request_fingerprint != 0u &&
-                                  left->request_fingerprint ==
-                                      right->request_fingerprint;
+    /* A retried operation reuses the same request fingerprint, but it is a NEW
+     * transaction (new generation).  Short-circuiting on the fingerprint alone
+     * made such a retry look like a duplicate of the previous record with a
+     * different payload, and the journal then failed closed (measured on the
+     * relay path: reason=3 for every retried block erase).  The generation is
+     * part of the identity so a retry gets its own record; a crash replay of
+     * the SAME transaction still matches byte for byte. */
+    const bool durable_identity =
+        left->request_fingerprint != 0u &&
+        right->request_fingerprint != 0u &&
+        left->request_fingerprint == right->request_fingerprint &&
+        left->transaction_generation == right->transaction_generation;
     return (durable_identity || left->job_id == right->job_id) &&
            (durable_identity ||
             left->transaction_generation == right->transaction_generation) &&
@@ -83,10 +91,18 @@ static bool flash_transaction_journal_transaction_equal(
      * non-zero request fingerprint is present, it is the durable identity
      * boundary and safely bridges that reset; conflicting payloads still
      * fail closed because the fingerprint must match. */
-    const bool durable_identity = left->request_fingerprint != 0u &&
-                                  right->request_fingerprint != 0u &&
-                                  left->request_fingerprint ==
-                                      right->request_fingerprint;
+    /* A retried operation reuses the same request fingerprint, but it is a NEW
+     * transaction (new generation).  Short-circuiting on the fingerprint alone
+     * made such a retry look like a duplicate of the previous record with a
+     * different payload, and the journal then failed closed (measured on the
+     * relay path: reason=3 for every retried block erase).  The generation is
+     * part of the identity so a retry gets its own record; a crash replay of
+     * the SAME transaction still matches byte for byte. */
+    const bool durable_identity =
+        left->request_fingerprint != 0u &&
+        right->request_fingerprint != 0u &&
+        left->request_fingerprint == right->request_fingerprint &&
+        left->transaction_generation == right->transaction_generation;
     return (durable_identity || left->job_id == right->job_id) &&
            (durable_identity ||
             left->transaction_generation == right->transaction_generation) &&
@@ -162,11 +178,20 @@ bool flash_transaction_journal_init(
     return true;
 }
 
+/* Why the last append was refused (0 = none).  Diagnostic only. */
+static uint32_t s_append_reason;
+uint32_t flash_transaction_journal_append_reason(void)
+{
+    return s_append_reason;
+}
+
 bool flash_transaction_journal_append(
     flash_transaction_journal_store_t *store,
     const flash_transaction_journal_record_t *record)
 {
+    s_append_reason = 0u;
     if (store == NULL || record == NULL || !store->initialized) {
+        s_append_reason = 1u;
         return false;
     }
 
@@ -192,7 +217,11 @@ bool flash_transaction_journal_append(
             newest_slot = slot;
         }
         if (flash_transaction_journal_identity_equal(&disk.record, record)) {
-            return memcmp(&disk.record, record, sizeof(*record)) == 0;
+            if (memcmp(&disk.record, record, sizeof(*record)) != 0) {
+                s_append_reason = 3u; /* same identity, different payload */
+                return false;
+            }
+            return true;
         }
     }
 
@@ -203,11 +232,16 @@ bool flash_transaction_journal_append(
             return false;
         }
         if (flash_transaction_journal_is_erased(&disk)) {
-            return flash_transaction_journal_write_at_slot(store, record, slot);
+            if (!flash_transaction_journal_write_at_slot(store, record, slot)) {
+                s_append_reason = 5u;
+                return false;
+            }
+            return true;
         }
     }
 
     if (store->config.erase == NULL || !newest_found) {
+        s_append_reason = 4u;
         return false;
     }
     const uint32_t slots_per_erase =

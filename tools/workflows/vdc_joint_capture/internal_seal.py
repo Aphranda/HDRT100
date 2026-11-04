@@ -73,6 +73,22 @@ def bridge_configuration(bridge):
             if name not in BRIDGE_DYNAMIC_FIELDS}
 
 
+def drain_scpi_error_queue(command, limit=16):
+    """Pop queued SCPI errors so a diagnostic query cannot poison cleanup.
+
+    ``command`` is called with ``SYSTem:ERR?`` and returns the raw page.  The
+    drain is bounded; a non-empty queue after the limit is still reported by the
+    caller through the returned list.
+    """
+    drained = []
+    for _ in range(max(1, int(limit))):
+        raw = str(command("SYSTem:ERR?"))
+        drained.append(raw)
+        if raw.strip().startswith(("0,", "+0,")):
+            break
+    return drained
+
+
 def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=None):
     """Create the tracked adapter after manifest admission has completed."""
     external = (runtime_module if runtime_module is not None else
@@ -387,8 +403,23 @@ def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=No
                         # counters (attempt/enable/failure and service_max_us)
                         # quantify whether a shortened slot still fits the
                         # per-node relay+observe work.
-                        ("event_recovery", "SYSTem:TDMA:EVENt:RECovery?")):
+                        ("event_recovery", "SYSTem:TDMA:EVENt:RECovery?"),
+                        # Origin seat evidence (M5): a >1 s success-gap tail can
+                        # be a priority-seat starvation/yield. Read the existing
+                        # stopped page so the next run can name the cause.
+                        ("seat_counters", "SYSTem:TDMA:SEAT:COUNters?")):
                     row[key] = self.command(board, command)
+            for board in self.boards:
+                row = self.report["boards"][board.address]
+                raw = str(row.get("match") or "")
+                if raw.lstrip().startswith("-"):
+                    # A failed diagnostic read leaves its SCPI error queued and
+                    # makes the outer RAM cleanup report a false failure. Keep
+                    # the raw page as evidence, then drain the queue in place.
+                    row["match_error"] = raw
+                    row["match_error_queue"] = drain_scpi_error_queue(
+                        lambda text, board=board: self.command(board, text))
+                    self.save()
             for board in self.boards:
                 row = self.report["boards"][board.address]
                 if row.get("trace_arm_requested"):
@@ -553,8 +584,18 @@ def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=No
             for index, board in enumerate(self.boards):
                 row = self.report["boards"][board.address]
                 row["uid"] = board.address
-                data = (self.opt.out / f"NO{index + 1}" / "summary.ram.bin").read_bytes()
-                decoded = helper.decode(data, row["trace_capture_id"])
+                data_path = self.opt.out / f"NO{index + 1}" / "summary.ram.bin"
+                if not data_path.is_file():
+                    # A capture that failed before ARM must keep its original
+                    # error; a FileNotFoundError here would mask it and make
+                    # step 29 report only a missing evidence file.
+                    self.report.setdefault("collection_skipped", []).append({
+                        "uid": board.address,
+                        "reason": "summary.ram.bin missing; capture produced no evidence"})
+                    self.save()
+                    continue
+                decoded = helper.decode(data_path.read_bytes(),
+                                        row["trace_capture_id"])
                 checks.append(evaluate_board(
                     row, decoded, index, self.opt.seconds, mode))
             self.report["guard_checks"] = checks

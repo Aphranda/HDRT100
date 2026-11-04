@@ -1,6 +1,8 @@
 #include "pico/time.h"
 #include "portable_ota_port.h"
 
+#include <string.h>
+
 #include "ota_error.h"
 #include "ota_partition.h"
 #include "pota_slot_manifest.h"
@@ -23,6 +25,7 @@
 
 #if PORTABLE_OTA_PORT_ENABLE_SESSION
 #include "flash_transaction.h"
+#include "flash_transaction_journal.h"
 #include "ota_ao.h"
 #include "ota_journal.h"
 #if PROJECT_FLASH_DEPLOYMENT_V2
@@ -165,16 +168,63 @@ static void portable_core_provider_release(void *context)
 
 static uint32_t s_flash_execute_stage;
 
+/* Diagnostic millisecond counters.  They are always compiled in: the code is
+ * a handful of loads/stores per OTA block and the numbers are the only way to
+ * tell a slow flash transaction from a slow SCPI/USB path on the bench.
+ * 16-bit milliseconds keep the RAM cost at 16 B; 65.5 s is enough for a block
+ * and a normal erase (longer stalls saturate, which is itself diagnostic). */
+static uint16_t s_perf_last_ms[PORTABLE_OTA_PORT_PERF_COUNT];
+static uint16_t s_perf_max_ms[PORTABLE_OTA_PORT_PERF_COUNT];
+
+static void portable_core_perf_record(uint32_t index, uint32_t started_us)
+{
+    if (index >= PORTABLE_OTA_PORT_PERF_COUNT) {
+        return;
+    }
+    uint32_t elapsed_us = (uint32_t)time_us_32() - started_us;
+    uint32_t elapsed_ms = elapsed_us / 1000u;
+    if (elapsed_ms > UINT16_MAX) {
+        elapsed_ms = UINT16_MAX;
+    }
+    s_perf_last_ms[index] = (uint16_t)elapsed_ms;
+    if (elapsed_ms > s_perf_max_ms[index]) {
+        s_perf_max_ms[index] = (uint16_t)elapsed_ms;
+    }
+}
+
+void portable_ota_port_perf_get(uint32_t *last_us, uint32_t *max_us,
+                                uint32_t *count)
+{
+    for (uint32_t index = 0u; index < PORTABLE_OTA_PORT_PERF_COUNT; ++index) {
+        if (last_us != NULL) {
+            last_us[index] = s_perf_last_ms[index];
+        }
+        if (max_us != NULL) {
+            max_us[index] = s_perf_max_ms[index];
+        }
+        if (count != NULL) {
+            count[index] = 0u;
+        }
+    }
+}
+
+uint32_t portable_ota_port_flash_stage(void)
+{
+    return s_flash_execute_stage;
+}
+
 static bool portable_core_flash_execute(uint32_t operation,
                                         uint32_t offset,
                                         const uint8_t *data,
                                         uint32_t size)
 {
+    const uint32_t perf_started = (uint32_t)time_us_32();
     uint32_t partition_id = 0u;
     uint32_t relative_offset = 0u;
     if (!flash_transaction_ao_resolve_range(offset, size, &partition_id,
                                             &relative_offset)) {
         s_flash_execute_stage = 1u; /* range/permission rejected */
+        portable_core_perf_record(0u, perf_started);
         return false;
     }
 
@@ -205,8 +255,79 @@ static bool portable_core_flash_execute(uint32_t operation,
         .completion_lease = flash_transaction_ao_get_completion_lease(),
     };
     flash_transaction_completion_t completion;
+    memset(&completion, 0, sizeof(completion));
     const bool ok = flash_transaction_ao_execute(&request, &completion);
-    s_flash_execute_stage = ok ? 0u : (100u + (uint32_t)completion.result);
+    /* 200 + 10*error + failing state: distinguishes the error class AND the
+     * state that failed (VALIDATE vs ERASE_PROGRAM vs VERIFY), which is needed
+     * to tell a journal problem from a raw flash problem. */
+    if (ok) {
+        s_flash_execute_stage = 0u;
+    } else {
+        flash_transaction_vector_t vector;
+        uint32_t state = 0u;
+        const bool have_vector = flash_transaction_ao_get_vector(&vector);
+        if (have_vector) {
+            /* NOTE: this used to be clamped to < 10, which silently mapped
+             * FAILED(10)/ABORTED(11) to 0 (IDLE) and hid the real phase. */
+            state = vector.state;
+        }
+        const bool terminal =
+            have_vector &&
+            (vector.state == FLASH_TRANSACTION_STATE_COMPLETE ||
+             vector.state == FLASH_TRANSACTION_STATE_FAILED ||
+             vector.state == FLASH_TRANSACTION_STATE_ABORTED);
+        const uint32_t reject = flash_transaction_submit_reject();
+        if (reject != 0u) {
+            /* The request was refused before it became the current
+             * transaction, so everything read from the vector below is the
+             * previous transaction's residue.  Token: 4000 + reject reason. */
+            s_flash_execute_stage = 4000u + reject;
+        } else if (!terminal) {
+            /* The transaction never reached a terminal state inside the AO's
+             * bounded step budget.  Token: 3000 + the state it stopped in
+             * (+100 when the vector could not be read at all). */
+            s_flash_execute_stage = 3000u + state + (have_vector ? 0u : 100u);
+        } else if (completion.error == FLASH_TRANSACTION_ERROR_COMPLETION) {
+            /* Keep the class visible but add the exact site: 2000 + site. */
+            s_flash_execute_stage = 2000u + flash_transaction_completion_site();
+        } else {
+            s_flash_execute_stage =
+                200u + ((uint32_t)completion.error * 10u) + state;
+        }
+        if (reject == 0u) {
+            /* Phase-first token: the transaction state is the phase that
+             * failed (ACQUIRE / PARK / ERASE_PROGRAM / VERIFY / COMMIT /
+             * RELEASE).  6000 + 100*state + completion-site keeps the phase
+             * readable without knowing which call site produced the error
+             * class.  For a COMPLETION failure the journal append reason is
+             * folded in instead of the site (7000 + 100*state + reason), since
+             * the site is always the RELEASE publish there. */
+            if (completion.error == FLASH_TRANSACTION_ERROR_COMPLETION) {
+                /* 9000 + 10*owner_state + append reason.  owner_state is
+                 * {occupied}{parked} captured when the failing append ran:
+                 * 11 = still owning+parked, 10 = owning but not parked,
+                 * 1 = parked but owner already released, 0 = neither. */
+                s_flash_execute_stage =
+                    9000u +
+                    (flash_transaction_terminal_owner_state() * 10u) +
+                    flash_transaction_journal_append_reason();
+                /* 12000 + 10*first_error + state: the real cause, because the
+                 * terminal publish can overwrite last_error with COMPLETION. */
+                if (flash_transaction_first_error() != 0u) {
+                    s_flash_execute_stage =
+                        12000u +
+                        (flash_transaction_first_error() * 10u) + state;
+                }
+            } else {
+                /* 10000 + 10*error_class + state: keeps both the error class
+                 * and the phase visible for failures that are not the journal
+                 * completion path. */
+                s_flash_execute_stage =
+                    10000u + ((uint32_t)completion.error * 10u) + state;
+            }
+        }
+    }
+    portable_core_perf_record(0u, perf_started);
     return ok;
 }
 
@@ -596,6 +717,25 @@ bool portable_ota_port_durable_init(void)
 #endif
 }
 
+static bool portable_core_init_stream_surfaces_degraded(void)
+{
+    if (!pota_stream_session_init(&s_stream_session, &s_stream_platform)) {
+        return false;
+    }
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    if (!portable_ota_port_durable_init()) {
+        return false;
+    }
+    /* No journal re-attach: an unconsumed checkpoint from a previous attempt
+     * must not lock every later OPEN out with SESSION. */
+#endif
+    return pota_stream_ingress_init(
+        &s_stream_ingress,
+        &s_stream_session,
+        (1u << (uint32_t)POTA_STREAM_INGRESS_SOURCE_COUNT) - 1u,
+        POTA_MAX_DATA_BLOCK_SIZE);
+}
+
 static bool portable_core_init_stream_surfaces(void)
 {
     if (!pota_stream_session_init(&s_stream_session, &s_stream_platform)) {
@@ -614,17 +754,27 @@ static bool portable_core_init_stream_surfaces(void)
         POTA_MAX_DATA_BLOCK_SIZE);
 }
 
+static uint32_t s_stream_init_stage;
+
+uint32_t portable_ota_port_stream_init_stage(void)
+{
+    return s_stream_init_stage;
+}
+
 bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
 {
     s_stream_initialized = false;
+    s_stream_init_stage = 100u;
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
     if (!portable_ota_port_durable_init()) {
+        s_stream_init_stage = 101u;
         return false;
     }
 #endif
     if (metadata == NULL ||
         (metadata->active_slot != (uint32_t)OTA_SLOT_A &&
          metadata->active_slot != (uint32_t)OTA_SLOT_B)) {
+        s_stream_init_stage = 102u;
         return false;
     }
 
@@ -633,15 +783,52 @@ bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
             ? FLASH_DEPLOYMENT_MAP_APP_A_ID
             : FLASH_DEPLOYMENT_MAP_APP_B_ID;
     if (!flash_transaction_ao_set_active_app_partition(active_partition_id)) {
+        s_stream_init_stage = 103u;
         return false;
     }
     s_store_generation = metadata->sequence;
 
     s_stream_platform = portable_core_make_platform(metadata);
     if (!portable_core_init_stream_surfaces()) {
-        return false;
+        s_stream_init_stage = 104u;
+        if (!portable_core_init_stream_surfaces_degraded()) {
+            s_stream_init_stage = 105u;
+            return false;
+        }
+        s_stream_init_stage = 106u;
     }
     s_stream_initialized = true;
+    return true;
+}
+
+/* A board whose boot-time metadata load failed never initialises the stream
+ * surfaces, and every OPEN is then rejected with SESSION (the SCPI handler
+ * bootstraps factory metadata on its own, the TDMA ingress has no second
+ * chance).  Recover here so both transports can open after such a boot. */
+static bool portable_ota_port_stream_ensure_initialized(void)
+{
+    if (s_stream_initialized) {
+        return true;
+    }
+    ota_metadata_t metadata;
+    const bool loaded = ota_metadata_load(&metadata);
+    if (loaded && portable_ota_port_stream_init(&metadata)) {
+        return true;
+    }
+    s_stream_init_stage = loaded ? 201u : 200u;
+    memset(&metadata, 0, sizeof(metadata));
+    metadata.magic = OTA_METADATA_MAGIC;
+    metadata.version = OTA_METADATA_VERSION;
+    metadata.active_slot = (uint32_t)OTA_SLOT_A;
+    metadata.pending_slot = (uint32_t)OTA_SLOT_NONE;
+    metadata.confirmed_slot = (uint32_t)OTA_SLOT_A;
+    metadata.slot_a_size = ota_partition_slot_size(OTA_SLOT_A);
+    metadata.slot_b_size = ota_partition_slot_size(OTA_SLOT_B);
+    if (!portable_ota_port_stream_init(&metadata)) {
+        s_stream_init_stage = 202u;
+        return false;
+    }
+    (void)ota_metadata_store(&metadata);
     return true;
 }
 
@@ -651,17 +838,36 @@ pota_stream_ingress_result_t portable_ota_port_stream_open(
     pota_stream_ingress_source_t source,
     const pota_stream_open_t *open)
 {
-    if (!s_stream_initialized) {
+    if (!s_stream_initialized &&
+        !portable_ota_port_stream_ensure_initialized()) {
+        s_stream_init_stage = 300u;
         return POTA_STREAM_INGRESS_SESSION;
     }
     const pota_stream_state_t state =
         pota_stream_session_state(&s_stream_session);
-    if (state != POTA_STREAM_STATE_IDLE) {
+    if (state != POTA_STREAM_STATE_IDLE ||
+        pota_stream_ingress_is_open(&s_stream_ingress)) {
         /* Any leftover session (aborted, failed, or a stale RECEIVING lease
-         * from a timed-out relay) must be dropped before a retried OPEN. */
-        (void)portable_ota_port_stream_force_reset();
+         * from a timed-out relay) must be dropped before a retried OPEN.  The
+         * ingress lease can outlive a session that was reset to IDLE; checking
+         * only the session state left the board rejecting every OPEN with
+         * SESSION until a factory flash. */
+        s_stream_init_stage = 301u;
+        if (!portable_ota_port_stream_force_reset()) {
+            s_stream_init_stage = 302u;
+            return POTA_STREAM_INGRESS_SESSION;
+        }
     }
-    return pota_stream_ingress_open(&s_stream_ingress, source, open);
+    const uint32_t platform_target = (uint32_t)s_stream_session.core.core.target_slot;
+    pota_stream_ingress_result_t opened =
+        pota_stream_ingress_open(&s_stream_ingress, source, open);
+    s_stream_init_stage = 600u + platform_target * 10u + (uint32_t)opened;
+    if (opened != POTA_STREAM_INGRESS_OK) {
+        /* 800 + core error: the raw reason behind a CORE rejection. */
+        s_stream_init_stage =
+            800u + (uint32_t)s_stream_session.core.core.status.error_code;
+    }
+    return opened;
 }
 
 pota_stream_ingress_result_t portable_ota_port_stream_write(
@@ -672,7 +878,9 @@ pota_stream_ingress_result_t portable_ota_port_stream_write(
     bool has_crc32,
     uint32_t crc32)
 {
+    const uint32_t perf_started = (uint32_t)time_us_32();
     if (!s_stream_initialized) {
+        portable_core_perf_record(1u, perf_started);
         return POTA_STREAM_INGRESS_SESSION;
     }
     const pota_stream_ingress_result_t result =
@@ -686,12 +894,15 @@ pota_stream_ingress_result_t portable_ota_port_stream_write(
                 ? 6000u + (uint32_t)pota_session_last_write_error()
                 : 5000u + (uint32_t)write_result;
     }
+    portable_core_perf_record(1u, perf_started);
     return result;
 }
 
 pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us)
 {
+    const uint32_t perf_started = (uint32_t)time_us_32();
     if (!s_stream_initialized) {
+        portable_core_perf_record(2u, perf_started);
         return POTA_STREAM_INGRESS_SESSION;
     }
     /* The core operation table only allows SERVICE in the permission/erase/
@@ -703,11 +914,19 @@ pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us
         core_state != (uint32_t)POTA_STATE_ERASE_SLOT &&
         core_state != (uint32_t)POTA_STATE_VERIFYING &&
         core_state != (uint32_t)POTA_STATE_MARK_PENDING) {
+        portable_core_perf_record(2u, perf_started);
         return POTA_STREAM_INGRESS_OK;
     }
+    /* The asynchronous END (verify -> manifest -> pending BCB) runs here, on the
+     * board that owns the flash, and legitimately outlives the 3 s supervisor
+     * budget.  The hardware timeout cannot be re-armed once enabled, so feed on
+     * every serviced tick instead: this function is the END progress path. */
+    drv_watchdog_enable(30000u);
+    drv_watchdog_feed();
     pota_stream_ingress_status_t status;
     if (!pota_stream_ingress_get_status(&s_stream_ingress, &status) ||
         status.source >= POTA_STREAM_INGRESS_SOURCE_COUNT) {
+        portable_core_perf_record(2u, perf_started);
         return POTA_STREAM_INGRESS_SESSION;
     }
     const pota_stream_ingress_result_t result =
@@ -723,16 +942,26 @@ pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us
                     : 3000u + (uint32_t)pota_session_last_error();
         }
     }
+    portable_core_perf_record(2u, perf_started);
     return result;
 }
 
 pota_stream_ingress_result_t portable_ota_port_stream_close(
     pota_stream_ingress_source_t source)
 {
+    const uint32_t perf_started = (uint32_t)time_us_32();
     if (!s_stream_initialized) {
+        portable_core_perf_record(3u, perf_started);
         return POTA_STREAM_INGRESS_SESSION;
     }
-    return pota_stream_ingress_close(&s_stream_ingress, source);
+    /* Phase breadcrumbs: the retained watchdog scratch answers "where did the
+     * board reset" after the fact, so mark both sides of the close handoff. */
+    drv_watchdog_mark_ota_phase(27u); /* close entered */
+    const pota_stream_ingress_result_t closed =
+        pota_stream_ingress_close(&s_stream_ingress, source);
+    drv_watchdog_mark_ota_phase(28u); /* close returned */
+    portable_core_perf_record(3u, perf_started);
+    return closed;
 }
 
 uint32_t portable_ota_port_stream_platform_map_version(void)
@@ -745,21 +974,23 @@ uint32_t portable_ota_port_stream_last_session_result(void)
     return pota_stream_ingress_last_session_result(&s_stream_ingress);
 }
 
+uint32_t portable_ota_port_stream_last_service_result(void)
+{
+    return s_stream_last_service_result;
+}
+
 bool portable_ota_port_stream_force_reset(void)
 {
+    if (!portable_ota_port_stream_ensure_initialized()) {
+        return false;
+    }
+    /* Keep the journal sink attached: an OPEN with DURABLE_ACK is refused with
+     * CHECKPOINT when no checkpoint sink exists, so the degraded path alone
+     * would turn the retry into a permanent failure. */
     if (portable_core_init_stream_surfaces()) {
         return true;
     }
-    /* Journal re-attach can fail while an old durable transaction is still
-     * pending; the stream lease must still be dropped so a retried OPEN is not
-     * rejected forever with SESSION. */
-    if (!pota_stream_session_init(&s_stream_session, &s_stream_platform)) {
-        return false;
-    }
-    return pota_stream_ingress_init(
-        &s_stream_ingress, &s_stream_session,
-        (1u << (uint32_t)POTA_STREAM_INGRESS_SOURCE_COUNT) - 1u,
-        POTA_MAX_DATA_BLOCK_SIZE);
+    return portable_core_init_stream_surfaces_degraded();
 }
 
 pota_stream_ingress_result_t portable_ota_port_stream_abort(
@@ -798,6 +1029,25 @@ uint32_t portable_ota_port_stream_core_state(void)
                : 0u;
 }
 
+bool portable_ota_port_stream_erase_progress(uint32_t *core_state,
+                                             uint32_t *erased_bytes,
+                                             uint32_t *erase_bytes)
+{
+    if (!s_stream_initialized) {
+        return false;
+    }
+    if (core_state != NULL) {
+        *core_state = pota_stream_session_core_state(&s_stream_session);
+    }
+    if (erased_bytes != NULL) {
+        *erased_bytes = s_stream_session.core.core.target_erase_offset;
+    }
+    if (erase_bytes != NULL) {
+        *erase_bytes = s_stream_session.core.core.target_erase_size;
+    }
+    return true;
+}
+
 bool portable_ota_port_stream_get_status(pota_stream_ingress_status_t *status)
 {
     if (!s_stream_initialized ||
@@ -822,6 +1072,23 @@ bool portable_ota_port_core_begin(const ota_metadata_t *metadata,
     if (portable_ota_port_stream_is_active() || metadata == NULL ||
         (metadata->active_slot != (uint32_t)OTA_SLOT_A &&
          metadata->active_slot != (uint32_t)OTA_SLOT_B)) {
+        return false;
+    }
+    /* OTA-HAOFV-013: the update target is the slot opposite the active one, and
+     * that is also the last confirmed (rollback) slot whenever the running image
+     * was never confirmed.  Erasing it would destroy the only bootable fallback,
+     * so refuse the session instead of writing into it. */
+    const uint32_t target_slot =
+        metadata->active_slot == (uint32_t)OTA_SLOT_A
+            ? (uint32_t)OTA_SLOT_B
+            : (uint32_t)OTA_SLOT_A;
+    if (metadata->pending_slot == (uint32_t)OTA_SLOT_NONE &&
+        metadata->confirmed_slot == target_slot) {
+        if (vector != NULL) {
+            vector->state = (uint32_t)OTA_STATE_FAILED;
+            vector->error_code = (uint32_t)OTA_ERR_NO_PROGRESS;
+            vector->last_result = (uint32_t)OTA_RESULT_FAILED;
+        }
         return false;
     }
     const uint32_t active_partition_id =

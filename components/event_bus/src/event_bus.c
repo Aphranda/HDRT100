@@ -47,7 +47,8 @@ bool event_bus_post_ota_event(const ota_event_t *event)
     event_bus_ota_message_t *message = &s_ota_queue[s_ota_queue_tail];
     message->event = *event;
 
-    if (event->type == OTA_EVENT_DATA_BLOCK) {
+    if (event->type == OTA_EVENT_DATA_BLOCK ||
+        event->type == OTA_EVENT_STREAM_DATA) {
         if (event->payload.data.data == NULL ||
             event->payload.data.length == 0u ||
             event->payload.data.length > OTA_EVENT_MAX_DATA_SIZE) {
@@ -116,7 +117,9 @@ exit:
 void event_bus_complete_ota_event(const ota_event_t *event)
 {
 #if OTA_EVENT_MAX_DATA_SIZE > OTA_EVENT_INLINE_DATA_SIZE
-    if (event == NULL || event->type != OTA_EVENT_DATA_BLOCK ||
+    if (event == NULL ||
+        (event->type != OTA_EVENT_DATA_BLOCK &&
+         event->type != OTA_EVENT_STREAM_DATA) ||
         event->payload.data.length <= OTA_EVENT_INLINE_DATA_SIZE) {
         return;
     }

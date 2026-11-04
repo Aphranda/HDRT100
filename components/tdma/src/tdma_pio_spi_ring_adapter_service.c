@@ -734,9 +734,13 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
     } else if (adapter->last_rx_service_ns != 0ull &&
                adapter->last_error !=
                    TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_BAD_FRAME) {
+        /* Same rule as the receive-health window: "four opportunities" is
+         * measured in the cadence the link actually runs at, and clock-evidence
+         * mode halves it (measured 200 frames/s without it, ~150 with it). */
         const uint64_t freshness_ns =
             adapter->config.feedback_timeout_ns != 0u
-                ? (uint64_t)adapter->config.feedback_timeout_ns * 4ull
+                ? (uint64_t)adapter->config.feedback_timeout_ns *
+                      (adapter->clock_evidence_enabled != 0u ? 8ull : 4ull)
                 : 4000000ull;
         status->down_running =
             (now_ns >= adapter->last_rx_service_ns &&

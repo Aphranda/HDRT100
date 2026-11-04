@@ -81,6 +81,20 @@ scpi_result_t scpi_cmd_system_tdma_long_frame_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, chunks);
     SCPI_ResultUInt32(context, frames);
     SCPI_ResultUInt32(context, rejects);
+    /* RX reassembly health: a restart means a frame was abandoned because a
+     * chunk was lost or another frame interleaved; duplicates are harmless.
+     * Both are needed to tell CRC corruption from interleaving. */
+    tdma_maintenance_runtime_diag_t runtime_diag;
+    tdma_maintenance_runtime_get_diag(&runtime_diag);
+    SCPI_ResultUInt32(context, runtime_diag.rx_restarts);
+    SCPI_ResultUInt32(context, runtime_diag.rx_duplicate_chunks);
+    /* P0-W attribution: `rejects` above mixes several failure sources, so the
+     * split is published read-only.  A chunk cannot be rejected before it is
+     * handed to the wire, hence chunks >= rx_chunk_rejects must always hold. */
+    SCPI_ResultUInt32(context, runtime_diag.rx_chunk_rejects);
+    SCPI_ResultUInt32(context, runtime_diag.tx_retries);
+    SCPI_ResultUInt32(context, runtime_diag.tx_fail);
+    SCPI_ResultUInt32(context, runtime_diag.queue_full);
     uint32_t priority_calls = 0u;
     uint32_t yield_slots = 0u;
     uint32_t attempts = 0u;

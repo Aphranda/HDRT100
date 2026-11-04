@@ -1,3 +1,16 @@
+
+/* Present in the application image; the recovery image does not link the
+ * watchdog driver, so this reference stays weak.  Long crypto steps run on the
+ * OTA task while the supervisor loop is blocked, so they must refresh the
+ * hardware watchdog themselves. */
+extern void drv_watchdog_feed(void) __attribute__((weak));
+
+static void pota_crypto_feed(void)
+{
+    if (drv_watchdog_feed != 0) {
+        drv_watchdog_feed();
+    }
+}
 #include "portable_ota_crypto.h"
 
 #include "portable_ota_key_registry.generated.h"
@@ -50,6 +63,9 @@ bool portable_ota_crypto_sha256_flash(
         }
         result = mbedtls_sha256_update(&hash, buffer, chunk);
         cursor += chunk;
+        pota_crypto_feed();
+        /* A whole-image digest runs on the OTA task; the supervisor loop is
+         * blocked meanwhile, so refresh the hardware watchdog per chunk. */
     }
     if (result == 0) {
         result = mbedtls_sha256_finish(&hash, digest);

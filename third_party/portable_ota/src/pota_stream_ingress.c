@@ -174,3 +174,8 @@ bool pota_stream_ingress_get_status(const pota_stream_ingress_t *ingress,
     status->last_result = ingress->last_result;
     return true;
 }
+
+bool pota_stream_ingress_is_open(const pota_stream_ingress_t *ingress)
+{
+    return ingress != NULL && ingress->open;
+}

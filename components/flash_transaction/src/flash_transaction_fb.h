@@ -50,6 +50,8 @@ typedef struct {
     bool completion_terminal_published;
     bool completion_journal_failed;
     bool durable_replay;
+    /* First error of the current transaction (COMPLETION only masks it). */
+    uint32_t first_error;
 } flash_transaction_fb_t;
 
 void flash_transaction_fb_init(flash_transaction_fb_t *context,
@@ -62,6 +64,13 @@ bool flash_transaction_fb_resolve_range(uint32_t absolute_offset,
                                         uint32_t *relative_offset);
 bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
                                  const flash_transaction_request_t *request);
+/* Reason the last submit was refused (0 = accepted).  See
+ * flash_transaction_submit_reject() in the public header. */
+uint32_t flash_transaction_fb_submit_reject(void);
+/* ({occupied}{parked}) captured when the terminal journal append failed. */
+uint32_t flash_transaction_fb_terminal_owner_state(void);
+/* First error of the current transaction (0 = none). */
+uint32_t flash_transaction_fb_first_error(const flash_transaction_fb_t *context);
 void flash_transaction_fb_service(flash_transaction_fb_t *context);
 bool flash_transaction_fb_request_abort(flash_transaction_fb_t *context,
                                         uint32_t job_id);

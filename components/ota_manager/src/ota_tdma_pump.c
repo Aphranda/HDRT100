@@ -55,8 +55,10 @@ static bool ota_tdma_pump_send_data(ota_tdma_pump_t *pump, uint32_t offset,
          * Leave the state untouched so the next tick retries this frame. */
         return false;
     }
-    pump->sent_offset = offset;
-    pump->sent_length = length;
+    /* sent_offset/sent_length stay block-aligned (owned by send_block): the
+     * block ACK is compared against the block end, not the last chunk. */
+    pump->last_sent_offset = offset;
+    pump->send_count++;
     pump->state = OTA_TDMA_PUMP_WAIT_ACK;
     return true;
 }
@@ -69,20 +71,57 @@ static bool ota_tdma_pump_send_block(ota_tdma_pump_t *pump, uint32_t start,
                                      void *context)
 {
     const uint32_t end = ota_tdma_pump_block_end(pump, start);
-    for (uint32_t offset = start; offset < end;
-         offset += ota_tdma_pump_chunk_length(pump, offset)) {
+    const ota_tdma_pump_state_t previous_state = pump->state;
+    bool sent_any = false;
+    uint32_t offset = start;
+    if (pump->sent_offset == start && pump->send_cursor > start &&
+        pump->send_cursor < end) {
+        /* A previous attempt submitted only the block head: continue at the
+         * first unsent chunk instead of resending the head forever. */
+        offset = pump->send_cursor;
+    }
+    pump->sent_offset = start;
+    pump->sent_length = end - start;
+    pump->state = OTA_TDMA_PUMP_WAIT_ACK;
+    if (offset == start) {
+        /* Only a fresh start of the block arms the ACK deadline.  Continuing a
+         * partially submitted block must NOT extend it, otherwise the relay's
+         * every-tick resume would keep pushing the deadline forward and the
+         * full-block replay (which repairs a dropped head frame) never runs. */
+        pump->deadline_ms = now_ms + pump->timeout_ms;
+    }
+    for (; offset < end; offset += ota_tdma_pump_chunk_length(pump, offset)) {
         const uint32_t length = ota_tdma_pump_chunk_length(pump, offset);
         if (!ota_tdma_pump_send_data(pump, offset, send, context)) {
+            /* The window refused this frame.  Keep WAIT_ACK so the retry timer
+             * can continue at the cursor; the block ACK still covers the whole
+             * block, so sent_offset/sent_length stay block-aligned. */
+            if (!sent_any) {
+                /* Nothing left the pump: a closed window is transient, so the
+                 * caller may retry the same call with the old state. */
+                pump->state = previous_state;
+                if (previous_state == OTA_TDMA_PUMP_IDLE) {
+                    pump->sent_offset = 0u;
+                    pump->sent_length = 0u;
+                    pump->send_cursor = 0u;
+                    pump->deadline_ms = 0u;
+                }
+            } else {
+                /* Part of the block is out: wait for its ACK and continue at
+                 * the cursor when the retry timer fires. */
+                pump->state = OTA_TDMA_PUMP_WAIT_ACK;
+            }
             return false;
         }
+        sent_any = true;
+        pump->send_cursor = offset + length;
         if (offset + length >= end) {
             break;
         }
         pump->state = OTA_TDMA_PUMP_SENDING_BLOCK;
     }
     pump->state = OTA_TDMA_PUMP_WAIT_ACK;
-    pump->sent_offset = start;
-    pump->sent_length = end - start;
+    pump->send_cursor = end;
     pump->attempts++;
     pump->deadline_ms = now_ms + pump->timeout_ms;
     return true;
@@ -152,6 +191,9 @@ bool ota_tdma_pump_start(ota_tdma_pump_t *pump, uint32_t now_ms,
     }
     pump->next_offset = 0u;
     pump->durable_offset = 0u;
+    pump->sent_offset = 0u;
+    pump->sent_length = 0u;
+    pump->send_cursor = 0u;
     return ota_tdma_pump_send_block(pump, 0u, now_ms, send, context);
 }
 
@@ -184,6 +226,16 @@ bool ota_tdma_pump_tick(ota_tdma_pump_t *pump, uint32_t now_ms,
         pump->attempts++;
         pump->deadline_ms = now_ms + pump->timeout_ms;
         return true;
+    }
+    /* ACK timeout.  A submitted frame may have been dropped by the window and
+     * the receiver only accepts contiguous offsets, so a full replay from the
+     * block start is the only repair.  But when the window admits only a few
+     * frames per opportunity, replaying from the start forever never reaches
+     * the missing tail, so continue at the cursor and do a full replay every
+     * third timeout. */
+    pump->timeout_replays++;
+    if ((pump->timeout_replays % 3u) == 0u) {
+        pump->send_cursor = pump->sent_offset;
     }
     return ota_tdma_pump_send_block(pump, pump->sent_offset, now_ms, send,
                                     context);
@@ -230,6 +282,7 @@ bool ota_tdma_pump_on_ack(ota_tdma_pump_t *pump, uint32_t now_ms,
 
     pump->durable_offset = acknowledged;
     pump->next_offset = acknowledged;
+    pump->send_cursor = 0u;
     if (acknowledged >= pump->image_size) {
         uint8_t close_frame[OTA_TDMA_FRAME_MAX];
         const size_t close_len =
@@ -264,8 +317,14 @@ bool ota_tdma_pump_resume(ota_tdma_pump_t *pump, uint32_t now_ms,
         pump->state != OTA_TDMA_PUMP_WAIT_ACK) {
         return false;
     }
-    if (pump->sent_offset + pump->sent_length != pump->durable_offset) {
-        return false; /* a frame is still in flight */
+    const uint32_t block_end = pump->sent_offset + pump->sent_length;
+    if (pump->send_cursor < block_end) {
+        /* Partially submitted block: keep feeding it from the cursor. */
+        return ota_tdma_pump_send_block(pump, pump->sent_offset, now_ms, send,
+                                        context);
+    }
+    if (block_end != pump->durable_offset) {
+        return true; /* the block is fully sent; only its ACK is missing */
     }
     if (!ota_tdma_pump_send_block(pump, pump->durable_offset, now_ms, send,
                                   context)) {

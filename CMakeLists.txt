@@ -33,6 +33,8 @@ set(PROJECT_USB_DEFAULT_MODE CDC CACHE STRING "Default USB mode when product con
 set(PROJECT_ENABLE_UART_STDIO OFF CACHE BOOL "Enable product debug stdio over UART0 GPIO0/1")
 set(PROJECT_ENABLE_LOG_UART_OUTPUT ON CACHE BOOL "Route live diagnostic LOG output to the product debug UART")
 set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors")
+set(PROJECT_OTA_TDMA_V2_BRIDGE OFF CACHE BOOL
+    "Feed TDMA maintenance frames into the existing AB OTA pipeline (architecture v2)")
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
 set(PROJECT_ENABLE_WATCHDOG_TEST OFF CACHE BOOL "Enable destructive watchdog validation SCPI command")
 set(PROJECT_ENABLE_FLASH_VALIDATION OFF CACHE BOOL "Enable validation-only Scratch SCPI command")
@@ -284,11 +286,10 @@ configure_file(
 
 set(PROJECT_BUILD_INFO_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.h)
 set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.c)
+# Empty = a fresh UTC timestamp per build (evidence traceability: two builds
+# must never share a build id).  Pass -DPROJECT_BUILD_ID=<id> to pin one.
 set(PROJECT_BUILD_ID "" CACHE STRING
-    "Stable firmware build id (UTC YYYYMMDDHHMMSS) for this build tree")
-if(PROJECT_BUILD_ID STREQUAL "")
-    string(TIMESTAMP PROJECT_BUILD_ID "%Y%m%d%H%M%S" UTC)
-endif()
+    "Firmware build id (UTC YYYYMMDDHHMMSS); empty = generated per build")
 set(PROJECT_FREERTOS_KERNEL_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/freertos/FreeRTOS-Kernel CACHE PATH "FreeRTOS-Kernel source directory")
 set(PROJECT_FATFS_SOURCE_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source CACHE PATH "FatFs source directory")
 set(PROJECT_FATFS_CONFIGURED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/fatfs)
@@ -350,18 +351,17 @@ set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
         third_party/portable_ota/src/pota_slot_manifest.c
 )
 
-add_custom_command(
-        OUTPUT ${PROJECT_BUILD_INFO_HEADER} ${PROJECT_BUILD_INFO_SOURCE}
+# Regenerate on EVERY build (not only when the script changes): the build id
+# is stamped at build time so iterating `cmake --build` never reuses an old id.
+add_custom_target(project_build_info ALL
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_LIST_DIR}/tools/build_info/gen_build_info.py
                 ${PROJECT_BUILD_INFO_HEADER}
                 ${PROJECT_BUILD_INFO_SOURCE}
-                --build-id ${PROJECT_BUILD_ID}
+                --build-id "${PROJECT_BUILD_ID}"
+        BYPRODUCTS ${PROJECT_BUILD_INFO_HEADER} ${PROJECT_BUILD_INFO_SOURCE}
         DEPENDS ${CMAKE_CURRENT_LIST_DIR}/tools/build_info/gen_build_info.py
         VERBATIM
-)
-add_custom_target(project_build_info ALL
-        DEPENDS ${PROJECT_BUILD_INFO_HEADER} ${PROJECT_BUILD_INFO_SOURCE}
 )
 
 add_custom_target(project_flash_contract_check
@@ -448,6 +448,7 @@ set(PROJECT_APP_SOURCES
         application/src/app_tdma_record.c
         application/src/app_tasks.c
         application/src/ota_tdma_binding.c
+        application/src/ota_tdma_v2_bridge_app.c
         ${PROJECT_BUILD_INFO_SOURCE}
         boards/rp2350_trig/src/board.c
         third_party/portable_log/src/portable_log.c
@@ -550,6 +551,8 @@ set(PROJECT_APP_SOURCES
         components/ota_manager/src/ota_tdma_ingress.c
         components/ota_manager/src/ota_tdma_pump.c
         components/ota_manager/src/ota_tdma_session.c
+        components/ota_manager/src/ota_tdma_bridge.c
+        components/ota_manager/src/ota_tdma_v2_adapter.c
         components/ota_manager/src/ota_tdma_carrier.c
         components/ota_manager/src/ota_tdma_relay.c
         components/product_config/src/product_config.c
@@ -922,6 +925,7 @@ pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/syn
         PROJECT_USB_DEFAULT_MODE_USBTMC=$<BOOL:${PROJECT_USB_DEFAULT_MODE_USBTMC}>
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_LOG_UART_OUTPUT=$<BOOL:${PROJECT_ENABLE_LOG_UART_OUTPUT}>
+        PROJECT_OTA_TDMA_V2_BRIDGE=$<BOOL:${PROJECT_OTA_TDMA_V2_BRIDGE}>
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         PROJECT_ENABLE_WATCHDOG_TEST=$<BOOL:${PROJECT_ENABLE_WATCHDOG_TEST}>
         PROJECT_ENABLE_FLASH_VALIDATION=$<BOOL:${PROJECT_ENABLE_FLASH_VALIDATION}>
@@ -1041,6 +1045,8 @@ add_executable(DHRT100_BOOT
 pico_set_program_name(DHRT100_BOOT "DHRT100_BOOT")
 pico_set_program_version(DHRT100_BOOT "0.1.0")
 
+target_compile_definitions(DHRT100_BOOT PRIVATE PROJECT_BOOTLOADER=1)
+
 pico_enable_stdio_uart(DHRT100_BOOT OFF)
 pico_enable_stdio_usb(DHRT100_BOOT OFF)
 
@@ -1119,6 +1125,12 @@ if(PROJECT_FLASH_DEPLOYMENT_V2)
             pico_bootrom
             ${PROJECT_OTA_CRYPTO_LIBS}
     )
+    # The build-id source is regenerated on every build; every image must wait
+    # for it so the stamped id always matches the linked binary.
+    add_dependencies(${PROJECT_NAME} project_build_info)
+    add_dependencies(DHRT100_B project_build_info)
+    add_dependencies(DHRT100_BOOT project_build_info)
+    add_dependencies(DHRT100_RECOVERY project_build_info)
     target_compile_definitions(DHRT100_RECOVERY PRIVATE
             PROJECT_FLASH_DEPLOYMENT_V2=1
     )
