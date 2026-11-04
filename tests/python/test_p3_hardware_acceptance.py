@@ -80,7 +80,7 @@ def test_run_full_selects_full_bench_config() -> None:
 
 def test_default_acceptance_output_uses_date_partition() -> None:
     source = (ROOT / "tools" / "hardware_acceptance" /
-              "p3_hardware_acceptance.py").read_text(encoding="utf-8")
+              "workflow_steps.py").read_text(encoding="utf-8")
     assert "out/HardwareAcceptance/{default_day}/p3-" in source
     root = Path("repo")
     assert acceptance_output_path(root, None, "20260907-010203") == (
@@ -385,7 +385,6 @@ def test_code_scope_includes_runtime_tools_and_build_inputs() -> None:
     for path in (
         "application/src/app.c",
         "components/tdma/inc/tdma.h",
-        "tools/example/check.py",
         "CMakeLists.txt",
         "config/hardware_acceptance/p3_bench.json",
     ):
@@ -395,6 +394,7 @@ def test_code_scope_includes_runtime_tools_and_build_inputs() -> None:
         # acceptance tooling carry their own credential, so a test-only change
         # must neither invalidate nor require a bench run.
         "tests/python/test_example.py",
+        "tools/example/check.py",
         ".githooks/pre-commit",
         "docs/calibration/CALIBRATION_DOMAIN_TODO.md",
         "out/build/image.bin",
@@ -794,7 +794,7 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert loaded_quick["training_max_offset_span"] == 1
     assert acceptance_timing(loaded_quick)["p3_capture_timeout_s"] == 20.0
     source = (ROOT / "tools" / "hardware_acceptance" /
-              "p3_hardware_acceptance.py").read_text(encoding="utf-8")
+              "workflow_steps.py").read_text(encoding="utf-8")
     for tool in (
         "calibration_ring_topology.py", "calibration_clk_train.py",
         "calibration_clk_coded.py", "calibration_link_p3.py",

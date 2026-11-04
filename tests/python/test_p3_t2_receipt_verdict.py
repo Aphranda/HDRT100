@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "tools/hardware_acceptance/p3_hardware_acceptance.py"
+SOURCE = ROOT / "tools/hardware_acceptance/workflow_steps.py"
 
 ANCHOR = 't2_path = root / "config/hardware_acceptance/t2_acceptance_receipt.json"'
 

@@ -40,7 +40,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
-import p3_hardware_acceptance as p3  # noqa: E402
+import workflow_steps as p3  # noqa: E402
 import dpll_capture_retry as dpll_retry  # noqa: E402
 
 LOG_DIR = ROOT / "out" / "HardwareAcceptance"
