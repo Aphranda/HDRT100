@@ -18,7 +18,7 @@ Last updated: 2026-11-04
 | C8 顶层 7 天刷新 | ✅ | `doc_regression` freshness OK |
 | C11 状态变更需交叉审核 | ✅ | 本条记录；审核方为独立只读子 agent（见下） |
 | C14/C15 进展日志 | ✅ | 新条目 `TOOLS-PROGRESS-20261104-009` 倒排写入，日志 20 个全部通过 |
-| EXE-CHANGE-01 证据闭环 | ✅ | host 凭证 `1249 files / 74 passed`；`sh .githooks/pre-commit` PASS（docs+host，无固件改动故 P3 skip） |
+| EXE-CHANGE-01 证据闭环 | ✅ | host 凭证 `1139 files / 77 passed`；`sh .githooks/pre-commit` PASS（docs+host，无固件改动故 P3 skip） |
 
 ## 偏差声明
 
@@ -41,8 +41,8 @@ Last updated: 2026-11-04
 ## 交叉审核记录（C11，必填）
 
 - 审核方: 独立只读子 agent `463723db-139e-4305-8e19-df2ab1fead91`（未参与实现，全程只读）
-- 审核方式: agent 交叉（独立取证 + 交叉差异）
-- 审核结论: `PASS_WITH_NOTE` — 初审判 `APPROVE-WITH-FIXES`，4 项必修（索引与实际不一致、`.agents/**/*.py` 无门禁、host receipt 读写不一致、缺 C11 记录）已修；复审结论见 `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md` 的 `TOOLS-PROGRESS-20261104-010`
+- 审核方式: agent 交叉（独立取证 + 交叉差异）；两轮：初审针对工作区，复审针对提交后状态（`f6d21631` + `eb912d52`）
+- 审核结论: 初审 `APPROVE-WITH-FIXES`（2026-11-04）；复审（2026-11-04，提交后独立复核）`PASS_WITH_NOTE` —— 4 项必修的**功能面**全部实测闭环；note 为「本记录结论写在复审之前 + 引用过期数字 + 残留描述不准」，已按复审意见修正。
 - 审核日期: 2026-11-04
 
 ### 审核方独立发现（已修）
@@ -55,5 +55,5 @@ Last updated: 2026-11-04
 
 - `docs/check/DOCS_REGRESSION_PLAN.md` 仍写旧 `ROW_RE` 规格；`PRODUCT_VALUE_EVALUATION` 仍写「三环门禁」；PLAN 仍写环 3「下一期」。
 - `tools/README.md` 等规范文档仍有已归档的 `p3_hardware_acceptance.py` 命令；`test_constraint_sync.py` 扫描范围尚未覆盖 `tools/*.md`。
-- `registry_rows()` 对「缺前导 `|` 的错位行」仍会跳过（列数不足但 id 合法的行已 FAIL）。
+- `registry_rows()` 仍会静默跳过两类畸形行：① 列数 < 8 且第 2 列是合法 id 的行（当前只对 `< 10 列但 id 合法` 报 FAIL，`< 8` 的交叉场景仍有反例：`rows=1 / failures=0`）；② 有前导 `|` 但第 2 列为空的错位行。需在 M2 补「列数下限 + 第 2 列非空」两条断言。
 - `DPLL_SHORT_UNCOVERED_PREFIXES` 中 `tools/ota_send/`、`tools/ota_multi_update/` 在当前分流下永不命中，需在 M3 重新定义或删除。

@@ -82,4 +82,4 @@ Last updated: <YYYY-MM-DD>
 | `REFMEM_UNIFIED_CONTROL_REVIEW_01.md` | RefMem 单端口统一控制面三缺口 R1：三条 canonical 已落位；config-control profile、ARMING、MOUNT 兼容、command handler/队列仍待闭合 | `PASS_WITH_CHANGES` |
 | `REFMEM_UNIFIED_CONTROL_REVIEW_02.md` | RefMem 四条款 R2：单板保留 + 统一面增量；ARMING DISARM、STOPPING 超时、未注册 command、mask 回退已补 | `PASS_WITH_CHANGES` |
 | `REFMEM_HAOFV_REVIEW_01.md` | RefMem 四条款 HAOFV 偏差 R1：预算符号、config-control subtype、session writer、ActionDispatcher 归属、本地/协调者边界、实时性已修 | `PASS_WITH_CHANGES` |
-| `DOCS_CROSS_REVIEW_01.md` | agent 约束收敛：`tools/**`/`.agents/**/*.py` 归 host、契约 id 全量校验、`DRAFT_CLAUSE_DEBT`、§8 迁入 EXE §7 | `APPROVE-WITH-FIXES` → 4 项必修已修，minor 随 M2/M3 |
+| `DOCS_CROSS_REVIEW_01.md` | agent 约束收敛：`tools/**`/`.agents/**/*.py` 归 host、契约 id 全量校验、`DRAFT_CLAUSE_DEBT`、§8 迁入 EXE §7 | 初审 `APPROVE-WITH-FIXES` → 复审 `PASS_WITH_NOTE`；4 项必修功能面闭环 |

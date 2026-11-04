@@ -16,11 +16,12 @@ Last updated: 2026-11-04
 
 - TODO task ID：`TOOLS-CHECK-001`。本批只改工具/测试/文档，未上板；数字为运行快照，非事实源。
 - **审核方**：独立只读子 agent `463723db-139e-4305-8e19-df2ab1fead91`（未参与实现）。初审结论 `APPROVE-WITH-FIXES`，4 项必修 + 11 项 minor；提交单 `docs/check/submissions/DOCS_CROSS_REVIEW_01.md`。
-- **必修 1（索引与自述不一致）**：§8 瘦身、EXE §7 迁移、refmem skill 瘦身在 `git add` 之后才做，索引里仍是旧内容；已重新 `git add` 并在提交前复核 `git show :AGENTS.md` 为 161 行、无 `### 8.x`。
+- **必修 1（索引与自述不一致）**：§8 瘦身、EXE §7 迁移、refmem skill 瘦身在 `git add` 之后才做，索引里仍是旧内容；已重新 `git add` 并在提交前复核 `git show :AGENTS.md` 为 162 行、无 `### 8.x`。
 - **必修 2（证据洞）**：`classify(".agents/**/*.py")` 为空集，pre-commit 一条门禁都不跑。修复：`_host_member()` 覆盖 `.agents/**/*.py`，并同步进 host 指纹；`.md` 一律只算 docs（`tools/*.md` 不再强制 host 用例）。
-- **必修 3（fail-open）**：`host_acceptance.check_staged()` 读工作区 receipt 却比对 staged 指纹。修复：新增 `_receipt_matches_index()`，receipt 未入索引或与索引不一致即 FAIL。
+- **必修 3（fail-open）**：`host_acceptance.check_staged()` 读工作区 receipt 却比对 staged 指纹。修复：新增 `_receipt_matches_index()`，receipt 未入索引或与索引不一致即 FAIL；测试补「已 staged 但工作区被改」分支。
 - **必修 4（缺 C11 记录）**：新增提交单并在 `docs/README.md`、`docs/check/submissions/README.md` 登记。
-- **验证**：`docs_check` / `doc_regression` / 目标 pytest 全绿；host 凭证重新生成后 `check-staged` OK（见下一轮复核）。
+- **复审（提交后独立复核）**：`PASS_WITH_NOTE` —— 4 项必修功能面实测闭环；note 为本记录结论曾写在复审之前、引用过期数字、残留描述不准，已按意见修正并统一三处口径。
+- **验证**：`docs_check` 251 files OK；`doc_regression` 60 contracts + 4 条债务 WARN；pytest 77 passed；host 凭证 1139 files / 77 passed，`check-staged` OK。
 - **残余（minor，随 M2/M3）**：PLAN 旧 `ROW_RE` 规格与「环 3 下一期」、`PRODUCT_VALUE_EVALUATION` 的「三环门禁」、`tools/README.md` 等 6 处已归档 `p3_hardware_acceptance.py` 命令、`registry_rows` 对缺前导 `|` 的错位行仍跳过、`DPLL_SHORT_UNCOVERED_PREFIXES` 中两条 `tools/ota_*` 永不命中。
 - 下一 gate：M2（skill 去正文）+ M3（豁免机检化、T2 落点决策）。
 
