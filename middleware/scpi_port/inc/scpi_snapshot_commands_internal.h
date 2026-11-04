@@ -19,7 +19,6 @@ typedef struct {
 typedef struct {
     refmem_sync_context_t context;
     refmem_pio_spi_adapter_t adapter;
-    refmem_spi_physical_adapter_t spi_adapter;
     uint32_t tx_seq32;
     refmem_sync_rx_snapshot_t last_rx;
     uint32_t initialized;
@@ -42,7 +41,6 @@ typedef struct {
 extern tdma_long_frame_fifo_t s_tdma_long_frame_rx;
 extern tdma_maintenance_service_t s_tdma_maintenance;
 extern scpi_refmem_sync_state_t s_refmem_sync;
-extern uint8_t s_refmem_package_chunk[SCPI_REFMEM_PACKAGE_READ_CHUNK];
 
 bool tdma_ring_maintenance_mailbox(void *context, uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE]);
 bool tdma_ring_maintenance_send(void *context, const uint8_t *frame, size_t frame_size, uint32_t generation, uint32_t sequence, uint32_t segment_mask);

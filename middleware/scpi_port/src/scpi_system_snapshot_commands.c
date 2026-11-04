@@ -24,6 +24,10 @@
 #include "project_build_info.h"
 #include "refmem_application_model.h"
 #include "refmem_pio_spi_adapter.h"
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
+#include "refmem_bootstrap_transport.h"
+#include "refmem_bootstrap_relay.h"
+#endif
 #include "refmem_quality.h"
 #include "refmem_spi_physical_adapter.h"
 #include "refmem_slot_claim.h"
@@ -83,6 +87,10 @@
 #include "project_build_info.h"
 #include "refmem_application_model.h"
 #include "refmem_pio_spi_adapter.h"
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
+#include "refmem_bootstrap_transport.h"
+#include "refmem_bootstrap_relay.h"
+#endif
 #include "refmem_quality.h"
 #include "refmem_spi_physical_adapter.h"
 #include "refmem_slot_claim.h"
@@ -264,7 +272,6 @@ void tdma_long_frame_ensure_ready(void)
 #define SCPI_REFMEM_SYNC_DEFAULT_LATENCY_US 50u
 
 scpi_refmem_sync_state_t s_refmem_sync;
-uint8_t s_refmem_package_chunk[SCPI_REFMEM_PACKAGE_READ_CHUNK];
 
 bool scpi_refmem_get_adapter_snapshot(refmem_pio_spi_adapter_snapshot_t *snapshot)
 {
@@ -825,6 +832,7 @@ scpi_result_t scpi_cmd_refmem_sync_rx(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
 scpi_result_t scpi_cmd_refmem_sync_frame_tx(scpi_t *context)
 {
     if (!scpi_refmem_sync_ensure_initialized()) {
@@ -844,9 +852,8 @@ scpi_result_t scpi_cmd_refmem_sync_frame_tx(scpi_t *context)
                                      frame,
                                      sizeof(frame),
                                      &frame_size) ||
-        !refmem_spi_physical_adapter_transmit(&s_refmem_sync.spi_adapter,
-                                              frame,
-                                              frame_size)) {
+        !refmem_spi_physical_adapter_transmit(
+            refmem_bootstrap_transport_adapter(), frame, frame_size)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_FRAME_TX");
         return SCPI_RES_ERR;
     }
@@ -866,11 +873,9 @@ scpi_result_t scpi_cmd_refmem_sync_frame_rx(scpi_t *context)
     (void)SCPI_ParamUInt32(context, &timeout_ms, FALSE);
     uint8_t frame[SCPI_REFMEM_SYNC_FRAME_MAX];
     size_t frame_size = 0u;
-    if (!refmem_spi_physical_adapter_receive(&s_refmem_sync.spi_adapter,
-                                             frame,
-                                             sizeof(frame),
-                                             &frame_size,
-                                             timeout_ms)) {
+    if (!refmem_spi_physical_adapter_receive(
+            refmem_bootstrap_transport_adapter(), frame, sizeof(frame),
+            &frame_size, timeout_ms)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_FRAME_RX");
         return SCPI_RES_ERR;
     }
@@ -883,6 +888,19 @@ scpi_result_t scpi_cmd_refmem_sync_frame_rx(scpi_t *context)
     scpi_refmem_sync_result_rx_snapshot(context, &s_refmem_sync.last_rx);
     return SCPI_RES_OK;
 }
+#else
+scpi_result_t scpi_cmd_refmem_sync_frame_tx(scpi_t *context)
+{
+    (void)context;
+    return SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_frame_rx(scpi_t *context)
+{
+    (void)context;
+    return SCPI_RES_ERR;
+}
+#endif
 
 scpi_result_t scpi_cmd_refmem_sync_mirror_q(scpi_t *context)
 {
@@ -1091,39 +1109,64 @@ scpi_result_t scpi_cmd_refmem_sync_quality_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
 scpi_result_t scpi_cmd_refmem_sync_spi_arm(scpi_t *context)
 {
     if (!scpi_refmem_sync_ensure_initialized()) {
         return SCPI_RES_ERR;
     }
 
-    uint32_t role = REFMEM_SPI_PHYSICAL_ROLE_MASTER;
-    uint32_t baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
+    refmem_bootstrap_arm_request_t request = {0};
+    request.role = REFMEM_SPI_PHYSICAL_ROLE_MASTER;
+    request.baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
     refmem_spi_physical_pin_config_t pins = {
         .rx_pin = BOARD_REFMEM_SPI_RX_PIN,
         .csn_pin = BOARD_REFMEM_SPI_CSN_PIN,
         .sck_pin = BOARD_REFMEM_SPI_SCK_PIN,
         .tx_pin = BOARD_REFMEM_SPI_TX_PIN,
     };
+    uint32_t role = (uint32_t)request.role;
     if (!scpi_port_read_u32(context, &role)) {
         return SCPI_RES_ERR;
     }
-    (void)SCPI_ParamUInt32(context, &baud_hz, FALSE);
+    request.role = (refmem_spi_physical_role_t)role;
+    (void)SCPI_ParamUInt32(context, &request.baud_hz, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.rx_pin, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.csn_pin, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.sck_pin, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.tx_pin, FALSE);
+    request.pins = &pins;
+    /* Preconditions are observed here, not inferred by the owner: the model
+     * layer and the realtime trigger layer must both be idle, and the ring
+     * link must not currently carry commands. */
+    request.system_stopped = scpi_refmem_model_mode_idle() &&
+                             scpi_refmem_realtime_idle();
+    request.ring_ready = distributed_refmem_ring_link_ready();
 
-    if (!refmem_spi_physical_adapter_arm(&s_refmem_sync.spi_adapter,
-                                         (refmem_spi_physical_role_t)role,
-                                         baud_hz,
-                                         &pins)) {
-        scpi_port_push_exec_error(context, "REFMEM_SYNC_SPI_ARM");
+    const refmem_bootstrap_arm_result_t result =
+        refmem_bootstrap_transport_arm(&request);
+    if (result != REFMEM_BOOTSTRAP_ARM_OK) {
+        const char *reason = "REFMEM_SYNC_SPI_ARM";
+        if (result == REFMEM_BOOTSTRAP_ARM_NOT_STOPPED) {
+            reason = "REFMEM_BOOTSTRAP_NOT_STOPPED";
+        } else if (result == REFMEM_BOOTSTRAP_ARM_RING_READY) {
+            reason = "REFMEM_BOOTSTRAP_RING_READY";
+        }
+        scpi_port_push_exec_error(context, reason);
+        return SCPI_RES_ERR;
+    }
+
+    /* Arm only prepares the physical layer; the relay publishes readiness
+     * from its own peer heartbeat and never from this return value. */
+    if (!distributed_refmem_bootstrap_start(
+            request.role == REFMEM_SPI_PHYSICAL_ROLE_SLAVE)) {
+        refmem_bootstrap_transport_disarm();
+        scpi_port_push_exec_error(context, "REFMEM_BOOTSTRAP_START");
         return SCPI_RES_ERR;
     }
 
     refmem_spi_physical_snapshot_t snapshot;
-    (void)refmem_spi_physical_adapter_get_snapshot(&s_refmem_sync.spi_adapter, &snapshot);
+    (void)refmem_bootstrap_transport_snapshot(&snapshot);
     SCPI_ResultText(context, "OK");
     SCPI_ResultUInt32(context, snapshot.role);
     SCPI_ResultUInt32(context, snapshot.baud_hz);
@@ -1140,7 +1183,8 @@ scpi_result_t scpi_cmd_refmem_sync_spi_disarm(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    refmem_spi_physical_adapter_disarm(&s_refmem_sync.spi_adapter);
+    distributed_refmem_bootstrap_stop();
+    refmem_bootstrap_transport_disarm();
     return scpi_port_result_ok(context);
 }
 
@@ -1151,7 +1195,7 @@ scpi_result_t scpi_cmd_refmem_sync_spi_status_q(scpi_t *context)
     }
 
     refmem_spi_physical_snapshot_t snapshot;
-    if (!refmem_spi_physical_adapter_get_snapshot(&s_refmem_sync.spi_adapter, &snapshot)) {
+    if (!refmem_bootstrap_transport_snapshot(&snapshot)) {
         return SCPI_RES_ERR;
     }
 
@@ -1173,14 +1217,74 @@ scpi_result_t scpi_cmd_refmem_sync_spi_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_bootstrap_status_q(scpi_t *context)
+{
+    refmem_spi_physical_snapshot_t snapshot;
+    (void)refmem_bootstrap_transport_snapshot(&snapshot);
+    SCPI_ResultUInt32(context, refmem_bootstrap_transport_armed() ? 1u : 0u);
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_ready() ? 1u : 0u);
+    SCPI_ResultUInt32(context, (uint32_t)refmem_bootstrap_relay_state());
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_peer_slot());
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_tx_count());
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_rx_count());
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_timeout_count());
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_retry_count());
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_invalid_count());
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_build_fail_count());
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_tx_fail_count());
+    SCPI_ResultUInt32(context,
+                      refmem_bootstrap_transport_reject_not_stopped());
+    SCPI_ResultUInt32(context, refmem_bootstrap_transport_reject_ring_ready());
+    SCPI_ResultUInt32(context, refmem_bootstrap_transport_arm_error_count());
+    SCPI_ResultUInt32(context, snapshot.tx_count);
+    SCPI_ResultUInt32(context, snapshot.rx_count);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, refmem_bootstrap_relay_last_reason());
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_sync_spi_line_release(scpi_t *context)
 {
     if (!scpi_refmem_sync_ensure_initialized()) {
         return SCPI_RES_ERR;
     }
 
-    refmem_spi_physical_adapter_disarm(&s_refmem_sync.spi_adapter);
+    distributed_refmem_bootstrap_stop();
+    refmem_bootstrap_transport_disarm();
     refmem_spi_physical_line_release();
     return scpi_port_result_ok(context);
 }
+#else
+/* Feature compiled out (PROJECT_REFMEM_BOOTSTRAP_ENABLED=OFF): keep the SCPI
+ * entries registered but fail closed instead of referencing a missing owner. */
+scpi_result_t scpi_cmd_refmem_sync_spi_arm(scpi_t *context)
+{
+    (void)context;
+    return SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_spi_disarm(scpi_t *context)
+{
+    (void)context;
+    return SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_spi_status_q(scpi_t *context)
+{
+    (void)context;
+    return SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_refmem_bootstrap_status_q(scpi_t *context)
+{
+    (void)context;
+    return SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_spi_line_release(scpi_t *context)
+{
+    (void)context;
+    return SCPI_RES_ERR;
+}
+#endif
 

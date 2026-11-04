@@ -24,6 +24,7 @@
 #include "project_build_info.h"
 #include "refmem_application_model.h"
 #include "refmem_pio_spi_adapter.h"
+#include "refmem_bootstrap_transport.h"
 #include "refmem_quality.h"
 #include "refmem_spi_physical_adapter.h"
 #include "refmem_slot_claim.h"
@@ -74,7 +75,9 @@ scpi_result_t scpi_cmd_refmem_sync_spi_line_drive(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    refmem_spi_physical_adapter_disarm(&s_refmem_sync.spi_adapter);
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
+    refmem_bootstrap_transport_disarm();
+#endif
     if (!refmem_spi_physical_line_drive(line_index, level != 0u)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_SPI_LINE_DRIVE");
         return SCPI_RES_ERR;
@@ -122,12 +125,17 @@ scpi_result_t scpi_cmd_refmem_sync_spi_raw_tx(scpi_t *context)
         checksum += (uint8_t)(seed + i);
     }
 
-    if (!refmem_spi_physical_adapter_transmit_raw(&s_refmem_sync.spi_adapter,
-                                                  (uint8_t)seed,
-                                                  byte_count)) {
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
+    if (!refmem_spi_physical_adapter_transmit_raw(
+            refmem_bootstrap_transport_adapter(), (uint8_t)seed,
+            byte_count)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_SPI_RAW_TX");
         return SCPI_RES_ERR;
     }
+#else
+    scpi_port_push_exec_error(context, "REFMEM_BOOTSTRAP_DISABLED");
+    return SCPI_RES_ERR;
+#endif
 
     SCPI_ResultText(context, "OK");
     SCPI_ResultUInt32(context, byte_count);
@@ -159,14 +167,17 @@ scpi_result_t scpi_cmd_refmem_sync_spi_raw_rx_q(scpi_t *context)
 
     uint8_t buffer[SCPI_REFMEM_SYNC_SPI_RAW_MAX];
     size_t received_size = 0u;
-    if (!refmem_spi_physical_adapter_receive_raw(&s_refmem_sync.spi_adapter,
-                                                 buffer,
-                                                 expected_size,
-                                                 &received_size,
-                                                 timeout_ms)) {
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
+    if (!refmem_spi_physical_adapter_receive_raw(
+            refmem_bootstrap_transport_adapter(), buffer, expected_size,
+            &received_size, timeout_ms)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_SPI_RAW_RX");
         return SCPI_RES_ERR;
     }
+#else
+    scpi_port_push_exec_error(context, "REFMEM_BOOTSTRAP_DISABLED");
+    return SCPI_RES_ERR;
+#endif
 
     uint32_t checksum = 0u;
     uint32_t mismatch_count = 0u;

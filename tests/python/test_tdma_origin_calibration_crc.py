@@ -18,6 +18,7 @@ def test_origin_calibration_crc_bytes(tmp_path, capacity):
         f"-DPROJECT_NODE_CAPACITY={capacity}", "-I" + str(ROOT / "components/tdma/inc"),
         "-I" + str(ROOT / "third_party/portable_ota/include"),
         str(ROOT / "components/tdma/src/tdma_origin_calibration_crc.c"),
+        str(ROOT / "components/tdma/src/tdma_transport_frame.c"),
         str(ROOT / "third_party/portable_ota/src/pota_crc32.c"),
         str(ROOT / "tests/unit/test_tdma_origin_calibration_crc.c"), "-o", str(exe)]
     subprocess.run(command, check=True, capture_output=True, text=True, timeout=60)

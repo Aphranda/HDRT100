@@ -705,12 +705,22 @@ refmem_position_reset_result_t distributed_refmem_reset_position_running(void)
 /* Updated by the core0 refmem service only; read lock-free by submit/SCPI. */
 static volatile uint32_t s_ring_transport_ready_cache;
 
-bool distributed_refmem_ring_transport_ready(void)
+bool distributed_refmem_ring_link_ready(void)
 {
     /* Cached by the core0 refmem service from the ring snapshot: the SCPI /
      * submit path must not take the TDMA runtime lock (it can be held by a
      * parked ring service while the ring is stopped). */
     return __atomic_load_n(&s_ring_transport_ready_cache, __ATOMIC_ACQUIRE) != 0u;
+}
+
+bool distributed_refmem_ring_transport_ready(void)
+{
+    /* Remote commands need a carrier: the TDMA ring, or the explicit
+     * STOP-state bootstrap carrier registered by its owner.  Both are
+     * fail-closed; without either the source record would stay POSTED. */
+    return refmem_control_transport_admits(
+        distributed_refmem_ring_link_ready() ? 1u : 0u,
+        refmem_control_transport_bootstrap_active() ? 1u : 0u);
 }
 
 void distributed_refmem_tdma_flight_sync_service(void)

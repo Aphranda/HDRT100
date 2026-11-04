@@ -65,6 +65,11 @@ set(PROJECT_TDMA_SPI_BAUD_HZ 10000000 CACHE STRING "Product TDMA PIO-SPI bit rat
 # sequence bridge below supplies the local TX latch evidence; keeping it in the
 # normal build preserves the proven process-follower wire timing.
 option(PROJECT_TDMA_EVENT_OBSERVER "Follower paired PIO event observer" ON)
+# STOP-state low-speed SPI REFMEM bootstrap transport (CONSOLE-017/035).
+# Default OFF: the v2 factory-candidate image has zero .bss headroom, so the
+# transport stays out of the shipped image until a RAM budget is approved.
+option(PROJECT_REFMEM_BOOTSTRAP_ENABLED
+    "STOP-state low-speed SPI REFMEM bootstrap transport" OFF)
 file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/config/project_node_capacity.h"
     PROJECT_NODE_CAPACITY_DEFAULT_LINE REGEX "^#define PROJECT_NODE_CAPACITY_DEFAULT [0-9]+$")
 if(NOT PROJECT_NODE_CAPACITY_DEFAULT_LINE MATCHES "^#define PROJECT_NODE_CAPACITY_DEFAULT ([0-9]+)$")
@@ -808,6 +813,14 @@ set(PROJECT_APP_SOURCES
         ${PROJECT_OSAL_SOURCES}
 )
 
+if(PROJECT_REFMEM_BOOTSTRAP_ENABLED)
+    list(APPEND PROJECT_APP_SOURCES
+        components/distributed_refmem/src/refmem_bootstrap_transport.c
+        components/distributed_refmem/src/refmem_bootstrap_relay.c
+        components/distributed_refmem/src/refmem_bootstrap_hello.c
+    )
+endif()
+
 if(PROJECT_ENABLE_USBTMC OR PROJECT_ENABLE_USB_RUNTIME_SWITCH)
     list(APPEND PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_usb_control.c
@@ -927,6 +940,7 @@ pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/syn
         PROJECT_ENABLE_LOG_UART_OUTPUT=$<BOOL:${PROJECT_ENABLE_LOG_UART_OUTPUT}>
         PROJECT_OTA_TDMA_V2_BRIDGE=$<BOOL:${PROJECT_OTA_TDMA_V2_BRIDGE}>
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
+        PROJECT_REFMEM_BOOTSTRAP_ENABLED=$<BOOL:${PROJECT_REFMEM_BOOTSTRAP_ENABLED}>
         PROJECT_ENABLE_WATCHDOG_TEST=$<BOOL:${PROJECT_ENABLE_WATCHDOG_TEST}>
         PROJECT_ENABLE_FLASH_VALIDATION=$<BOOL:${PROJECT_ENABLE_FLASH_VALIDATION}>
         PROJECT_OTA_MAX_DATA_BLOCK_SIZE=${PROJECT_OTA_MAX_DATA_BLOCK_SIZE}
@@ -1073,6 +1087,7 @@ target_compile_definitions(DHRT100_BOOT PRIVATE
         PROJECT_OTA_MAX_DATA_BLOCK_SIZE=${PROJECT_OTA_MAX_DATA_BLOCK_SIZE}
         POTA_MAX_DATA_BLOCK_SIZE=${PROJECT_OTA_MAX_DATA_BLOCK_SIZE}
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
+        PROJECT_REFMEM_BOOTSTRAP_ENABLED=$<BOOL:${PROJECT_REFMEM_BOOTSTRAP_ENABLED}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
         PROJECT_FLASH_DEPLOYMENT_V2=$<BOOL:${PROJECT_FLASH_DEPLOYMENT_V2}>
         PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY=$<BOOL:${PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY}>

@@ -366,11 +366,45 @@ def test_scope_monitor_disables_forced_internal(tmp_path, monkeypatch):
     base = tmp_path / "bench.json"
     base.write_text(json.dumps({"dpll_short_force_internal": True}), encoding="utf-8")
     monkeypatch.setattr(p3, "DEFAULT_CONFIG", base)
+    # Never write the production scope config: that file is part of the
+    # acceptance receipt binding, and a test must not change its hash.
+    monkeypatch.setattr(workflow, "SCOPE_CONFIG", tmp_path / "p3_bench_scope.json")
     ns = SimpleNamespace(full=False, tdma_only=False, diagnostic_continue=False,
                          monitor="scope")
     args = workflow.acceptance_args(ns)
     data = json.loads(args.config.read_text(encoding="utf-8"))
     assert data["dpll_short_force_internal"] is False
+
+
+def test_profile_full_sets_full_flag():
+    ns = SimpleNamespace(profile="full", full=False, tdma_only=False,
+                         diagnostic_continue=False, monitor=None)
+    args = workflow.acceptance_args(ns, launch={})
+    assert args.full is True
+
+
+def test_serial_gap_has_100ms_floor():
+    timing = {"serial_timeout_s": 3.0, "input_settle_s": 0.05,
+              "output_handoff_s": 0.05}
+    command: list[str] = []
+    p3.add_serial_timing(command, timing, gap=True)
+    assert command[-2:] == ["--gap", "0.1"]
+    timing["output_handoff_s"] = 0.2
+    command = []
+    p3.add_serial_timing(command, timing, gap=True)
+    assert command[-2:] == ["--gap", "0.2"]
+
+
+@pytest.mark.parametrize("page,expected", [
+    ("1,0,2,2,0", True),
+    ("0,0,1,1,0", False),
+    ("1,0,0,1,0", False),
+    ("1,0,2,2,1", False),
+    ("1,0,2,2", False),
+    ("bad", False),
+])
+def test_dpll_role_is_follower(page, expected):
+    assert p3.dpll_role_is_follower(page) is expected
 
 
 def test_tdma_rerun_discards_the_previous_recorder(tmp_path, fingerprint, monkeypatch):

@@ -939,7 +939,10 @@ def add_serial_timing(command: list[str], timing: dict[str, float], *,
         command.extend(["--capture-timeout",
                         str(timing["p3_capture_timeout_s"])])
     if gap:
-        command.extend(["--gap", str(timing["output_handoff_s"])])
+        # P0T/topology communication gap: 50 ms was measured to make the
+        # stopped-topology probes flaky.  Keep a hard 100 ms floor even when a
+        # stale derived config still carries the old 0.05 s value.
+        command.extend(["--gap", str(max(float(timing["output_handoff_s"]), 0.1))])
 
 
 def waveform_capture_enabled(config: dict[str, Any], stage: str) -> bool:
@@ -1757,12 +1760,18 @@ def parse_protection(raw: str) -> dict[str, int]:
 
 
 def validate_recorded_builds(ota_summary: dict[str, Any] | None,
-                            expected_build: str) -> None:
+                            expected_build: str,
+                            live_builds: dict[str, str] | None = None) -> None:
     """Fail fast when the OTA evidence shows a stale/mixed board build.
 
-    This is deliberately a pure recorded-evidence check: acceptance unit tests
-    and resumed runs must not open serial ports.  The live four-board probe is
-    the night runner's preflight job, not a per-step side effect.
+    This is a pure recorded-evidence check: acceptance unit tests and resumed
+    runs must not open serial ports.  The live four-board probe is the night
+    runner's preflight job, not a per-step side effect.
+
+    The recorded summary is written before the OTA slot switch and can
+    therefore still name the pre-switch build.  When a live probe (step 6)
+    agrees with the expected build for every recorded board, the recorded
+    mismatch is stale evidence, not a real mismatch.
     """
     if not ota_summary:
         return
@@ -1778,6 +1787,11 @@ def validate_recorded_builds(ota_summary: dict[str, Any] | None,
     mismatch = {board_id: build for board_id, build in builds.items()
                 if build != expected_build}
     if mismatch:
+        live = {str(key): str(value)
+                for key, value in (live_builds or {}).items()}
+        if live and all(live.get(board_id) == expected_build
+                        for board_id in builds):
+            return
         detail = ", ".join(f"{board_id}={build}" for board_id, build in mismatch.items())
         raise AcceptanceError(
             f"board build mismatch: expected {expected_build}; {detail}")
@@ -3998,7 +4012,7 @@ def phase_tdma(run: AcceptanceRun) -> None:
     diagnostic_continue, finite_tdma = run.diagnostic_continue, run.finite_tdma
     build_id = run.get("build_id")
     if build_id:
-        validate_recorded_builds(run.state.get("ota_summary"), str(build_id))
+        validate_recorded_builds(run.state.get("ota_summary"), str(build_id), run.state.get("online_builds"))
     trn03_matrix_path = run.get("trn03_matrix_path")
     tdma_dir = out_dir / "tdma-process-image"
     tdma_command = [
@@ -4139,6 +4153,23 @@ def phase_tdma_handoff(run: AcceptanceRun) -> None:
 
 
 # -- DPLL -------------------------------------------------------------------
+def dpll_role_is_follower(page: str) -> bool:
+    """True only for an applied follower role sourced from the ring reference.
+
+    Page order is ``mode, source, requested, applied, pending`` (see
+    ``vdc_priority_joint_capture.validate_dpll_role``).
+    """
+    try:
+        fields = [int(value) for value in page.split(",")]
+    except ValueError:
+        return False
+    if len(fields) != 5:
+        return False
+    mode, source, requested, applied, pending = fields
+    return (mode == 1 and source == 0 and pending == 0
+            and requested == applied and applied > 0)
+
+
 def dpll_short_arm_followers(config: dict[str, Any],
                              board_ids: list[str]) -> dict[str, Any]:
     """Arm each follower's exact-match layer over plain SCPI, boards stopped.
@@ -4169,6 +4200,24 @@ def dpll_short_arm_followers(config: dict[str, Any],
             if index == 0:
                 results[board_id] = {"role": "origin", "armed": False}
                 continue
+            # A power cycle restores the product MASTER role: followers are
+            # RAM-only unless the bench operator stored them. Repair here so a
+            # full workflow rerun does not fail the step-29 role preflight after
+            # its step-7 reset; step 29 still rejects anything but FOLLOWER.
+            role_before = str(board_command(
+                board, "SYSTem:SYNC:VDC:DPLL:ROLE?", arm_args)).strip().strip('"')
+            role_after = role_before
+            role_set = False
+
+            if not dpll_role_is_follower(role_before):
+                board_command(board, "SYSTem:SYNC:VDC:DPLL:ROLE 1,0", arm_args)
+                role_set = True
+                for _attempt in range(10):
+                    time.sleep(0.1)
+                    role_after = str(board_command(
+                        board, "SYSTem:SYNC:VDC:DPLL:ROLE?", arm_args)).strip().strip('"')
+                    if dpll_role_is_follower(role_after):
+                        break
             reply = str(board_command(
                 board, "SYSTem:VDC:FEEDback:SESSion?", arm_args)).strip().strip('"')
             current = int(reply) if reply.isdigit() else 0
@@ -4177,6 +4226,10 @@ def dpll_short_arm_followers(config: dict[str, Any],
             match = str(board_command(
                 board, f"SYSTem:VDC:PRIORity:MATCH {session}", arm_args)).strip('"')
             results[board_id] = {"session": session, "match": match,
+                                 "role_before": role_before,
+                                 "role_after": role_after,
+                                 "role_set": role_set,
+                                 "role_ok": dpll_role_is_follower(role_after),
                                  "armed": match.strip() == str(session)}
     except Exception as exc:  # noqa: BLE001 - the capture reports the real failure
         results["error"] = f"{type(exc).__name__}: {exc}"
@@ -4229,7 +4282,7 @@ def phase_dpll_capture(run: AcceptanceRun) -> None:
         return
     build_id = run.get("build_id")
     if build_id:
-        validate_recorded_builds(run.state.get("ota_summary"), str(build_id))
+        validate_recorded_builds(run.state.get("ota_summary"), str(build_id), run.state.get("online_builds"))
     # Phase-schedule misses and flash park counters are read around the window:
     # their delta is the only board-side explanation when a follower output
     # starves (the capture itself closes all board connections during the run).

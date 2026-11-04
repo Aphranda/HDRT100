@@ -177,24 +177,25 @@ bool scpi_refmem_read_package(const char *path,
         }
 
         storage_manager_file_read_t read_info;
-        if (!storage_manager_get_file_read_job_result(job_id,
-                                                      &read_info,
-                                                      s_refmem_package_chunk,
-                                                      sizeof(s_refmem_package_chunk))) {
+        if (!storage_manager_acquire_file_read_job_result(job_id, &read_info)) {
             return false;
         }
-        if (read_info.returned == 0u ||
-            read_info.returned > sizeof(s_refmem_package_chunk) ||
-            read_info.returned > read_length ||
-            *returned_size + read_info.returned > buffer_size) {
+        /* Copy straight into the caller's destination.  The former 512-byte
+         * static staging chunk duplicated the storage result buffer and cost
+         * main RAM for no isolation benefit (the job already owns its own
+         * buffer until release). */
+        size_t copied = 0u;
+        const bool copied_ok = storage_manager_copy_file_read_job_result(
+            job_id, 0u, buffer + *returned_size,
+            buffer_size - *returned_size, &copied);
+        storage_manager_release_file_read_job_result(job_id);
+        if (!copied_ok || copied == 0u || copied > read_length ||
+            copied > read_info.returned ||
+            *returned_size + copied > buffer_size) {
             return false;
         }
-
-        for (uint32_t i = 0u; i < read_info.returned; i++) {
-            buffer[*returned_size + i] = s_refmem_package_chunk[i];
-        }
-        *returned_size += read_info.returned;
-        offset += read_info.returned;
+        *returned_size += copied;
+        offset += copied;
     }
 
     return *returned_size == info_job.size;

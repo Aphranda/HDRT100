@@ -161,6 +161,11 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
                     out_dir: Path | None = None) -> SimpleNamespace:
     """The namespace AcceptanceRun reads; a continued run keeps its launch settings."""
     launch = dict(launch or {})
+    if getattr(ns, "profile", None) == "full":
+        # `--profile full` is documented as the FULL entry point; it must set
+        # the same persisted flag as the `--full` alias, otherwise a resumed
+        # run writes a QUICK_DIAGNOSTIC receipt.
+        launch["full"] = True
     for key in ("full", "tdma_only", "diagnostic_continue"):
         if getattr(ns, key, False):
             launch[key] = True
@@ -355,7 +360,10 @@ def acquire_bench_lock() -> None:
             try:
                 os.kill(pid, 0)
                 alive = True
-            except OSError:
+            except (OSError, SystemError):
+                # Windows raises SystemError for a dead PID (os.kill's
+                # OpenProcess failure path); a killed acceptance run must not
+                # wedge every later invocation.
                 alive = False
         if alive:
             raise SystemExit(

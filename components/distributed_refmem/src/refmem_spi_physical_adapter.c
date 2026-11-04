@@ -32,7 +32,7 @@ static bool s_refmem_spi_pio_programs_loaded;
 static uint s_refmem_spi_tx_offset;
 static uint s_refmem_spi_rx_offset;
 static int s_refmem_spi_rx_dma_channel = -1;
-static uint32_t s_refmem_spi_rx_dma_words[REFMEM_SPI_RX_DMA_WORD_MAX];
+static uint8_t s_refmem_spi_rx_dma_words[REFMEM_SPI_RX_DMA_WORD_MAX];
 
 static void refmem_spi_physical_set_error(refmem_spi_physical_adapter_t *adapter,
                                           uint32_t error)
@@ -255,7 +255,7 @@ static bool refmem_spi_physical_parse_received_frame(refmem_spi_physical_adapter
 
     uint8_t packet_header[REFMEM_SPI_PACKET_HEADER_SIZE];
     for (uint32_t i = 0u; i < REFMEM_SPI_PACKET_HEADER_SIZE; i++) {
-        packet_header[i] = (uint8_t)(s_refmem_spi_rx_dma_words[i] & 0xFFu);
+        packet_header[i] = s_refmem_spi_rx_dma_words[i];
     }
 
     const uint16_t packet_size =
@@ -276,8 +276,7 @@ static bool refmem_spi_physical_parse_received_frame(refmem_spi_physical_adapter
     }
 
     for (uint16_t i = 0u; i < packet_size; i++) {
-        frame[i] = (uint8_t)(s_refmem_spi_rx_dma_words[REFMEM_SPI_PACKET_HEADER_SIZE + i] &
-                             0xFFu);
+        frame[i] = s_refmem_spi_rx_dma_words[REFMEM_SPI_PACKET_HEADER_SIZE + i];
     }
 
     refmem_sync_frame_header_t header;
@@ -320,7 +319,7 @@ static bool refmem_spi_physical_capture_words(size_t max_words,
 
     dma_channel_config dma_cfg =
         dma_channel_get_default_config((uint)s_refmem_spi_rx_dma_channel);
-    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_8);
     channel_config_set_read_increment(&dma_cfg, false);
     channel_config_set_write_increment(&dma_cfg, true);
     channel_config_set_dreq(&dma_cfg, DREQ_PIO0_RX0 + BOARD_REFMEM_SPI_RX_SM);
@@ -580,7 +579,7 @@ bool refmem_spi_physical_adapter_receive_begin(refmem_spi_physical_adapter_t *ad
     const size_t max_words = frame_capacity + REFMEM_SPI_PACKET_HEADER_SIZE;
     dma_channel_config dma_cfg =
         dma_channel_get_default_config((uint)s_refmem_spi_rx_dma_channel);
-    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_8);
     channel_config_set_read_increment(&dma_cfg, false);
     channel_config_set_write_increment(&dma_cfg, true);
     channel_config_set_dreq(&dma_cfg, DREQ_PIO0_RX0 + BOARD_REFMEM_SPI_RX_SM);
@@ -691,7 +690,7 @@ bool refmem_spi_physical_adapter_receive_raw(refmem_spi_physical_adapter_t *adap
     }
 
     for (size_t i = 0u; i < expected_size; i++) {
-        buffer[i] = (uint8_t)(s_refmem_spi_rx_dma_words[i] & 0xFFu);
+        buffer[i] = s_refmem_spi_rx_dma_words[i];
     }
 
     *received_size = expected_size;

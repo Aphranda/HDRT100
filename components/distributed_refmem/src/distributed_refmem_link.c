@@ -12,6 +12,13 @@
 #include "distributed_refmem_vdc_bridge.h"
 #include "diagnostics.h"
 #include "ota_ao.h"
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
+#include "refmem_bootstrap_hello.h"
+#include "refmem_bootstrap_relay.h"
+#include "refmem_bootstrap_transport.h"
+#include "refmem_cmd_reply.h"
+#include "tdma_second_class_parser.h"
+#endif
 #include "refmem_application_model.h"
 #include "refmem_command.h"
 #include "refmem_cmd_load.h"
@@ -895,6 +902,140 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(
 }
 
 
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
+#define REFMEM_BOOTSTRAP_KIND_COMMAND 0x01u
+#define REFMEM_BOOTSTRAP_KIND_REPLY 0x02u
+#define REFMEM_BOOTSTRAP_ENVELOPE_SIZE 4u
+
+static uint8_t s_bootstrap_peer_slot;
+static uint32_t s_bootstrap_reply_timeouts_seen;
+
+/* Inbound application frame: the relay only knows bytes; the REFMEM binding
+ * owns the envelope and the command/reply semantics. */
+static bool refmem_bootstrap_frame_handler(const uint8_t *frame,
+                                           size_t frame_size)
+{
+    if (frame == NULL || frame_size < 2u) {
+        return false;
+    }
+    if (frame[0] == REFMEM_BOOTSTRAP_KIND_COMMAND) {
+        if (frame_size < REFMEM_BOOTSTRAP_ENVELOPE_SIZE ||
+            frame[1] != (uint8_t)TDMA_SECOND_CLASS_TYPE_REFMEM_CMD) {
+            return false;
+        }
+        return distributed_refmem_cmd_frame_receive(
+            frame + REFMEM_BOOTSTRAP_ENVELOPE_SIZE,
+            frame_size - REFMEM_BOOTSTRAP_ENVELOPE_SIZE);
+    }
+    if (frame[0] == REFMEM_BOOTSTRAP_KIND_REPLY) {
+        if (frame_size < 6u) {
+            return false;
+        }
+        const uint16_t seq16 =
+            (uint16_t)((uint16_t)frame[2] | ((uint16_t)frame[3] << 8u));
+        distributed_refmem_cmd_reply_store(frame[1], seq16, frame[4], frame[5]);
+        return true;
+    }
+    return false;
+}
+
+static bool refmem_bootstrap_submit_frame(const uint8_t *payload,
+                                          uint32_t payload_size,
+                                          uint8_t type,
+                                          uint8_t generation,
+                                          uint8_t target_mask)
+{
+    if (payload == NULL || payload_size == 0u ||
+        payload_size > (REFMEM_BOOTSTRAP_RELAY_FRAME_MAX -
+                        REFMEM_BOOTSTRAP_ENVELOPE_SIZE)) {
+        return false;
+    }
+    uint8_t frame[REFMEM_BOOTSTRAP_RELAY_FRAME_MAX];
+    frame[0] = REFMEM_BOOTSTRAP_KIND_COMMAND;
+    frame[1] = type;
+    frame[2] = generation;
+    frame[3] = target_mask;
+    memcpy(frame + REFMEM_BOOTSTRAP_ENVELOPE_SIZE, payload, payload_size);
+    return refmem_bootstrap_relay_submit(
+        frame, (size_t)payload_size + REFMEM_BOOTSTRAP_ENVELOPE_SIZE,
+        osal_tick_ms());
+}
+
+static bool refmem_bootstrap_carrier_ready(void)
+{
+    return refmem_bootstrap_relay_ready();
+}
+
+static const refmem_bootstrap_transport_t s_refmem_bootstrap_carrier = {
+    .submit = refmem_bootstrap_submit_frame,
+    .ready = refmem_bootstrap_carrier_ready,
+};
+
+/* A command frame with no reply must not stay POSTED forever: fail the local
+ * record closed with the peer timeout bit and the TIMEOUT reason. */
+static void refmem_bootstrap_timeout_local_command(void)
+{
+    const uint32_t local = distributed_refmem_local_slot();
+    refmem_command_snapshot_t snapshot;
+    uint32_t params[REFMEM_NODE_CONTROL_PARAM_WORDS];
+    if (!distributed_refmem_node_control_read_params(
+            local, &snapshot, params, NULL, NULL)) {
+        return;
+    }
+    if (snapshot.state != REFMEM_COMMAND_STATE_POSTED &&
+        snapshot.state != REFMEM_COMMAND_STATE_BUSY) {
+        return;
+    }
+    (void)distributed_refmem_node_control_update_status(
+        local, REFMEM_COMMAND_STATE_TIMED_OUT, snapshot.ack_flags,
+        snapshot.nack_flags, snapshot.busy_flags,
+        snapshot.timeout_flags | (1u << s_bootstrap_peer_slot),
+        REFMEM_COMMAND_REASON_TIMEOUT, local, 0u, snapshot.command_seq);
+}
+
+bool distributed_refmem_bootstrap_start(bool responder)
+{
+    refmem_bootstrap_relay_config_t config;
+    memset(&config, 0, sizeof(config));
+    const uint32_t local_slot = distributed_refmem_local_slot();
+    if (local_slot > 7u) {
+        return false;
+    }
+    config.local_slot = (uint8_t)local_slot;
+    /* The P4.5 bench link is point-to-point: the peer is the other slot of a
+     * two-node ring.  Multi-link topology is deliberately not modelled yet. */
+    config.peer_slot = (uint8_t)(local_slot == 0u ? 1u : 0u);
+    config.hello_interval_ms = 1000u;
+    config.ack_timeout_ms = 50u;
+    config.peer_timeout_ms = 5000u;
+    config.reply_guard_ms = 20u;
+    config.reply_timeout_ms = 100u;
+    config.max_retries = 3u;
+    config.responder = responder;
+    config.build_probe = refmem_bootstrap_hello_build;
+    config.parse_probe = refmem_bootstrap_hello_parse;
+    config.frame_handler = refmem_bootstrap_frame_handler;
+    if (!refmem_bootstrap_relay_init(&config)) {
+        return false;
+    }
+    if (!refmem_control_transport_register_bootstrap(
+            &s_refmem_bootstrap_carrier)) {
+        refmem_bootstrap_relay_reset();
+        return false;
+    }
+    s_bootstrap_peer_slot = config.peer_slot;
+    s_bootstrap_reply_timeouts_seen =
+        refmem_bootstrap_relay_reply_timeout_count();
+    return true;
+}
+
+void distributed_refmem_bootstrap_stop(void)
+{
+    refmem_control_transport_unregister_bootstrap();
+    refmem_bootstrap_relay_reset();
+}
+#endif
+
 void distributed_refmem_service(void)
 {
     if (!s_refmem_core_initialized) {
@@ -909,7 +1050,53 @@ void distributed_refmem_service(void)
         }
     }
     refmem_cmd_load_service();
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
+    /* STOP-state bootstrap relay: inert until SCPI arms it.  It only probes
+     * the peer and publishes readiness; command admission stays ring-only
+     * until the carrier is explicitly registered. */
+    refmem_bootstrap_relay_service(osal_tick_ms());
+    /* Ring is the primary control transport: once it carries commands, retire
+     * the bootstrap carrier instead of keeping two active paths.  Re-arming
+     * after a ring stop stays an explicit operator action. */
+    if (refmem_bootstrap_transport_armed() &&
+        distributed_refmem_ring_link_ready()) {
+        refmem_control_transport_unregister_bootstrap();
+        refmem_bootstrap_relay_handover();
+        refmem_bootstrap_transport_disarm();
+    }
+#endif
     distributed_refmem_node_control_service();
+#if PROJECT_REFMEM_BOOTSTRAP_ENABLED
+    /* Target side: a reply armed by the node-control service must go back over
+     * the bootstrap carrier (the ring is not carrying commands here). */
+    if (refmem_bootstrap_transport_armed() && refmem_bootstrap_relay_ready()) {
+        refmem_cmd_reply_t reply;
+        if (distributed_refmem_cmd_reply_tx_get(&reply)) {
+            refmem_cmd_reply_wire_t wire;
+            if (refmem_cmd_reply_encode(&reply, &wire)) {
+                uint8_t frame[6];
+                frame[0] = REFMEM_BOOTSTRAP_KIND_REPLY;
+                frame[1] = (uint8_t)distributed_refmem_local_slot();
+                frame[2] = (uint8_t)(wire.seq16 & 0xFFu);
+                frame[3] = (uint8_t)(wire.seq16 >> 8u);
+                frame[4] = wire.flags;
+                frame[5] = wire.reason;
+                if (refmem_bootstrap_relay_submit(frame, sizeof(frame),
+                                                  osal_tick_ms())) {
+                    distributed_refmem_cmd_reply_note_published();
+                }
+            }
+        }
+    }
+    /* Source side: a lost reply fails the local record closed. */
+    {
+        const uint32_t seen = refmem_bootstrap_relay_reply_timeout_count();
+        if (seen != s_bootstrap_reply_timeouts_seen) {
+            s_bootstrap_reply_timeouts_seen = seen;
+            refmem_bootstrap_timeout_local_command();
+        }
+    }
+#endif
 
     osal_critical_enter();
 

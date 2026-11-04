@@ -152,7 +152,18 @@ bool refmem_cmd_load_submit_type(uint8_t type,
                                  uint32_t wire_size)
 {
     if (wire == NULL || wire_size == 0u ||
-        wire_size > TDMA_MAINTENANCE_RUNTIME_MAX || s_initialized == 0u) {
+        wire_size > TDMA_MAINTENANCE_RUNTIME_MAX) {
+        s_rejected++;
+        return false;
+    }
+    /* The bootstrap carrier is a separately owned transport (CONSOLE-017/035).
+     * It is used only while the ring link is not ready; the ring keeps
+     * priority.  Without it the module keeps its original init gate. */
+    const bool bootstrap =
+        refmem_control_transport_route(
+            distributed_refmem_ring_link_ready() ? 1u : 0u) ==
+        REFMEM_CONTROL_TRANSPORT_BOOTSTRAP_SPI;
+    if (!bootstrap && s_initialized == 0u) {
         s_rejected++;
         return false;
     }
@@ -166,8 +177,13 @@ bool refmem_cmd_load_submit_type(uint8_t type,
             target_mask = (uint8_t)request.target_mask;
         }
     }
-    if (!tdma_maintenance_runtime_submit(s_tx_frame, wire_size,
-                                         type, generation, target_mask)) {
+    const bool submitted =
+        bootstrap
+            ? refmem_control_transport_submit(s_tx_frame, wire_size, type,
+                                              generation, target_mask)
+            : tdma_maintenance_runtime_submit(s_tx_frame, wire_size, type,
+                                              generation, target_mask);
+    if (!submitted) {
         s_rejected++;
         s_tx_fail++;
         return false;
@@ -378,7 +394,18 @@ bool refmem_cmd_load_submit_fragments(
     const refmem_command_snapshot_t *snapshot,
     const uint32_t *params)
 {
-    if (snapshot == NULL || s_initialized == 0u) {
+    if (snapshot == NULL) {
+        s_rejected++;
+        return false;
+    }
+    /* Same transport rule as the single-frame path: the bootstrap carrier is
+     * usable only while the ring link is down, and only after its owner
+     * registered it.  Ring keeps priority. */
+    const bool bootstrap =
+        refmem_control_transport_route(
+            distributed_refmem_ring_link_ready() ? 1u : 0u) ==
+        REFMEM_CONTROL_TRANSPORT_BOOTSTRAP_SPI;
+    if (!bootstrap && s_initialized == 0u) {
         s_rejected++;
         return false;
     }
@@ -420,9 +447,15 @@ bool refmem_cmd_load_submit_fragments(
         if (used + REFMEM_CMD_FRAGMENT_RECORD_SIZE >
                 TDMA_MAINTENANCE_STREAM_MAX ||
             last) {
-            if (!tdma_maintenance_runtime_submit(
-                    payload, used, TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT,
-                    s_generation++, (uint8_t)snapshot->target_mask)) {
+            const bool submitted =
+                bootstrap
+                    ? refmem_control_transport_submit(
+                          payload, used, TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT,
+                          s_generation++, (uint8_t)snapshot->target_mask)
+                    : tdma_maintenance_runtime_submit(
+                          payload, used, TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT,
+                          s_generation++, (uint8_t)snapshot->target_mask);
+            if (!submitted) {
                 s_frag_submit_fail++;
                 return false;
             }

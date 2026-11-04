@@ -382,7 +382,54 @@ bool refmem_ring_transport_admits(uint32_t ring_enabled,
                                   uint32_t adapter_started,
                                   uint32_t config_seq,
                                   uint32_t applied_config_seq);
+/* Remote command transport gate: TDMA ring or a registered bootstrap carrier
+ * (STOP-state low-speed SPI, CONSOLE-017/035).  True only when ring readiness
+ * is proven or the carrier's own handshake reports ready; otherwise false. */
 bool distributed_refmem_ring_transport_ready(void);
+/* Ring-only readiness (no bootstrap fallback).  The command-plane router uses
+ * this so the ring keeps priority over the bootstrap carrier. */
+bool distributed_refmem_ring_link_ready(void);
+
+/* Control-plane transport selection.  The bootstrap carrier is an explicit
+ * registration, never inferred from a SCPI arm/status call: without a
+ * registered carrier every decision stays ring-only. */
+typedef enum {
+    REFMEM_CONTROL_TRANSPORT_NONE = 0u,
+    REFMEM_CONTROL_TRANSPORT_TDMA_RING = 1u,
+    REFMEM_CONTROL_TRANSPORT_BOOTSTRAP_SPI = 2u,
+} refmem_control_transport_t;
+
+typedef bool (*refmem_bootstrap_submit_fn)(const uint8_t *payload,
+                                           uint32_t payload_size,
+                                           uint8_t type,
+                                           uint8_t generation,
+                                           uint8_t target_mask);
+typedef bool (*refmem_bootstrap_ready_fn)(void);
+
+typedef struct {
+    refmem_bootstrap_submit_fn submit;
+    refmem_bootstrap_ready_fn ready;
+} refmem_bootstrap_transport_t;
+
+bool refmem_control_transport_register_bootstrap(
+    const refmem_bootstrap_transport_t *transport);
+void refmem_control_transport_unregister_bootstrap(void);
+bool refmem_control_transport_bootstrap_active(void);
+refmem_control_transport_t refmem_control_transport_route(
+    uint32_t ring_link_ready);
+bool refmem_control_transport_admits(uint32_t ring_ready,
+                                     uint32_t bootstrap_ready);
+bool refmem_control_transport_submit(const uint8_t *payload,
+                                     uint32_t payload_size,
+                                     uint8_t type,
+                                     uint8_t generation,
+                                     uint8_t target_mask);
+
+/* STOP-state bootstrap relay (CONSOLE-017).  The SCPI arm path starts it after
+ * the adapter is armed; the relay only probes the peer and publishes
+ * readiness.  It never admits commands by itself. */
+bool distributed_refmem_bootstrap_start(bool responder);
+void distributed_refmem_bootstrap_stop(void);
 /* Core1 consumes one complete Core0-published descriptor. */
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor);
