@@ -69,6 +69,9 @@ Last updated: 2026-11-04
    `DPLL_SHORT_UNCOVERED_PREFIXES` 列出的路径；staged 改动命中其中任一路径（含 OTA 工具）时，
    `check-staged` 拒绝该证书，必须回到完整验收 `workflow_steps.py run`。
    证书自带的 `unverified_scope` 与 `restore_full_condition` 字段是这条范围声明的机器可读副本。
+   完整验收 `python tools/hardware_acceptance/workflow_steps.py run` 共有 **37 个步骤函数**，可
+   `--run <dir>` 续跑；`--reuse-flashed`（用户要求 2026-11-02）在没有固件改动、四板已跑同一 build 时
+   跳过构建与刷写，直接进校准/TDMA/DPLL，只有源码指纹变化才重新构建刷写。
 5. 将成功、失败、拒绝原因、资源冲突、状态快照和原始数据写入 `out/`。
 6. 主控复核证据后，代码与文档分离提交；提交后按任务授权选择性 push。
 

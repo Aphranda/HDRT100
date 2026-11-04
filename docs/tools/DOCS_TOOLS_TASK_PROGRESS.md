@@ -12,6 +12,14 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-013：M4（前半）——AGENTS 压到 99 行，细节移入 EXE
+
+- TODO task ID：`TOOLS-CHECK-001`。只改文档，未上板。
+- **AGENTS 147→99 行**：§2.7 的 dpll60/uncovered/reuse-flashed 细节迁入 `EXE-CHANGE-01`（本来就是它的家，并补上「37 个步骤函数 + `--run` 续跑 + `--reuse-flashed`」）；§2.8/2.9/2.10/2.11 压成短句；§3/§4 改为指针 + 3 条最高频坑；§6 去掉「下一期」重复项。**§ 编号全部保持不变**（外部有 §2.7/§2.8/§2.11/§5/§8 引用）。
+- **验证**：`doc_regression` PASS（60 contracts + 4 债务 WARN + 3 waiver OK）；`docs_check` 252 files OK；`test_constraint_sync` 7 passed（37 步数对账已改读 EXE）。
+- **残余**：PLAN §2.5/§3/§4 仍是 skill/测试/pre-commit 的源码副本（含 §2.6/T5/T6/G10 内部引用），留 M4 后半一并收敛。
+- 下一 gate：M6（tools 治理 workflow 约束）——按用户 2026-11-04 指令，`tools/` 需按 `tool_governance` 的生命周期/布局 workflow 受约束。
+
 ### TOOLS-PROGRESS-20261104-012：M3——§2.11 豁免外置为机检清单
 
 - TODO task ID：`TOOLS-CHECK-001`。只改工具/测试/文档，未上板。

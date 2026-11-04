@@ -1,109 +1,70 @@
-# Agent 常设命令（Codex / Claude / AI 助手）
+# Agent 常设命令（Codex / Claude / DSH）
 
 Last updated: 2026-11-04
 
-本仓库采用「文档自回归体系」治理文档。**任何 AI 助手（Codex / Claude / DSH）在本仓库工作前，必须先阅读 §0 理解该体系，再动手改文档。** 违反体系约束会被 git pre-commit 门禁拦截。
+本仓库用「文档自回归体系」治理文档：**任何 AI 助手动手前先读 §0**，违反约束由 git pre-commit 拦截。
 
-## 0. 先读（onboarding，改文档前必须）
+## 0. 先读（改文档前必须）
 
 | 文件 | 内容 |
 |---|---|
-| `docs/check/DOCS_REGRESSION_PLAN.md` | 体系规格：冻结契约、硬约束、交付物、迁移阶段 |
+| `docs/check/DOCS_REGRESSION_PLAN.md` | 体系规格与文档语料硬约束（C1–C15） |
 | `docs/check/DOCS_REGISTRY.md` | **契约登记表 + 条款落点表**（唯一事实源，检查器读取） |
-| `docs/check/DOCS_REGRESSION_REVIEW.md` | 实施经验：常见坑与解法 |
-| `docs/check/DOCS_REGRESSION_TODO.md` | 待办状态（哪些已完成、哪些下一期） |
-| `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` | 跨 worker/agent 的长期执行约束、证据闭环和主控复核规则 |
+| `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` | 执行流程、验收/Debug 门禁、§7 汇报模板正文 |
+| `docs/check/DOCS_REGRESSION_REVIEW.md` / `_TODO.md` | 实施经验 / 待办状态 |
 
-> 长期目标/多里程碑任务：先读 §8，并在第一次汇报时套用固定模板；未套用视为流程未启动。
-> 模板正文在 `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` §7（7.1–7.4），§8 只留触发与红线。
+> 长期目标/多里程碑任务：先读 §8；模板正文在 `DOCS_EXECUTION_CONSTRAINTS.md` §7（7.1–7.4）。
 
-## 1. 体系是什么（30 秒版）
-
-文档自回归 + 门禁 + 交叉审核（环编号沿用方案：1 新鲜度 / 2 登记 / 3 数字单一来源 / 5 轮转；环 4 未立项）：
+## 1. 体系（30 秒）
 
 ```
-环1 新鲜度: 顶层文档(HAOFV_ARCHITECTURE.md) 7 天内必须反映域文档新冻结的契约，否则检查器 FAIL
-环2 登记:   域文档冻结跨域契约 → 必须在 DOCS_REGISTRY.md 登记（contract_id 唯一，锚点真实）
-环3 数字:   文档不得手写 #define 数字（`--constants` 校验，快照须标注）
-环5 轮转:   进展日志(*_TASK_PROGRESS.md) ≤200KB，最旧优先归档，归档索引闭包（C14）
-            条目按新鲜度倒排——最新鲜的在最上面（C15）
-门禁:       git pre-commit 自动跑两个检查器，任一 FAIL 阻断提交
-交叉审核:   登记表状态变更禁止自审自批（C11）
+环1 顶层文档 7 天内反映新冻结契约，否则 FAIL
+环2 冻结跨域契约 → 登记 DOCS_REGISTRY.md（id 唯一、锚点真实）
+环3 文档不手写 #define 数字（--constants 校验，快照须标注）
+环5 进展日志 ≤200KB、最旧优先归档、索引闭包（C14）；条目倒排（C15）
+门禁 pre-commit 跑两个检查器，任一 FAIL 阻断
+（环 4 未立项）
 ```
 
-长期执行约束、状态机迁移闭环、Debug 安全门禁和 worker/主控边界统一维护在
-`docs/check/DOCS_EXECUTION_CONSTRAINTS.md`；本文件只保留 onboarding、最短门禁和仓库级硬规则。
+长期执行约束、状态机迁移闭环、Debug 安全门禁与 worker/主控边界统一在 `DOCS_EXECUTION_CONSTRAINTS.md`；本文件只留 onboarding、最短门禁和仓库级硬规则。
 
 ## 2. 硬约束（违反 = 门禁 FAIL，不可绕过）
 
-1. 文档 5 字段元数据（Status/Domain/Canonical/Related/Last updated）必须在标题后 **7 行内**
-2. 文档硬数字**不手写**：引用代码符号、登记、或标注"快照，非事实源"
-3. 新增任何 .md → 必须：命名合规（`<PREFIX>_<TOPIC>_<SUFFIX>.md`）+ 在 `docs/README.md` 加索引行
+1. 5 字段元数据（Status/Domain/Canonical/Related/Last updated）在标题后 **7 行内**
+2. 硬数字**不手写**：引用代码符号、登记，或标注"快照，非事实源"
+3. 新增 .md → 命名合规（`<PREFIX>_<TOPIC>_<SUFFIX>.md`）+ `docs/README.md` 加索引行
 4. 登记契约不可物理删除（只能 `superseded`）
-5. 修改任何文档 → 必须更新 `Last updated`
+5. 修改任何文档 → 更新 `Last updated`
 6. 临时内容（评审快照/草稿）**不得**登记为契约
-7. 提交前的验收凭证按**改动类别**分流。分类与指纹域的唯一事实源是
-   `tools/acceptance/credential_scope.py`（**不要在本文件再抄一份目录清单**）：
-   运行 `python tools/acceptance/credential_scope.py --explain` 看当前分流表。
-   - **固件 / 构建**（生产代码与构建文件；由 `tools/hardware_acceptance/source_scope.py`
-     判定）→ P3 硬件凭证。常规迭代用 `workflow_steps.py dpll60`（scope `DPLL60_JOINT`）；
-     命中 `DPLL_SHORT_UNCOVERED_PREFIXES`（校准/Flash/OTA/storage/sync 等）或 §2.11 冻结时，
-     必须跑 `python tools/hardware_acceptance/workflow_steps.py run`（37 个步骤函数，可
-     `--run <dir>` 续跑）。pre-commit 用 `check-staged` 按 staged 源码指纹核验；
-     **接受哪些凭证档位以 `check-staged` 的 `ACCEPTED_RECEIPT_SCHEMAS` 为准**。
-   - **测试 / 工具 / 门禁**（`tests/`、`.githooks/`、`tools/`）→ host 凭证：提交前执行
-     `python tools/acceptance/host_acceptance.py run`，写
-     `config/hardware_acceptance/host_acceptance_receipt.json`；pre-commit 用
-     `check-staged` 按 staged host 指纹核验（只校验指纹与 receipt，**不重跑**用例；
-     用例由 `run` 执行）。
-   - **文档**（`docs/`、`*.md`）→ 只跑 §5 文档门禁，不需要验收凭证。
-   混合改动按各自类别分别满足；旧凭证、手工报告和 replay 一律不能放行。
-   - **迭代提速（用户要求，2026-11-02）**：若本轮**没有固件改动**（四板已跑同一 build），验收工作流加
-     --reuse-flashed 跳过构建（步 2）与刷写（步 4），直接进校准/TDMA/DPLL；只有源码指纹变化时才重新构建刷写。
-8. `*_TASK_PROGRESS.md` 单文件 ≤200KB（C14）；超标必须把**最旧**条目连续归档到
-   `docs/legacy/<domain>/LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md`，并在规范文件维护
-   `## 归档索引`（ID 闭包、条目数相符）；归档只搬旧证据，禁止丢证据
-9. `*_TASK_PROGRESS.md` 条目按新鲜度**倒排**——**最新鲜的在最上面**（C15）：日期序列必须
-   非递增（同日内部顺序不限），新条目写在 `## 当前 checkpoint` 之后，归档文件同样倒排
-10. **禁止回滚、禁止删除（最高优先级）**：不得对工作区执行 `git checkout --`、`git reset --hard`、
-    `git restore`、`rm`/`git rm`、`Remove-Item` 等会丢弃已有工作的操作；确需撤销/移除时，
-   **只能归档**——移动到对应域的归档目录并写明理由与时间戳，或先以 `git stash create` +
-   `refs/wip/<tag>` 做完整快照。任何撤销类操作必须先取得用户明确同意，且可随时完整恢复
-11. **未提交改动闸门（积压上限 40）**：`git status --porcelain` 的待提交条目（被跟踪文件的
-   修改/删除/重命名 + 未被忽略的新建源码/文档；`out/`、`artifacts/`、`build/` 下的运行产物
-   不计）**超过 40** 时，立即冻结新增改动，先对当前工作树做一次完整硬件验收：
-   `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`
-   （等价 `python tools/hardware_acceptance/workflow_steps.py run`），凭证必须覆盖
-   当前源码指纹且 scope 为 FULL。验收未通过前**不得叠加新改动**（先归因，再决定修还是
-   按 §2.10 归档回退）；通过后按 §2.7 分域提交收口——P3 凭证绑定 staged 源码指纹，
-   `check-staged` 要求工作区无未暂存源码差异，因此同一凭证覆盖的改动应作为**一个**代码
-   提交落地，拆批即需重新验收。目的：控制改动面，避免积重难返。计数示例：
-   `(git status --porcelain | Where-Object { $_ -notmatch '^\?\? (out|artifacts|build)/' }).Count`
-   **临时豁免**：正文与状态已外置到 `docs/check/WAIVERS.json`（唯一事实源）。`doc_regression_check.py`
-   机检：`active` 且过期即 FAIL；缺 `expires`/`review_by`、非法日期、重复 id 均 FAIL；`expired` 只留档。
-   增删豁免须走 C11，且不得把过期项静默保留（2026-10-30 那条即因此被记账为 expired）。
+7. 验收凭证按**改动类别**分流，唯一事实源 `tools/acceptance/credential_scope.py`
+   （**不要在本文件抄目录清单**；跑 `--explain` 看当前表）：固件/构建 → P3（`workflow_steps.py run`，
+   或常规迭代 `dpll60`，档位以 `check-staged` 的 `ACCEPTED_RECEIPT_SCHEMAS` 为准）；
+   `tests/`、`tools/`、`.githooks/`、`.agents/**/*.py` → host 凭证（`host_acceptance.py run`；
+   `check-staged` 只校验指纹与 receipt，**不重跑**用例）；文档 → 只跑 §5。旧凭证、手工报告、replay 不放行。
+8. `*_TASK_PROGRESS.md` ≤200KB（C14）；超出把**最旧**条目连续归档到 `docs/legacy/<domain>/`，
+   维护 `## 归档索引`（ID 闭包、条目数相符）；只搬旧证据，禁止丢证据
+9. 进展日志条目按新鲜度**倒排**（C15）：日期非递增，新条目写在 `## 当前 checkpoint` 之后
+10. **禁止回滚、禁止删除（最高优先级）**：不得 `git checkout --`/`reset --hard`/`restore`/`rm`/`git rm`
+    等丢弃工作；确需撤销只能归档或 `git stash create` + `refs/wip/<tag>`，且须用户明确同意
+11. **积压上限 40**：`git status --porcelain` 待提交条目（不含 `out/`、`artifacts/`、`build/` 产物）
+    超 40 立即冻结新增改动，先跑 `hardware_acceptance_workflow.py --profile full`（等价
+    `workflow_steps.py run`，scope FULL）；未通过不得叠加，通过后按 §2.7 单批提交。豁免见
+    `docs/check/WAIVERS.json`（机检到期，过期即 FAIL）。
 
-**文档格式范围**：文档语料为 `docs/**`。`.agents/skills/**` 下的 `SKILL.md`、配套说明与评审文本
-不属于该语料，不适用第 1、3、5 项的五字段元数据、文档命名、总索引和 `Last updated` 格式要求。
-这些文件仍由 Git 跟踪与独立评审治理：`SKILL.md` 使用 skill frontmatter/结构，评审文本使用已约定的回合格式。
-环境提供的外部 skill 校验器用于辅助检查，不作为仓库硬门禁。本例外仅涉及文本格式，不豁免安全、授权、
-契约或实现验收义务；skill 附带的工具、测试和 hook 等可执行实现仍按第 7 项处理。
-本文件及文档治理实现的变更继续执行 §5 文档门禁，不因位于 `docs/**` 之外而跳过。
+**文档格式范围**：语料为 `docs/**`；`.agents/skills/**` 的 SKILL.md/说明/评审文本只用 skill 格式，
+不适用第 1/3/5 项，但仍受 Git 与独立评审治理。该例外只涉文本格式，不豁免安全/授权/契约/验收义务；
+skill 附带的工具、测试、hook 按第 7 项处理。本文件与治理实现的变更仍跑 §5。
 
-## 3. 修改文档的标准流程
+## 3. 改文档流程
 
-1. 冻结契约 → `docs/check/DOCS_REGISTRY.md` 加一行（contract_id 唯一，clause_loc/code_anchor 必须真实存在）
-2. 改文档 → 更新 Last updated；数字引用符号
-3. 验证 → 跑 §5 全部命令，必须全绿
-4. 提交 → pre-commit 自动跑（FAIL 先修）
+冻结契约 → 登记 → 改文档并更新 `Last updated` → 跑 §5 全绿 → 提交（pre-commit 自动跑）。
+细则与常见坑见 `doc-self-regression` skill。
 
-## 4. 常见坑（来自实施经验，DOCS_REGRESSION_REVIEW.md）
+## 4. 常见坑
 
-- **元数据窗口**：额外字段（Target/Source of truth 等）会挤掉 Required 字段——5 个 Required 放最前
-- **code_anchor 必须是真实文件**：方案猜测的文件名往往不存在，登记前先确认（曾踩坑：tdma_ring_profile.h 实际叫 tdma_profile.h）
-- **检查器改签名 → 同步改测试**，否则 pytest 立刻红
-- **改完 `tools/doc_regression_check.py` → 必须 `python tools/doc_regression_check.py --skill-sync`**（同步到 `.agents/skills/doc-self-regression/`；harness 副本仅在 `DOC_SKILL_HARNESS_DIR` 指向真实目录时同步，检查器自检）
-- **日期**：`Last updated` 必须 `YYYY-MM-DD` 且合法（非法日期触发 FAIL）
+- 元数据窗口：额外字段会挤掉 Required——5 个必填放最前；`Last updated` 必须是合法 `YYYY-MM-DD`
+- `code_anchor` 必须是真实文件（曾把 `tdma_profile.h` 猜成 `tdma_ring_profile.h`）
+- 改检查器 → 同步改测试；改 `doc_regression_check.py` → 跑 `--skill-sync`
 
 ## 5. 验证命令（改文档后必跑）
 
@@ -112,36 +73,27 @@ python tools/docs_check/docs_check.py --strict-names
 python tools/doc_regression_check.py
 python -m pytest tests/python/test_doc_regression.py tests/python/test_docs_check.py -p no:cacheprovider
 sh .githooks/pre-commit
-python tools/doc_regression_check.py --log-check   # 逃生门审计（建议每周）
+python tools/doc_regression_check.py --log-check   # 每周逃生门审计
 python tools/hardware_acceptance/workflow_steps.py check-staged
 ```
 
-> **门禁接线**：pre-commit 依赖 `git config core.hooksPath .githooks`（本地配置，clone/迁移后**必须重配**，否则 commit 不触发检查器）。`sh .githooks/pre-commit` 可手动验证。
+> 门禁接线：pre-commit 依赖 `git config core.hooksPath .githooks`（本地配置，clone/迁移后必须重配）。
 
-## 6. 当前状态与进行中任务
+## 6. 当前状态
 
-- 已登记契约：**条数不在此手写**（硬约束 2），以 `docs/check/DOCS_REGISTRY.md` 为准；检查器每次门禁校验 id 唯一与锚点真实
-- 条款落点：顶层硬约束全覆盖，逐条状态（OK/PARTIAL/VIOLATED/PENDING）见登记表「条款落点表」
-- **已完成**：顶层 `docs/arch/HAOFV_ARCHITECTURE.md` 已刷新至最新 Version（2026-11-03，版本号见其元数据）；2026-08-24 审查修复（门禁接线 / 路径修正 / T18 闭环 / 顶层补 DOCS-FLASH-01）；2026-09-17 新增环5（C14 轮转 + C15 倒排）并轮转 VDC 进展日志；2026-11-04 约束收敛（tools/ 归 host、契约 id 全量校验、T2 clause_loc 债务可见）
-- 下一期：verify-doc-crosscheck 自动化强化；TDMA/RefMem/HAOFV_FLASH 进展日志轮转（见 TODO 与 C14 债务基线）
+- 契约条数**不手写**（硬约束 2），以 `DOCS_REGISTRY.md` 为准；条款状态见「条款落点表」
+- 已完成：顶层文档刷新（2026-11-03）、门禁接线与路径修正、环5（C14/C15）、2026-11-04 约束收敛
 
 ## 7. 提交约定
 
-- 文档/契约变更与代码变更**分离提交**，便于 `git log` 审计
-- 提交信息含契约变更时带 `contract_id`（如 `docs(tdma): 登记 TDMA-REASON-01`）
+- 文档/契约与代码**分离提交**；契约变更在提交信息带 `contract_id`
 
-## 8. 长期目标里程碑汇报约束（核心）
+## 8. 长期目标里程碑汇报（核心）
 
-> 六段模板（0–6）、硬规则与阻塞点交叉分析的**唯一正文**已迁到
-> `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` §7（7.1–7.4）。本文件只保留触发与红线，
-> 不再维护第四份副本；`refmem-milestone-report` skill 同样只保留触发。
+> 六段模板、硬规则、阻塞点交叉分析正文在 `DOCS_EXECUTION_CONSTRAINTS.md` §7（7.1–7.4）；本节只留触发与红线。
 
-- **触发**：任何长期目标/多里程碑任务（N3.x/N4.x 等）的第一次汇报前，必须声明
-  “本次按 §8 模板汇报”；未声明视为流程未启动。非目标一次性任务不触发。
-- **第 0 段先行**：续轮逐条复议上轮第 6 段“下一步”；新目标首轮写“无（首轮）”+ 计划来源。
-  缺失、只有复述没有前提核验、或用上轮结论充当证据 → 本轮流程未启动，不得开新改动、不得标完成。
-- **三条红线**：任一门禁 ❌/未通过不得进入下一子项；C1/C2 不成立直接 ❌ 不得降 ⚠️；
-  `pending` 契约、未验证项、延后项不得写成 ✅。
-- **证据**：host 用例、四板 HIL、P3 凭证路径必须可复跑，凭证写明 scope/build/源码指纹/未覆盖路径。
-- **阻塞点**：命中 §7.4 判定（连续 2 次失败、现象复现 ≥2、前提与上轮不一致、不可逆决策、
-  长循环 ≥3 轮）时，先开只读子代理独立取证，交叉分析并记录采信理由后才允许继续。
+- **触发**：长期目标/多里程碑任务第一次汇报前声明"本次按 §8 模板汇报"，否则流程未启动
+- **第 0 段先行**：续轮复议上轮第 6 段；首轮写"无（首轮）"+ 计划来源；缺前提核验视为未启动
+- **三条红线**：门禁 ❌ 不进入下一子项；C1/C2 不成立直接 ❌；`pending`/未验证/延后不得写成 ✅
+- **证据**：host / 四板 HIL / P3 路径可复跑，写明 scope、build、指纹、未覆盖路径
+- **阻塞点**：命中 §7.4 判定时先开只读子代理独立取证，交叉分析记录后裁决
