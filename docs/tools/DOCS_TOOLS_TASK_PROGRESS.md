@@ -12,6 +12,15 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-005：M7.3——step 实现迁入 workflow_steps.py，p3 改为模块别名 shim
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。本轮只改工具/测试，未上板；数字为快照。
+- **迁移**：`p3_hardware_acceptance.py` 的 5098 行实现整体迁到 `tools/hardware_acceptance/workflow_steps.py`；`hardware_acceptance_workflow.py` 直接 `import workflow_steps as p3`。p3 只剩 32 行兼容 shim：导入时 `sys.modules[__name__] = workflow_steps`，脚本方式运行时转发 `main()`，因此外部 `import p3_hardware_acceptance` 与 monkeypatch 仍与新模块是**同一对象**。
+- **测试适配**：两处“读 p3 源码”的守卫改为读 `workflow_steps.py`；hook 仍调用 p3 的 `check-staged`（shim 转发）。
+- **等价性**：源码指纹仍 `9fdd28…`/959（tools 不在指纹内）；`p3` 与 `workflow_steps` 在顶层/包导入下均为同一模块对象；定向 **461 passed**；`py_compile` 与 `check-staged` OK。
+- **残余**：p3 shim 仍在历史路径，仓内 68 处引用尚未改到 `workflow_steps`；归档需在引用清零后进行。代码提交 `5e16bb8b`。
+- 下一 gate：M7.4 引用收敛（把 `import p3_hardware_acceptance` 全部改为 `workflow_steps`，保留 CLI 路径到归档前）→ 归档 p3 shim 到 `tools/archive/hardware_acceptance/` 并写 README/更新 AGENTS。
+
 ### TOOLS-PROGRESS-20261104-004：M7.2 第二批——bench_config 抽取（p3 5184→5098 行）
 
 - TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。本轮只改 workflow 依赖工具，未上板；数字为快照。
