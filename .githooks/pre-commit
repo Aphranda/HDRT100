@@ -48,6 +48,11 @@ else
 fi
 
 if [ "$needs_host_gate" -eq 1 ]; then
+    echo "[pre-commit] workflow triage (tools must be judged)..."
+    python tools/tool_governance/workflow_triage.py check --quiet || {
+        echo "workflow triage FAILED - judge the tool in tools/tool_workflow_triage.json"
+        exit 1
+    }
     echo "[pre-commit] host acceptance (host test receipt)..."
     python tools/acceptance/host_acceptance.py check-staged || {
         echo "host acceptance FAILED - run python tools/acceptance/host_acceptance.py run and stage the receipt"

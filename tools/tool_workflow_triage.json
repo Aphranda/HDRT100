@@ -1,0 +1,100 @@
+{
+  "schema": "TOOLS_WORKFLOW_TRIAGE_V1",
+  "rule": "Every tool family is judged once: WORKFLOW (staged orchestration with a declared evidence root and resume path), STEP (invoked by a WORKFLOW, no standalone side effects), STANDALONE (single-purpose tool), or LIBRARY (imported, no entrypoint). New scripts must be judged before they are used: a *_workflow.py entrypoint that is not triaged WORKFLOW fails the gate. Non-UNASSESSED families without a row fail; UNASSESSED legacy families warn until qualified.",
+  "entries": [
+    {
+      "tool": "TOOL-HARDWARE-ACCEPTANCE",
+      "form": "WORKFLOW",
+      "entry": "tools/hardware_acceptance/workflow_steps.py",
+      "evidence_root": "out/HardwareAcceptance/",
+      "resume": "workflow_steps.py run (--run <dir> in hardware_acceptance_workflow.py)",
+      "reason": "P3 验收的唯一分步编排：37 个步骤函数、按序执行、staged 指纹绑定；drone 脚本不得绕开它单独产凭证。"
+    },
+    {
+      "tool": "TOOL-T2-BENCH-PROBE",
+      "form": "WORKFLOW",
+      "entry": "tools/sync_trigger/t2_workflow.py",
+      "evidence_root": "out/",
+      "resume": "rerun from the first stage; stage outputs stay under out/",
+      "reason": "T2 台架多阶段编排（使能→采集→判定），入口是 *_workflow.py，须按 workflow 形态维护。"
+    },
+    {
+      "tool": "TOOL-OTA-MULTI-UPDATE",
+      "form": "WORKFLOW",
+      "entry": "tools/ota/OTA_workflow.py",
+      "evidence_root": "out/",
+      "resume": "OTA_workflow.py --run <dir>",
+      "reason": "多板 OTA 分阶段编排（包校验→逐板刷写→boot/commit），已有 --run 续跑与 out/ 证据目录。"
+    },
+    {
+      "tool": "TOOL-VDC-JOINT-WORKFLOW",
+      "form": "LIBRARY",
+      "reason": "联采编排以库/资源形式被硬件验收步骤调用，无独立入口；固化为 LIBRARY 防止被误当命令行工具。"
+    },
+    {
+      "tool": "TOOL-TOOL-GOVERNANCE",
+      "form": "STANDALONE",
+      "reason": "静态治理检查器：单次命令、stdout 输出、不碰硬件。"
+    },
+    {
+      "tool": "TOOL-TDMA-SEAT-ACCEPTANCE",
+      "form": "STANDALONE",
+      "reason": "只读席位验收查询，单次运行、单一证据页，无分阶段链。"
+    },
+    {
+      "tool": "TOOL-HDO-RAW-READER",
+      "form": "LIBRARY",
+      "reason": "示波器原始波形读取以库形式被采集工具复用，无独立入口。"
+    },
+    {
+      "tool": "TOOL-HOST-EVIDENCE-CLOCK",
+      "form": "LIBRARY",
+      "reason": "主机证据时钟是共享能力，被多个采集/分析工具 import。"
+    },
+    {
+      "tool": "TOOL-VDC-PROBE-SUPPORT",
+      "form": "LIBRARY",
+      "reason": "VDC probe 支撑代码，库属性；无入口point。"
+    },
+    {
+      "tool": "TOOL-VDC-SPARSE-SCOPE",
+      "form": "LIBRARY",
+      "reason": "稀疏示波器采样支撑库，被采集工具 import。"
+    },
+    {
+      "tool": "TOOL-DPLL-OBSERVATION-DECODE",
+      "form": "STANDALONE",
+      "reason": "离线解码单次运行，输入/输出明确，无阶段门禁。"
+    },
+    {
+      "tool": "TOOL-DPLL-RESIDUAL-ANALYZE",
+      "form": "STANDALONE",
+      "reason": "离线残差分析单次运行，无阶段门禁。"
+    },
+    {
+      "tool": "TOOL-CONSOLE-DEBUG-DEMO",
+      "form": "STANDALONE",
+      "reason": "交互式调试 demo，单入口；不承载可复跑的验收链。"
+    },
+    {
+      "tool": "TOOL-DOCS-CHECK",
+      "form": "STANDALONE",
+      "reason": "文档门禁检查器，单命令；由 pre-commit 调用。"
+    },
+    {
+      "tool": "TOOL-DOC-REGRESSION",
+      "form": "STANDALONE",
+      "reason": "文档自回归检查器，单命令；由 pre-commit 调用。"
+    },
+    {
+      "tool": "TOOL-VDC-DPLL-REPLAY",
+      "form": "STANDALONE",
+      "reason": "离线回放单次运行，无分阶段证据链。"
+    },
+    {
+      "tool": "TOOL-SCPI-COMMON",
+      "form": "LIBRARY",
+      "reason": "共享 SCPI 串口/身份/OTA 时序模块，被多个工具 import。"
+    }
+  ]
+}

@@ -5,9 +5,9 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_doc_regression.py",
+    "tests/python/test_workflow_triage.py",
     "tests/python/test_credential_scope.py",
-    "tests/python/test_host_acceptance_workflow.py",
+    "tests/python/test_doc_regression.py",
     "tests/python/test_docs_check.py",
     "tests/python/test_constraint_sync.py",
     "-q",
@@ -15,30 +15,30 @@
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_doc_regression.py",
+    "tests/python/test_workflow_triage.py",
     "tests/python/test_credential_scope.py",
-    "tests/python/test_host_acceptance_workflow.py",
+    "tests/python/test_doc_regression.py",
     "tests/python/test_docs_check.py",
     "tests/python/test_constraint_sync.py"
   ],
-  "duration_s": 14.844,
+  "duration_s": 7.484,
   "returncode": 0,
   "summary": {
-    "passed": 81,
+    "passed": 80,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "81 passed in 14.12s",
+  "summary_line": "80 passed in 6.79s",
   "tail": [
-    "........................................................................ [ 88%]",
-    ".........                                                                [100%]",
-    "81 passed in 14.12s"
+    "........................................................................ [ 90%]",
+    "........                                                                 [100%]",
+    "80 passed in 6.79s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "6eac020872f1947472f28620dc4b7bd210272af60638c9a5e7025486cc725f43",
-  "file_count": 1139,
-  "working_fingerprint": "8bad8984a0b08543a2bb12a75d43b2b8b2a9944f1cef632cc2b53071e1bad49a",
-  "started_at_utc": "2026-11-04T10:05:03.677702+00:00"
+  "fingerprint": "c6e87c2a89f48877b86d9f2f363daa3e658971f74ed4c2cd99c04399017fd6f8",
+  "file_count": 1142,
+  "working_fingerprint": "7bd22c449b5dd4947fc275db793c28fa3de329e899481c5c9f6b0b627ae3693b",
+  "started_at_utc": "2026-11-04T10:09:45.931127+00:00"
 }
