@@ -263,8 +263,15 @@ def test_build_matrix_diagnostic_selects_best_unsafe_sck_row(
     offset["active_row_id"] = len(rows) - 1
     offset["rows"] = rows
 
-    with pytest.raises(ValueError, match="no SCK offset candidate row"):
-        build_matrix(7, data, residence, sck=sck)
+    # A follower that never observed the phase-limit sample is retimed one
+    # sample earlier instead of making the matrix underivable; the synthesized
+    # row is appended to the evidence so the selection stays in the full matrix.
+    retimed = build_matrix(7, data, residence, sck=sck)
+    retimed_selection = retimed["derivation"]["sck_replay_selection"]
+    assert retimed["passed"] is True
+    assert retimed_selection["selection_reason"] == (
+        "sck_row_retimed_one_sample_earlier")
+    assert retimed_selection["selected_min_follower_margin_samples"] >= 0
 
     matrix = build_matrix(
         7, data, residence, sck=sck, diagnostic_continue=True)

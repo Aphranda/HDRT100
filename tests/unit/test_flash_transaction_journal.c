@@ -343,7 +343,9 @@ static void test_fingerprint_identity_survives_runtime_generations(void)
 
     flash_transaction_journal_record_t identity = committed;
     identity.job_id = 1u;
-    identity.transaction_generation = 1u;
+    /* The durable identity is fingerprint + transaction_generation; job and
+     * provider generations are RAM-local and may change. */
+    identity.transaction_generation = committed.transaction_generation;
     identity.provider_generation = 1u;
     identity.store_generation = committed.store_generation;
     identity.event = 0u;

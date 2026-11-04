@@ -686,29 +686,23 @@ static void test_completion_lease_publishes_each_boundary_once(void)
     assert(vector.completion_level == FLASH_TRANSACTION_COMPLETION_COMMITTED);
     assert(s_completion_retain_count == 1u);
     assert(s_completion_release_count == 1u);
-    /* ACCEPTED is published in the RAM Vector before the owner/core1 park
-     * session exists, so the durable journal begins at PROGRAMMED. */
-    assert(s_completion_append_count == 3u);
+    /* OTA_IMAGE coalesces PROGRAMMED/VERIFIED into the terminal COMMITTED
+     * record; the 64 KiB stream checkpoint is the earlier recovery boundary. */
+    assert(s_completion_append_count == 1u);
     assert(s_completion_records[0].event ==
-           FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED);
-    assert(s_completion_records[1].event ==
-           FLASH_TRANSACTION_JOURNAL_EVENT_VERIFIED);
-    assert(s_completion_records[2].event ==
            FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED);
-    assert(s_completion_records[2].result == FLASH_TRANSACTION_RESULT_COMMITTED);
-    assert(s_completion_records[2].error == FLASH_TRANSACTION_ERROR_NONE);
-    assert(s_completion_records[2].transaction_generation ==
+    assert(s_completion_records[0].result == FLASH_TRANSACTION_RESULT_COMMITTED);
+    assert(s_completion_records[0].error == FLASH_TRANSACTION_ERROR_NONE);
+    assert(s_completion_records[0].transaction_generation ==
            vector.transaction_generation);
 
     flash_transaction_fb_service(&context);
-    assert(s_completion_append_count == 3u);
+    assert(s_completion_append_count == 1u);
 }
 
 static void test_completion_journal_failure_is_fail_closed(void)
 {
     const uint32_t failure_events[] = {
-        FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED,
-        FLASH_TRANSACTION_JOURNAL_EVENT_VERIFIED,
         FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED,
     };
     for (uint32_t index = 0u;
@@ -734,9 +728,9 @@ static void test_completion_journal_failure_is_fail_closed(void)
         assert_failed(vector, FLASH_TRANSACTION_ERROR_COMPLETION);
         assert(s_completion_retain_count == 1u);
         assert(s_completion_release_count == 1u);
-        assert(s_completion_append_count == index + 1u);
+        assert(s_completion_append_count == 1u);
         assert(s_program_count == 1u);
-        assert(s_verify_programmed_count == (index >= 1u ? 1u : 0u));
+        assert(s_verify_programmed_count == 1u);
         assert(s_completion_append_count <=
                (sizeof(s_completion_records) /
                 sizeof(s_completion_records[0])));
@@ -759,13 +753,13 @@ static void test_completion_journal_failure_is_fail_closed(void)
     const flash_transaction_vector_t release_failure =
         run_request(&context, &request);
     assert_failed(release_failure, FLASH_TRANSACTION_ERROR_RELEASE);
-    assert(s_completion_append_count == 4u);
-    assert(s_completion_records[2].event ==
+    assert(s_completion_append_count == 2u);
+    assert(s_completion_records[0].event ==
            FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED);
-    assert(s_completion_records[2].error == FLASH_TRANSACTION_ERROR_NONE);
-    assert(s_completion_records[3].event ==
+    assert(s_completion_records[0].error == FLASH_TRANSACTION_ERROR_NONE);
+    assert(s_completion_records[1].event ==
            FLASH_TRANSACTION_JOURNAL_EVENT_FAILED);
-    assert(s_completion_records[3].error == FLASH_TRANSACTION_ERROR_RELEASE);
+    assert(s_completion_records[1].error == FLASH_TRANSACTION_ERROR_RELEASE);
 }
 
 static void test_two_page_ota_payload_is_owned(void)
@@ -821,7 +815,7 @@ static void test_durable_terminal_replay_skips_raw_io(void)
     const flash_transaction_vector_t first =
         run_request(&first_context, &first_request);
     assert(first.state == FLASH_TRANSACTION_STATE_COMPLETE);
-    assert(s_completion_append_count >= 3u);
+    assert(s_completion_append_count == 1u);
     const flash_transaction_journal_record_t committed =
         s_completion_records[s_completion_append_count - 1u];
     assert(committed.event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED);
@@ -1243,12 +1237,10 @@ static void test_step_hook_provider_reset_is_async_and_journaled(void)
     assert(vector.verified_bytes == 0u);
     assert(s_program_count == 1u);
     assert(s_verify_programmed_count == 0u);
-    assert(s_completion_append_count == 2u);
+    assert(s_completion_append_count == 1u);
     assert(s_completion_records[0].event ==
-           FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED);
-    assert(s_completion_records[1].event ==
            FLASH_TRANSACTION_JOURNAL_EVENT_FAILED);
-    assert(s_completion_records[1].error == FLASH_TRANSACTION_ERROR_PROVIDER);
+    assert(s_completion_records[0].error == FLASH_TRANSACTION_ERROR_PROVIDER);
 }
 
 static void test_platform_and_range_resolution(void)

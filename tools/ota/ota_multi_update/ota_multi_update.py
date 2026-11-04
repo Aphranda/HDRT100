@@ -378,6 +378,29 @@ def run_child(port: str, step: str, command_line: list[str], out_dir: Path) -> S
     )
 
 
+def abort_stream_session(port: str, settle_s: float = 1.0) -> bool:
+    """Best-effort ABORT before a retry.
+
+    A timed-out DATA command can leave the target erasing for up to minutes.
+    Opening a second session on top of it is what turned one slow block into a
+    cascade, so a retry is only legal after the old lease is gone.
+    """
+    try:
+        with serial.Serial(port, 115200, timeout=0.2,
+                           write_timeout=2.0) as ser:
+            ser.write(b"SYST:OTA:STREAM:ABORt 0\n")
+            ser.flush()
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                line = ser.readline().decode("utf-8", errors="replace").strip()
+                if line:
+                    break
+            time.sleep(settle_s)
+        return True
+    except (OSError, serial.SerialException):
+        return False
+
+
 def pre_reboot_board(args: argparse.Namespace, board: BoardProbe,
                      out_dir: Path) -> StepResult:
     """Reset one running application and wait for its USB application device."""
@@ -477,6 +500,23 @@ def update_board(args: argparse.Namespace,
                 send_cmd.append("--boot-and-commit")
             send_result = run_child(board.port, "ota_stream_send", send_cmd,
                                     out_dir)
+            # Retry only a transport/reboot loss.  A DATA timeout means the
+            # target is still erasing or finalising; retrying 2 s later just
+            # opens a second session on top of the old one and turns one slow
+            # block into a batch failure.  Abort and give it a real settle.
+            attempt = 0
+            send_stderr = getattr(send_result, "stderr", "") or ""
+            data_timeout = "stream DATA rejected" in send_stderr
+            while (not getattr(send_result, "passed", False) and attempt < 1 and
+                   not data_timeout and
+                   not any(text in send_stderr
+                           for text in ("STREAM_OPEN_", "not a DHRT100"))):
+                attempt += 1
+                abort_stream_session(board.port)
+                time.sleep(5.0)
+                send_result = run_child(
+                    board.port, "ota_stream_send", send_cmd, out_dir)
+                send_stderr = getattr(send_result, "stderr", "") or ""
         else:
             send_cmd = [
                 sys.executable,

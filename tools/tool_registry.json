@@ -4627,6 +4627,117 @@
       "notes": "Explicit invocation only; no pre-commit integration, entrypoint imports or hardware access. The versioned layout baseline rejects new root files, new top-level directories and new files inside frozen legacy roots while allowing classified roots to grow. Inventory hints are not a complete runtime graph; handoff qualification pending."
     },
     {
+      "id": "TOOL-CONSOLE-DEBUG-DEMO",
+      "purpose": "Single-port trigger debug demo: one Tk GUI and one local TCP pass-through share a single serial or USB TMC session, drive the REFMEM unified control plane across all boards, run conventional single-board OTA with automatic receipts, and expose node-sequence application SCPI",
+      "domain": "CONSOLE",
+      "owner": "CONSOLE domain owner",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "MIXED",
+      "entrypoints": [
+        "tools/domains/trigger/trigger_debug_demo/trigger_debug_demo.py",
+        "tools/domains/trigger/trigger_debug_demo/__main__.py"
+      ],
+      "files": [
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/trigger_debug_demo.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/__main__.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/app.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/catalog.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/device.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ota.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ota_workflow.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/state.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/scheduler.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/page.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/router.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/pump.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/dialogs.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/workflow.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/settings.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/errors.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/widgets.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/theme.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/README.md",
+          "role": "documentation"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [
+        "pyserial",
+        "pyvisa"
+      ],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [
+        "tests/python/test_trigger_debug_demo.py",
+        "tests/python/test_trigger_debug_ui.py"
+      ],
+      "handoff_evidence": null,
+      "notes": "GUI and TCP clients share one Dispatcher and therefore one transport session; no second port or second VISA session is opened. The REFMEM channel uses SYSTem:CTRL:EXECute with target/required masks and reads aggregate plus per-board ACK evidence. The application channel sends TRIGger/CONFigure SCPI to the coordinator. Conventional OTA uses BEGIN/PBEGIN+DATA+END and explicit BOOT/COMMIT, and writes an OTA receipt plus .sha256 sidecar automatically. TDMA stream OTA is read-only until the firmware path closes. Simulation mode implements the same surface for offline demos. Not yet bench-tested."
+    },
+    {
       "id": "TOOL-TRIGGER-MEAS",
       "purpose": "trigger meas",
       "domain": "TRIGGER",

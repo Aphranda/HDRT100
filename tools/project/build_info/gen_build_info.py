@@ -22,7 +22,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    build_id = args.build_id or dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
+    # dt.UTC exists only on Python >= 3.11; keep the generator usable on 3.10.
+    build_id = args.build_id or dt.datetime.now(dt.timezone.utc).strftime(
+        "%Y%m%d%H%M%S")
     if len(build_id) != 14 or not build_id.isdigit():
         raise SystemExit("--build-id must be a 14-digit UTC timestamp")
     header = """#ifndef PROJECT_BUILD_INFO_H

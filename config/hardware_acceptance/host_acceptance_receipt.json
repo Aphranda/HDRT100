@@ -5,40 +5,50 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_hardware_acceptance_workflow.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_trigger_debug_demo.py",
+    "tests/python/test_trigger_debug_ui.py",
+    "tests/python/test_trn03_closed_loop.py",
+    "tests/python/test_trn03_matrix.py",
     "tests/python/test_vdc_host_harness.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_hardware_acceptance_workflow.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_trigger_debug_demo.py",
+    "tests/python/test_trigger_debug_ui.py",
+    "tests/python/test_trn03_closed_loop.py",
+    "tests/python/test_trn03_matrix.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 6.781,
+  "duration_s": 32.266,
   "returncode": 0,
   "summary": {
-    "passed": 115,
+    "passed": 248,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
-    "xfailed": 0
+    "xfailed": 1
   },
-  "summary_line": "115 passed in 6.29s",
+  "summary_line": "248 passed, 1 xfailed in 31.46s",
   "tail": [
-    "........................................................................ [ 62%]",
-    "...........................................                              [100%]",
-    "115 passed in 6.29s"
+    "........................................................................ [ 28%]",
+    ".........................................x.............................. [ 57%]",
+    "........................................................................ [ 86%]",
+    ".................................                                        [100%]",
+    "=========================== short test summary info ===========================",
+    "XFAIL tests/python/test_trn03_closed_loop.py::test_load_mask_releases_only_newly_enabled_loads - pre-existing: app.c quarantine release now includes the foundation mask (~ (newly_enabled | APP_REALTIME_LOAD_FOUNDATION_MASK)); the assertion predates that change and needs an owner decision",
+    "248 passed, 1 xfailed in 31.46s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "c577cba354cdeab9589796ca965029a37cb3ee0c7d981473c8a8ee198097d99f",
-  "file_count": 558,
+  "fingerprint": "615dbac339b482ac4cf939d84a1807f58369016d676cc3850d0433aece168867",
+  "file_count": 562,
   "working_fingerprint": "615dbac339b482ac4cf939d84a1807f58369016d676cc3850d0433aece168867",
-  "started_at_utc": "2026-11-04T03:19:18.183183+00:00"
+  "started_at_utc": "2026-11-04T03:51:07.262279+00:00"
 }

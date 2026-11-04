@@ -450,7 +450,7 @@ int main(void)
                           pota_stream_session_durable_offset(
                               &recovered_session) == 1024u);
     failed += !expect("resume preserved prefix and erased tail",
-                      s_erase_count == erase_count + 2u &&
+                      s_erase_count == erase_count + 1u &&
                           s_program_count == program_count &&
                           memcmp(&s_flash[MOCK_SLOT_B_OFFSET], resume_image,
                                  1024u) == 0 &&

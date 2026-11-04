@@ -168,8 +168,18 @@ uint32_t board_uptime_ms(void)
     return 0u;
 }
 
+static unsigned s_admission_requests;
+static unsigned s_admission_releases;
+
+bool resource_arbiter_request_ota_admission(void)
+{
+    s_admission_requests++;
+    return true;
+}
+
 void resource_arbiter_release_ota_admission(void)
 {
+    s_admission_releases++;
 }
 
 uint32_t portable_ota_port_crc32_compute(const uint8_t *data, size_t length)
@@ -244,6 +254,9 @@ int main(void)
 
     len = ota_tdma_encode_open(frame, sizeof(frame), open_wire, 88u, 1u, 2u);
     assert(ota_tdma_binding_handle_maintenance_frame(frame, len));
+    /* The target takes the OTA admission lease itself: its OPEN arrives over
+     * the maintenance stream, so no SCPI command acquired it. */
+    assert(s_admission_requests == 1u);
 
     const uint8_t payload[8] = {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u};
     len = ota_tdma_encode_data(frame, sizeof(frame), 0u, 0u, payload,
@@ -257,6 +270,8 @@ int main(void)
     assert(s_image_size == sizeof(payload));
     assert(memcmp(s_image, payload, sizeof(payload)) == 0);
     assert(s_submit_calls == 2u && s_submit_mask == 0x02u);
+    ota_tdma_binding_service(0u, 2u); /* DONE -> re-arm + release admission */
+    assert(s_admission_releases == 1u);
     assert(ota_tdma_binding_active()); /* target role re-armed after DONE */
 
     printf("OTA TDMA binding host unit tests passed\n");

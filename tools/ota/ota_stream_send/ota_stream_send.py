@@ -33,8 +33,14 @@ STREAM_OPEN_WIRE_FORMAT = "<9IB3x16s32s"
 STREAM_OPEN_WIRE_SIZE = 88
 STREAM_STATE_OPEN = 1
 STREAM_STATE_RECEIVING = 2
-STREAM_STATE_READY_TO_REBOOT = 3
-STREAM_STATE_FAILED = 5
+# pota_stream_state_t: IDLE=0 OPEN=1 RECEIVING=2 ENDING=3 READY_TO_REBOOT=4
+# ABORTED=5 FAILED=6.  READY was wrongly 3 (ENDING), so the host committed while
+# the device was still finalising: the commit read timed out (180 s) and a
+# successful transfer was reported as a commit failure.
+STREAM_STATE_ENDING = 3
+STREAM_STATE_READY_TO_REBOOT = 4
+STREAM_STATE_ABORTED = 5
+STREAM_STATE_FAILED = 6
 DEFAULT_BLOCK_SIZE = 4096
 LOCAL_MAX_BLOCK_SIZE = 4096
 COMPATIBILITY_BLOCK_SIZE = 512
@@ -47,6 +53,21 @@ PACKAGE_VERSION = 2
 PACKAGE_IMAGE_TABLE_OFFSET = 192
 PACKAGE_IMAGE_ENTRY_SIZE = 32
 PACKAGE_MAX_IMAGES = 2
+# pota_stream_state_t: the relay reports FAILED once the target aborted, so a
+# durable poll can stop immediately instead of burning its whole timeout.
+STREAM_STATE_FAILED = 6
+# pota_state_t core states used by SYST:OTA:STREAM:ERASE?
+CORE_STATE_IDLE = 0
+CORE_STATE_CHECK_PERMISSION = 1
+CORE_STATE_ERASE_SLOT = 2
+CORE_STATE_RECEIVING = 3
+CORE_STATE_VERIFYING = 4
+CORE_STATE_MARK_PENDING = 5
+CORE_STATE_READY_TO_REBOOT = 6
+CORE_STATE_PENDING_CONFIRM = 7
+CORE_STATE_COMMITTED = 8
+CORE_STATE_FAILED = 9
+CORE_STATE_ABORTED = 10
 
 
 def crc32(data: bytes) -> int:
@@ -210,6 +231,10 @@ def wait_relay_durable(ser: serial.Serial, wanted_offset: int,
             details={"wanted_offset": wanted_offset}))
         if status[2] >= wanted_offset:
             return status
+        if status[1] in (STREAM_STATE_ABORTED, STREAM_STATE_FAILED):
+            raise RuntimeError(
+                f"relay failed on the target (result={status[4]}, "
+                f"durable={status[2]}, wanted={wanted_offset})")
         time.sleep(0.02)
     raise TimeoutError(
         f"relay durable offset {wanted_offset} not reached before timeout")
@@ -226,10 +251,56 @@ def wait_stream_state(ser: serial.Serial, wanted: int,
         status = parse_stream_status(last)
         if status[1] == wanted:
             return status
-        if status[1] == STREAM_STATE_FAILED:
+        if status[1] in (STREAM_STATE_ABORTED, STREAM_STATE_FAILED):
             raise RuntimeError(f"stream failed while waiting for {wanted}: {last!r}")
         time.sleep(0.05)
     raise TimeoutError(f"stream state {wanted} timeout, last={last!r}")
+
+
+def wait_stream_durable(ser: serial.Serial, wanted_offset: int,
+                        args: argparse.Namespace, *,
+                        timing: OtaTiming | None = None) -> tuple[int, ...]:
+    """Poll the published durable offset after QUEUED stream blocks."""
+    deadline = time.monotonic() + max(args.begin_timeout, 120.0)
+    last = ""
+    while time.monotonic() < deadline:
+        last = query(ser, "SYST:OTA:STREAM:STAT?", min(args.timeout, 2.0),
+                     timing=timing, stage="durable_wait")
+        status = parse_stream_status(last)
+        if status[1] in (STREAM_STATE_ABORTED, STREAM_STATE_FAILED):
+            raise RuntimeError(
+                f"stream failed while waiting for durable {wanted_offset}: {last!r}")
+        if status[2] >= wanted_offset:
+            return status
+        time.sleep(0.02)
+    raise TimeoutError(
+        f"durable offset {wanted_offset} not reached: {last!r}")
+
+
+def wait_erase_complete(ser: serial.Serial, args: argparse.Namespace, *,
+                        timing: OtaTiming | None = None) -> None:
+    """Poll the new ERASE? command instead of blocking the SCPI DATA handler."""
+    deadline = time.monotonic() + max(args.begin_timeout, 120.0)
+    last_percent = -1
+    last = ""
+    while time.monotonic() < deadline:
+        last = query(ser, "SYST:OTA:STREAM:ERASE?", min(args.timeout, 2.0),
+                     timing=timing, stage="erase_progress")
+        fields = [int(item) for item in last.split(",") if item.strip().isdigit()]
+        if len(fields) < 3:
+            time.sleep(0.1)
+            continue
+        core_state, erased, total = fields[0], fields[1], fields[2]
+        if core_state in (CORE_STATE_FAILED, CORE_STATE_ABORTED):
+            raise RuntimeError(f"erase failed: state={core_state} {last!r}")
+        if core_state == CORE_STATE_RECEIVING and (total == 0 or erased >= total):
+            return
+        percent = 0 if total == 0 else min(100, erased * 100 // total)
+        if percent // 25 != last_percent // 25:
+            last_percent = percent
+            print(f"erase_progress={percent}% ({erased}/{total})", flush=True)
+        time.sleep(0.15)
+    raise TimeoutError(f"erase did not complete: {last!r}")
 
 
 STREAM_CAP_RELAY = 1 << 2
@@ -275,13 +346,26 @@ def encode_open(identity: bytes, image: bytes, target_slot: int,
     return bytes(wire)
 
 
+def identify_identity(ser: serial.Serial, timeout_s: float,
+                      attempts: int = 3) -> str:
+    """Retry *IDN? after a stalled block: the first line can be swallowed while
+    the firmware resets its SCPI parser."""
+    response = "<timeout>"
+    for _ in range(attempts):
+        response = query(ser, "*IDN?", timeout_s, stage="serial_probe")
+        if "DHRT100" in response.upper():
+            return response
+        time.sleep(0.3)
+    return response
+
+
 def identify_port(port: str, baud: int, timeout_s: float) -> str | None:
     try:
         with serial.Serial(port, baud, timeout=0.1,
                            write_timeout=timeout_s) as ser:
             time.sleep(0.15)
             ser.reset_input_buffer()
-            response = query(ser, "*IDN?", timeout_s)
+            response = identify_identity(ser, timeout_s)
             return response if "DHRT100" in response.upper() else None
     except (OSError, serial.SerialException):
         return None
@@ -311,8 +395,13 @@ def verified_connection(requested: str | None, baud: int,
                               port=requested)
             ser.reset_input_buffer()
             ser.reset_output_buffer()
-            identity = query(ser, "*IDN?", timeout_s, timing=timing,
-                             stage="serial_probe")
+            identity = "<timeout>"
+            for attempt in range(3):
+                identity = query(ser, "*IDN?", timeout_s, timing=timing,
+                                 stage="serial_probe")
+                if "DHRT100" in identity.upper():
+                    break
+                time.sleep(0.3)
             if "DHRT100" not in identity.upper():
                 raise RuntimeError(
                     f"port {requested} is not a DHRT100: {identity!r}")
@@ -470,8 +559,8 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
         source_image = image_path.read_bytes()
         if not source_image:
             raise ValueError("image is empty")
-        image = selected_package_object(source_image, target_slot) \
-            if args.package else source_image
+        image = (selected_package_object(source_image, target_slot)
+                 if args.package and not args.package_whole else source_image)
         identity = hashlib.sha256(idn.encode("utf-8")).digest()[:16]
         partition_id = app_partition_id(map_version, target_slot)
         if args.resume:
@@ -536,6 +625,8 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
         status = wait_stream_state(
             ser, STREAM_STATE_RECEIVING, args.begin_timeout, timing=timing,
             stage="open_ready")
+        # The target acknowledges RECEIVING once the slot erase is queued; the
+        # first DATA returns BUSY until erase completes and is then resent.
         if timing is not None:
             timing.record("flash_prepare", time.monotonic() - ready_started,
                           durable_offset=status[2])
@@ -548,83 +639,129 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
                 f"{block_size}")
         print(f"resume_offset={resume_offset}")
 
+        # The device queues up to four 4 KiB blocks in the existing EventBus
+        # fast-block pool and OtaAO writes them in order.  Keep the same bound
+        # here so a QUEUED response never overruns the pool.
+        window = 4
+        pending: list[int] = []
         for offset, chunk in stream_chunks(image, resume_offset,
                                            block_size, args.package):
-            response = command(
-                ser,
-                (f"SYST:OTA:STREAM:DATA {SOURCE_USB_CDC},{offset},"
-                 f"{crc32(chunk)},").encode("ascii") + scpi_block(chunk),
-                args.timeout,
-                timing=timing,
-                stage="data_ack",
-                request="SYST:OTA:STREAM:DATA <block>",
-                details={
-                    "offset": offset,
-                    "data_bytes": len(chunk),
-                    "chunk_crc32": crc32(chunk),
-                },
-            )
-            if "OK" not in response:
-                raise RuntimeError(f"stream DATA rejected at {offset}: {response!r}")
+            while True:
+                response = command(
+                    ser,
+                    (f"SYST:OTA:STREAM:DATA {SOURCE_USB_CDC},{offset},"
+                     f"{crc32(chunk)},").encode("ascii") + scpi_block(chunk),
+                    args.timeout,
+                    timing=timing,
+                    stage="data_queued",
+                    request="SYST:OTA:STREAM:DATA <block>",
+                    details={
+                        "offset": offset,
+                        "data_bytes": len(chunk),
+                        "chunk_crc32": crc32(chunk),
+                    },
+                )
+                if "BUSY" in response:
+                    # Either the slot is erasing or the fast-block pool is
+                    # full; drain the oldest durable block and resend.
+                    wait_erase_complete(ser, args, timing=timing)
+                    if pending:
+                        wait_stream_durable(ser, pending.pop(0), args,
+                                            timing=timing)
+                    continue
+                break
+            if "QUEUED" in response:
+                pending.append(offset + len(chunk))
+            elif "OK" not in response:
+                raise RuntimeError(
+                    f"stream DATA rejected at {offset}: {response!r}")
             if relay_node is not None:
                 # Relay feeds one resident block at a time: wait until the
                 # target has made this block durable before the next DATA.
                 wait_relay_durable(ser, offset + len(chunk), args)
-            if offset == 0 or offset + len(chunk) == len(image) or \
-                    (offset // block_size) % args.progress_every == 0:
-                status = parse_stream_status(query(
-                    ser, "SYST:OTA:STREAM:STAT?", args.timeout,
-                    timing=timing, stage="data_status_query",
-                    details={"offset": offset + len(chunk)}))
-                print(f"durable_offset={status[2]} token={status[3]}")
+            if len(pending) >= window:
+                status = wait_stream_durable(ser, pending.pop(0), args,
+                                             timing=timing)
+                if (offset // block_size) % args.progress_every == 0:
+                    print(f"durable_offset={status[2]} token={status[3]}")
+        while pending:
+            status = wait_stream_durable(ser, pending.pop(0), args,
+                                         timing=timing)
+        status = parse_stream_status(query(
+            ser, "SYST:OTA:STREAM:STAT?", args.timeout, timing=timing,
+            stage="data_status_query",
+            details={"offset": len(image)}))
+        print(f"durable_offset={status[2]} token={status[3]}")
 
+        # Ask for the target slot before CLOSE: the device may reboot as soon as
+        # the staged image is committed, and a query after CLOSE can lose the port.
+        target_slot = parse_first_uint(
+            query(ser, "SYST:OTA:TARG?", args.timeout, timing=timing,
+                  stage="pre_close_target_slot"))
         response = query(
             ser, f"SYST:OTA:STREAM:CLOSE {SOURCE_USB_CDC}", args.timeout,
             timing=timing, stage="close_ack")
-        if "OK" not in response:
+        if "OK" not in response and "QUEUED" not in response:
             raise RuntimeError(f"stream CLOSE rejected: {response!r}")
         close_started = time.monotonic()
-        status = wait_stream_state(
-            ser, STREAM_STATE_READY_TO_REBOOT, args.begin_timeout,
-            timing=timing, stage="close_ready")
-        if timing is not None:
-            timing.record("flash_finalize", time.monotonic() - close_started,
-                          durable_offset=status[2])
-        print(f"ready durable_offset={status[2]} token={status[3]}")
+        rebooted_during_finalize = False
+        try:
+            status = wait_stream_state(
+                ser, STREAM_STATE_READY_TO_REBOOT, args.begin_timeout,
+                timing=timing, stage="close_ready")
+            if timing is not None:
+                timing.record("flash_finalize",
+                              time.monotonic() - close_started,
+                              durable_offset=status[2])
+            print(f"ready durable_offset={status[2]} token={status[3]}")
+        except (OSError, serial.SerialException) as exc:
+            # The device may reboot to apply the staged image while the host is
+            # still polling; that is a successful finalise, not a failure.  Fall
+            # through to the re-enumeration verification below.
+            rebooted_during_finalize = True
+            print(f"ready probe interrupted by reboot: {exc!r}")
         if not args.boot_and_commit:
             return 0
-        # COMMIT records the pending slot; the bootloader applies it on the
-        # next reset.  Do not reboot before the commit is visible.
-        slot_before = query(ser, "SYST:OTA:SLOT?", args.timeout,
-                            timing=timing, stage="pre_commit_slot")
-        print(f"pre_commit_slot={slot_before}")
-        try:
-            response = query(ser, "SYST:OTA:COMM", args.timeout,
-                             timing=timing, stage="commit")
-        except (OSError, serial.SerialException):
-            response = "<timeout>"
-        target_slot = parse_first_uint(
-            query(ser, "SYST:OTA:TARG?", args.timeout, timing=timing,
-                  stage="target_slot_query"))
-        deadline = time.monotonic() + max(args.timeout, 30.0)
         pending_ok = False
         slot_after_commit = ""
-        while time.monotonic() < deadline:
-            slot_after_commit = query(ser, "SYST:OTA:SLOT?", args.timeout,
-                                      timing=timing,
-                                      stage="post_commit_slot")
-            fields = [int(x) for x in slot_after_commit.split(",")
+        if not rebooted_during_finalize:
+            # The stream END already records the pending slot (READY implies the
+            # manifest/BCB commit).  The legacy SYST:OTA:COMM is rejected while
+            # the stream session is still active, and blindly waiting for its
+            # response used to burn the full 300 s timeout on every update.
+            slot_before = query(ser, "SYST:OTA:SLOT?", args.timeout,
+                                timing=timing, stage="pre_commit_slot")
+            print(f"pre_commit_slot={slot_before}")
+            fields = [int(x) for x in slot_before.split(",")
                       if x.strip().isdigit()]
-            if len(fields) >= 2 and fields[1] == target_slot:
+            pending_before = fields[1] if len(fields) >= 2 else -1
+            slot_after_commit = slot_before
+            response = "<already-pending>"
+            if pending_before == target_slot:
                 pending_ok = True
-                break
-            time.sleep(1.0)
-        print(f"committed_slot={slot_after_commit} target={target_slot} "
-              f"pending_ok={pending_ok}")
-        if not pending_ok:
-            raise RuntimeError(
-                f"commit did not stage slot {target_slot}: "
-                f"response={response!r} slot={slot_after_commit!r}")
+            else:
+                try:
+                    response = query(ser, "SYST:OTA:COMM", args.timeout,
+                                     timing=timing, stage="commit")
+                except (OSError, serial.SerialException):
+                    response = "<timeout>"
+                deadline = time.monotonic() + max(args.timeout, 30.0)
+                while time.monotonic() < deadline:
+                    slot_after_commit = query(
+                        ser, "SYST:OTA:SLOT?", args.timeout, timing=timing,
+                        stage="post_commit_slot")
+                    fields = [int(x) for x in slot_after_commit.split(",")
+                              if x.strip().isdigit()]
+                    if len(fields) >= 2 and fields[1] == target_slot:
+                        pending_ok = True
+                        break
+                    time.sleep(1.0)
+            print(f"committed_slot={slot_after_commit} target={target_slot} "
+                  f"pending_ok={pending_ok}")
+            if not pending_ok:
+                raise RuntimeError(
+                    f"commit did not stage slot {target_slot}: "
+                    f"response={response!r} slot={slot_after_commit!r}")
         try:
             query(ser, "SYST:BOOT:RESET", args.timeout, timing=timing,
                   stage="apply_reset")
@@ -682,6 +819,12 @@ def parse_args() -> argparse.Namespace:
                         help="reuse session/generation from SYST:OTA:JOUR?")
     parser.add_argument("--package", action="store_true",
                         help="input is a complete signed OTA package")
+    parser.add_argument("--package-whole", action="store_true",
+                        help=("with --package, stream the package byte-for-byte "
+                              "instead of slicing out the target image (a slice "
+                              "keeps the original header, so package_size and "
+                              "image_count no longer match the payload and the "
+                              "target rejects it with BAD_HEADER)"))
     parser.add_argument("--boot-and-commit", action="store_true")
     parser.add_argument(
         "--relay-node", type=int, default=None,

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$BuildDir = "out/pytest/build-ota-tdma-binding-tests",
     [string]$HostGccDir = ""
 )
@@ -23,7 +23,7 @@ if (-not $hostCc) {
 }
 
 $exe = Join-Path $build "test_ota_tdma_binding.exe"
-& $hostCc.Source -std=c11 -Wall -Wextra -Werror `
+& $hostCc.Source -std=c11 -Wall -Wextra -Werror -DPROJECT_OTA_TDMA_V2_BRIDGE=0 `
     "-I$(Join-Path $repo 'application\inc')" `
     "-I$(Join-Path $repo 'components\ota_manager\inc')" `
     "-I$(Join-Path $repo 'components\tdma\inc')" `
@@ -54,3 +54,4 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 Write-Host "OTA TDMA binding host unit tests passed"
+

@@ -1921,8 +1921,10 @@ def test_board_records_replay_original_startup_and_all_soak_intervals():
 
 def test_late_board_startup_sample_cannot_be_promoted_by_later_health():
     boards, args, records = board_record_fixture()
-    records["node1"]["decoded"]["samples"][0]["completed_us"] = 1600000
-    records["node1"]["decoded"]["samples"][1]["completed_us"] = 1600010
+    # Late beyond the documented one-interval jitter tolerance (timeout 0.5 s
+    # plus one 0.25 s period), so the sample cannot be promoted.
+    records["node1"]["decoded"]["samples"][0]["completed_us"] = 1800000
+    records["node1"]["decoded"]["samples"][1]["completed_us"] = 1800010
     _, _, barrier, _, _ = trn03.evaluate_board_records(records, boards, args, soak_config())
     assert not barrier["passed"]
     assert not barrier["samples"][0]["completed_within_deadline"]

@@ -43,6 +43,8 @@ $scripts = @(
     "run_ota_tdma_codec_tests.ps1",
     "run_ota_tdma_ingress_tests.ps1",
     "run_ota_tdma_pump_tests.ps1",
+    "run_ota_tdma_bridge_tests.ps1",
+    "run_ota_tdma_v2_adapter_tests.ps1",
     "run_ota_tdma_loopback_tests.ps1",
     "run_ota_tdma_session_tests.ps1",
     "run_ota_tdma_carrier_tests.ps1",

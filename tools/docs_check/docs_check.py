@@ -33,6 +33,7 @@ ALLOWED_PREFIXES = {
     "REFMEM",
     "EVENT",
     "COMMUNICATION",
+    "CONSOLE",
     "MEASURE",
     "HARDWARE",
     "VALIDATION",

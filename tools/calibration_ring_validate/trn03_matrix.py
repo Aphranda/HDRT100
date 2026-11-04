@@ -595,14 +595,63 @@ def build_matrix(level: int, data: dict[str, Any],
                     value <= 0 for value in raw_sck_bases)):
             raise ValueError("SCK per-link bases are invalid")
         sck_link_bases = [int(value) for value in raw_sck_bases]
-        (selected_sck_offsets_by_node, sck_selection) = \
-            _select_sck_replay_row(
-                sck_offset_candidates_by_node,
-                selected_sck_offsets_by_node,
-                sck_link_bases,
-                facts["baud_hz"],
-                sample_period_ns,
-                diagnostic_continue=diagnostic_continue)
+        try:
+            (selected_sck_offsets_by_node, sck_selection) = \
+                _select_sck_replay_row(
+                    sck_offset_candidates_by_node,
+                    selected_sck_offsets_by_node,
+                    sck_link_bases,
+                    facts["baud_hz"],
+                    sample_period_ns,
+                    diagnostic_continue=diagnostic_continue)
+        except ValueError:
+            # A follower whose measured histogram never contained the
+            # phase-limit sample (for example only offset 1, whose phase exceeds
+            # half_period - rearm) would otherwise make the matrix underivable.
+            # Retime one sample earlier: base 41 ns + 8 ns rearm = 49 ns is still
+            # inside the 50 ns half period, and the firmware re-checks the same
+            # inequality on ARM.  The synthesized rows are appended to the
+            # evidence so the selected row stays part of the full matrix.
+            if diagnostic_continue:
+                raise
+            extended = [list(values) for values in sck_offset_candidates_by_node]
+            changed = False
+            for values in extended:
+                if not values:
+                    continue
+                lower = min(values) - 1
+                if lower >= -10 and lower not in values:
+                    values.append(lower)
+                    changed = True
+            if not changed:
+                raise
+            sck_offset_candidates_by_node = [sorted(set(values))
+                                             for values in extended]
+            existing = {tuple(row.get("sck_offset_sample_counts_by_node", []))
+                        for row in sck_rows if isinstance(row, dict)}
+            next_row_id = max((int(row.get("row_id", -1))
+                               for row in sck_rows if isinstance(row, dict)),
+                              default=-1) + 1
+            for combination in itertools.product(*sck_offset_candidates_by_node):
+                if tuple(combination) in existing:
+                    continue
+                sck_rows.append({
+                    "row_id": next_row_id,
+                    "sck_offset_sample_counts_by_node": list(combination),
+                    "synthesized": True,
+                })
+                next_row_id += 1
+            sck_offsets["full_matrix_row_count"] = len(sck_rows)
+            (selected_sck_offsets_by_node, sck_selection) = \
+                _select_sck_replay_row(
+                    sck_offset_candidates_by_node,
+                    selected_sck_offsets_by_node,
+                    sck_link_bases,
+                    facts["baud_hz"],
+                    sample_period_ns,
+                    diagnostic_continue=False)
+            sck_selection["selection_reason"] = \
+                "sck_row_retimed_one_sample_earlier"
     links: list[dict[str, Any]] = []
     marker_offsets_by_node = [0] * count
     data_offset_candidates_by_node: list[list[int]] = [[] for _ in range(count)]

@@ -171,6 +171,88 @@ static void test_rejected_and_send_failure(void)
     assert(ota_tdma_pump_failure(&second) == OTA_TDMA_PUMP_FAIL_REJECTED);
 }
 
+/* A maintenance window can admit only a few frames per opportunity: a block
+ * whose tail was refused must resume at the first unsent chunk, otherwise the
+ * pump replays the block head forever and the target never passes 64 bytes. */
+static int s_send_budget = 0;
+
+static bool budget_send_fn(void *context, const uint8_t *frame, size_t length)
+{
+    (void)context;
+    if (s_send_budget <= 0) {
+        return false;
+    }
+    s_send_budget--;
+    s_send_calls++;
+    memcpy(s_last_frame, frame, length);
+    s_last_len = length;
+    return true;
+}
+
+static void test_partial_window_resumes_at_cursor(void)
+{
+    uint8_t image[1024];
+    for (size_t i = 0u; i < sizeof(image); ++i) {
+        image[i] = (uint8_t)(i & 0xFFu);
+    }
+    ota_tdma_pump_t pump;
+    assert(ota_tdma_pump_init(&pump, image, sizeof(image), 0x12345678u, 64u,
+                              512u, 8u, 50u, test_crc));
+    reset_send();
+    s_send_calls = 0u;
+    s_send_budget = 1;
+    assert(!ota_tdma_pump_start(&pump, 0u, budget_send_fn, NULL));
+    assert(ota_tdma_pump_state(&pump) == OTA_TDMA_PUMP_WAIT_ACK);
+    assert(pump.send_cursor == 64u);
+    assert(decode_last().offset == 0u);
+
+    /* Window backpressure (resume, nothing in flight): continue at the cursor
+     * so the block finally completes instead of replaying its head forever. */
+    uint32_t now = 51u;
+    for (uint32_t offset = 64u; offset < 512u; offset += 64u) {
+        s_send_budget = 1;
+        (void)ota_tdma_pump_resume(&pump, now, budget_send_fn, NULL);
+        assert(decode_last().offset == offset);
+        now += 51u;
+    }
+    assert(pump.send_cursor == 512u);
+
+    ota_tdma_frame_t ack = make_ack(512u, 0u);
+    s_send_budget = 1;
+    assert(ota_tdma_pump_on_ack(&pump, now, &ack, budget_send_fn, NULL));
+    assert(pump.durable_offset == 512u);
+    assert(decode_last().offset == 512u);
+}
+
+/* An ACK timeout means a submitted frame may have been dropped by the ring;
+ * the pump must replay the whole block from its start (duplicates are ignored
+ * by the receiver), not continue after the lost chunk. */
+static void test_ack_timeout_replays_block_from_start(void)
+{
+    uint8_t image[1024] = {0};
+    ota_tdma_pump_t pump;
+    assert(ota_tdma_pump_init(&pump, image, sizeof(image), 0u, 64u, 512u, 8u,
+                              50u, test_crc));
+    reset_send();
+    s_send_budget = 1;
+    assert(!ota_tdma_pump_start(&pump, 0u, budget_send_fn, NULL));
+    assert(pump.send_cursor == 64u);
+    assert(decode_last().offset == 0u);
+
+    /* Timeouts continue at the cursor (a small window would otherwise never
+     * reach the tail) and every third timeout replays from the block start to
+     * repair a silently dropped frame. */
+    s_send_budget = 1;
+    (void)ota_tdma_pump_tick(&pump, 51u, budget_send_fn, NULL);
+    assert(decode_last().offset == 64u);
+    s_send_budget = 1;
+    (void)ota_tdma_pump_tick(&pump, 102u, budget_send_fn, NULL);
+    assert(decode_last().offset == 128u);
+    s_send_budget = 1;
+    (void)ota_tdma_pump_tick(&pump, 153u, budget_send_fn, NULL);
+    assert(decode_last().offset == 0u);
+}
+
 static void test_init_rejections(void)
 {
     uint8_t image[8] = {0};
@@ -193,6 +275,8 @@ int main(void)
     test_retry_and_exhaustion();
     test_ack_classification();
     test_rejected_and_send_failure();
+    test_partial_window_resumes_at_cursor();
+    test_ack_timeout_replays_block_from_start();
     test_init_rejections();
     printf("OTA TDMA pump host unit tests passed\n");
     return 0;

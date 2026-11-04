@@ -61,9 +61,10 @@ def classify(path: str) -> set[str]:
         return set()
     classes: set[str] = set()
     if normalized.startswith("tools/") and not normalized.startswith("tools/acceptance/"):
-        # Tools drive the firmware build/acceptance, so they keep the hardware
-        # credential. Only the new test infrastructure is host-scoped.
-        classes.add("firmware")
+        # User directive 2026-11-02: the hardware credential covers firmware
+        # only. Python tooling is host-side, so it is routed to the host gate and
+        # must not invalidate the P3 fingerprint.
+        classes.add("host")
     if _matches(normalized, FIRMWARE_ROOTS, FIRMWARE_FILES):
         classes.add("firmware")
     if _matches(normalized, HOST_ROOTS, HOST_FILES):
