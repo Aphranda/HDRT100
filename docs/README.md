@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-10-29
+Last updated: 2026-11-02
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -38,6 +38,7 @@ docs/
   ota/            OTA、boot、A/B、回滚、System Pack
   hardware/       IO 约束、PCB、网表、BOM、Gerber、硬件评审
   tools/          工具治理、登记、依赖、生命周期与交接
+  console/        运维与调试控制面：Tk 应用框架、workflow、证据与安全门
   validation/     HIL、验证方法、闭环验证记录和证据说明
   state_machine/  PIO SM、DMA/FIFO、上下行资源和底层实时状态机
   release/        发布门禁、打印/PDF、产品冻结 checklist
@@ -71,6 +72,7 @@ docs/
 | `ota/` | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA HAOFV、boot、A/B、回滚和 System Pack |
 | `hardware/` | `hardware/README.md` | IO 约束、PCB、网表、BOM、Gerber 和硬件评审 |
 | `tools/` | `tools/DOCS_TOOLS_ARCHITECTURE.md` | 工具治理三件套：身份、依赖、生命周期、验证与交接；实现仍位于根目录 tools/ |
+| `console/` | `console/README.md` | 运维与调试控制面：单端口/多端口 transport、流程编排、证据凭证与安全门；调试 Demo 为首个交付物 |
 | `validation/` | `validation/README.md` | HIL、验证方法、任务进度和闭环验证记录 |
 | `state_machine/` | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | PIO SM、DMA/FIFO、上下行资源和底层实时状态机 |
 | `watchdog/` | `watchdog/README.md` | 硬件 watchdog、健康监督、复位证据和故障注入 |
@@ -86,6 +88,10 @@ docs/
 |---|---|---|
 | EVALUATION | `evaluation/PRODUCT_VALUE_EVALUATION.md` | 项目价值评估 canonical：开源/商业/学术三维评估单链结论；行动追踪见 `evaluation/PRODUCT_VALUE_TRACKING_TODO.md`。 |
 | TOOLS | `tools/DOCS_TOOLS_ARCHITECTURE.md` | 工具域治理草案，定义工具、组件、工作流、证据及交接边界；自动化尚待实施。 |
+| CONSOLE | `console/CONSOLE_ARCHITECTURE.md` | 运维与调试控制面主域：域边界、子域、单端口/多端口原则、契约候选、证据与验收；调试 Demo 为首个交付物。 |
+| CONSOLE/TK | `console/CONSOLE_TK_ARCHITECTURE.md` | Tk 应用框架：Shell/Router/Page/Store/Intent/UiPump/Dialog/WidgetKit、测试与迁移。 |
+| CONSOLE/TODO | `console/CONSOLE_DOMAIN_TODO.md` | CONSOLE 任务表（P0/P1/P2）、阻塞与验收口径。 |
+| CONSOLE/PROGRESS | `console/CONSOLE_TASK_PROGRESS.md` | CONSOLE 真实执行、证据、失败与下一 gate。 |
 | ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
 | ARCH/FLASH | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 16 MiB 板载 Flash、Boot/Direct A/B、NVS/blob/FCB、统一 OTA stream 和 TDMA OTA 跨域 canonical。 |
 | ARCH/T2 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | 已弃用（2026-10-11）：T2 预约与分布式时钟分发的历史跨域输入；冲突处以 `trigger/t2/TRIGGER_T2_ARCHITECTURE.md` 的 T2-SEMANTICS 为准。 |

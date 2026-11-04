@@ -57,6 +57,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-CHECKS | TOOLS / TOOLS tool maintenance | UNASSESSED | `tools/project/check_scpi_usb_namespace.py`<br>`tools/checks/check_scpi_usb_namespace.py`<br>`tools/checks/check_source_lengths.py` |
 | TOOL-CMAKE-BUILD-AUTO | TOOLS / TOOLS tool maintenance | UNASSESSED | `tools/cmake_build_auto/cmake_build_auto.py` |
 | TOOL-CODEX-WATCHDOG | TOOLS / TOOLS tool maintenance | UNASSESSED | `tools/project/codex_watchdog/codex_supervisor.ps1`<br>`tools/project/codex_watchdog/codex_watchdog.ps1`<br>`tools/project/codex_watchdog/heartbeat.ps1`<br>`tools/project/codex_watchdog/run_hourly.ps1`<br>`tools/project/codex_watchdog/start_heartbeat.cmd` |
+| TOOL-CONSOLE-DEBUG-DEMO | CONSOLE / CONSOLE domain owner | EXPERIMENTAL | `tools/domains/trigger/trigger_debug_demo/trigger_debug_demo.py`<br>`tools/domains/trigger/trigger_debug_demo/__main__.py` |
 | TOOL-DEBUG-MODEL-OVERLAY-VALIDATE | SYNC / SYNC tool maintenance | UNASSESSED | `tools/sync/debug_model_overlay_validate/debug_model_overlay_validate.py` |
 | TOOL-DISTRIBUTED-LOOPBACK-VALIDATE | COMMUNICATION / COMMUNICATION tool maintenance | UNASSESSED | `tools/communication/distributed_loopback_validate/distributed_loopback_validate.py` |
 | TOOL-DOC-REGRESSION | DOCS / DOCS tool maintenance | UNASSESSED | `tools/doc_regression_check.py` |
@@ -73,7 +74,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-FLASH-MAP | FLASH / FLASH tool maintenance | UNASSESSED | `tools/flash_map/flash_consumer_check.py`<br>`tools/flash_map/flash_inventory.py`<br>`tools/flash_map/flash_link_check.py`<br>`tools/flash_map/flash_map.py`<br>`tools/flash_map/flash_map_board_validate.py`<br>`tools/flash_map/flash_migration_check.py`<br>`tools/flash_map/flash_release_report.py`<br>`tools/flash_map/flash_wire_check.py`<br>`tools/flash_map/make_factory_baseline.py`<br>`tools/flash_map/persistence_schema_check.py` |
 | TOOL-FLASH-PARK-TIMEOUT-HIL-VALIDATE | FLASH / FLASH tool maintenance | UNASSESSED | `tools/flash/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py` |
 | TOOL-FLASH-SCRATCH-VALIDATE | FLASH / FLASH tool maintenance | UNASSESSED | `tools/flash/flash_scratch_validate/flash_scratch_validate.py` |
-| TOOL-HARDWARE-ACCEPTANCE | TOOLS / TOOLS tool maintenance | UNASSESSED | `tools/hardware_acceptance/p3_hardware_acceptance.py`<br>`tools/hardware_acceptance/single_board_hardware_acceptance.py`<br>`tools/vdc_priority_trace/vdc_priority_joint_capture.py` |
+| TOOL-HARDWARE-ACCEPTANCE | TOOLS / TOOLS tool maintenance | UNASSESSED | `tools/hardware_acceptance/p3_hardware_acceptance.py`<br>`tools/hardware_acceptance/single_board_hardware_acceptance.py`<br>`tools/vdc_priority_trace/vdc_priority_joint_capture.py`<br>`tools/vdc_priority_trace/DPLL60_workflow.py`<br>`tools/hardware_acceptance/hardware_acceptance_workflow.py` |
 | TOOL-HDO-RAW-READER | TOOLS / Scope transport maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-HOST-EVIDENCE-CLOCK | TOOLS / Host evidence maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-MODEL-TURNTABLE-LOAD-VALIDATE | TRIGGER / TRIGGER tool maintenance | UNASSESSED | `tools/trigger/model_turntable_load_validate/model_turntable_load_validate.py` |
@@ -83,7 +84,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-OTA-BOOT-COMMIT | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_boot_commit/ota_boot_commit.py` |
 | TOOL-OTA-HAOFV-GATE | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_haofv_gate/ota_haofv_gate.py` |
 | TOOL-OTA-KEYS | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_keys/gen_ota_key_registry.py`<br>`tools/ota/ota_keys/generate_ota_key.py`<br>`tools/ota/ota_keys/sign_ota_signature.py`<br>`tools/ota/ota_keys/verify_ota_signature.py` |
-| TOOL-OTA-MULTI-UPDATE | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_multi_update/ota_multi_update.py` |
+| TOOL-OTA-MULTI-UPDATE | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_multi_update/ota_multi_update.py`<br>`tools/ota/OTA_workflow.py` |
 | TOOL-OTA-PACKAGER | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_packager/ota_packager.py` |
 | TOOL-OTA-SEND | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_send/ota_send.py` |
 | TOOL-OTA-STREAM-SEND | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_stream_send/ota_stream_send.py` |
@@ -121,7 +122,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-STATE-MACHINE-RESOURCE-CHECK | STATE_MACHINE / STATE_MACHINE tool maintenance | UNASSESSED | `tools/state_machine/state_machine_resource_check/state_machine_resource_check.py` |
 | TOOL-STORAGE-FILE-UPLOAD | STORAGE / STORAGE tool maintenance | UNASSESSED | `tools/storage/storage_file_upload/storage_file_upload.py` |
 | TOOL-STORAGE-SCPI-VALIDATE | STORAGE / STORAGE tool maintenance | UNASSESSED | `tools/storage/storage_scpi_validate/storage_scpi_validate.py` |
-| TOOL-T2-BENCH-PROBE | TRIGGER / TRIGGER tool maintenance | EXPERIMENTAL | `tools/sync_trigger/t2_bench_probe.py`<br>`tools/sync_trigger/t2_enable.py` |
+| TOOL-T2-BENCH-PROBE | TRIGGER / TRIGGER tool maintenance | EXPERIMENTAL | `tools/sync_trigger/t2_bench_probe.py`<br>`tools/sync_trigger/t2_workflow.py` |
 | TOOL-T2-DEPLOY-ACTION-PROBE | TRIGGER / TRIGGER tool maintenance | UNASSESSED | `tools/t2_deploy_action_probe/t2_deploy_action_probe.py` |
 | TOOL-TDMA-RING-MONITOR | TDMA / TDMA tool maintenance | UNASSESSED | `tools/tdma_ring_monitor/flight_bitmap_validate.py`<br>`tools/tdma_ring_monitor/ring_rate_measure.py`<br>`tools/tdma_ring_monitor/sd_fault_read.py`<br>`tools/tdma_ring_monitor/tdma_cycle_schedule.py`<br>`tools/tdma_ring_monitor/tdma_field_parse.py`<br>`tools/tdma_ring_monitor/tdma_frequency_sweep.py`<br>`tools/tdma_ring_monitor/tdma_load_budget.py`<br>`tools/tdma_ring_monitor/tdma_pio_timing_check.py`<br>`tools/tdma_ring_monitor/tdma_process_image_budget.py`<br>`tools/tdma_ring_monitor/tdma_ring_monitor.py`<br>`tools/tdma_ring_monitor/tdma_set_roles.py`<br>`tools/tdma_ring_monitor/tdma_single_board_loopback.py`<br>`tools/tdma_ring_monitor/tdma_start_ring.py` |
 | TOOL-TDMA-SEAT-ACCEPTANCE | TRIGGER / TRIGGER tool maintenance | EXPERIMENTAL | `tools/sync_trigger/seat_acceptance.py` |
@@ -147,6 +148,8 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-VISA-OTA-SEND | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/visa_ota_send/visa_ota_send.py` |
 | TOOL-WATCHDOG-MONITOR | WATCHDOG / WATCHDOG tool maintenance | UNASSESSED | `tools/watchdog/watchdog_monitor/watchdog_reset_probe.py` |
 <!-- END TOOL REGISTRY CATALOG -->
+
+
 
 
 ## Test Layering

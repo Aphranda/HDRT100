@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation
 Canonical: `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-10-21
+Last updated: 2026-11-02
 
 本文档定义 `docs/` 后续按产品主域整理的目标结构、迁移规则和文档归属。当前阶段不直接移动大批文件，先冻结目录规划、迁移 gate 和索引规则，后续按域小批量迁移。
 
@@ -39,6 +39,7 @@ docs/
   ota/                  ; OTA、boot、A/B、回滚、System Pack
   hardware/             ; IO 约束、PCB、网表、BOM、Gerber、硬件评审
   tools/                ; 工具身份、依赖、生命周期、治理门禁与交接
+  console/              ; 运维与调试控制面：transport、流程编排、证据凭证与安全门
   validation/           ; HIL、验证方法、闭环验证记录和证据说明
   release/              ; 发布门禁、打印/PDF、产品冻结 checklist
   legacy/               ; PinProbe、历史报告、最初版 HTML、外部迁入资料
@@ -82,6 +83,7 @@ docs/
 | Measurement Service | `measure/` | `_DESIGN.md`, `_COMMANDS.md`, `_ANALYSIS.md` |
 | Evidence / Report / Snapshot | `storage/` | `_DESIGN.md`, `_PLAYBOOK.md`, `_CHECKLIST.md` |
 | Tools Governance | `tools/` | 独立文档域；`DOCS_TOOLS_ARCHITECTURE.md`, `DOCS_TOOLS_TODO.md`, `DOCS_TOOLS_TASK_PROGRESS.md`；不是固件实时 owner |
+| Console / Debug & Operations | `console/` | `CONSOLE_ARCHITECTURE.md`, `CONSOLE_TK_ARCHITECTURE.md`, `CONSOLE_DOMAIN_TODO.md`, `CONSOLE_TASK_PROGRESS.md`；只做编排/观测/取证，不是固件 owner |
 | Access / Permission / Mode Policy | `interface/` 或 `arch/` | `_DESIGN.md`, `_COMMANDS.md` |
 
 ## Canonical 初始归属
@@ -107,6 +109,7 @@ docs/
 | `hardware/` | `HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`, `HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `RP2350B_QFN80_IO_CONSTRAINTS.md`, `hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel`, `hardware/Netlist_Schematic1_2026-08-04.tel` |
 | `validation/` | `SCPI_TASK_PROGRESS.md`, `RTOS_HAOFV_TASK_PROGRESS.md`, `BISSC_TASK_PROGRESS.md` 的后续验证索引 |
 | `tools/` | `DOCS_TOOLS_ARCHITECTURE.md`, `DOCS_TOOLS_TODO.md`, `DOCS_TOOLS_TASK_PROGRESS.md`；治理语义、状态、证据分离，根目录 `tools/` 保留实现 |
+| `console/` | `CONSOLE_ARCHITECTURE.md`, `CONSOLE_TK_ARCHITECTURE.md`, `CONSOLE_DOMAIN_TODO.md`, `CONSOLE_TASK_PROGRESS.md`；调试 Demo 为首个交付物 |
 | `release/` | `release/RELEASE_CHECKLIST.md`, PDF/打印规则相关文档 |
 | `legacy/` | PinProbe HTML、0614/0804 原始 HTML、最初版 SCPI HTML、外部迁入 PDF |
 
