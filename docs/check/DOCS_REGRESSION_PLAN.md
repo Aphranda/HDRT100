@@ -138,118 +138,27 @@ R2 以**日期**为边界判定：归档条目最大日期 ≤ 规范文件保�
 **不走** EXE-CHANGE-01 第 4 步的四板 P3 路径——后者适用对象是固件/PIO/构建/工具/测试的
 **功能实现**改动，而文档门禁工具由 §6 单独定义。
 
-## §1 docs/check/DOCS_REGISTRY.md（完整内容）
+## §1 契约登记表
 
-```markdown
-# 文档契约登记表
+唯一事实源：`docs/check/DOCS_REGISTRY.md`（契约登记表 / 条款落点表 / 状态说明）。本文件不再复制表体——
+历史副本已与实现分叉（契约条数、status、id 格式都变过）。登记规则见该文件与 §0。
 
-Status: Active
-Domain: Documentation Governance
-Canonical: `docs/check/DOCS_REGISTRY.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-08-19
-
-> 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
-
-## 契约登记表
-
-规则：域文档每冻结一个跨域契约，必须在此登记一行（contract_id 唯一，登记即上提）。
-格式由 `tools/doc_regression_check.py` 校验（id 唯一 / 文件锚点存在）。
-
-| contract_id | domain | contract | ver | clause_loc | code_anchor | check | registered | status |
-|---|---|---|---|---|---|---|---|---|
-| TDMA-REASON-01 | tdma | ring reason code 9 项冻结 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_ring_runtime.h | enum 比对 | 2026-08-19 | active |
-| TDMA-SEQLOCK-01 | tdma | runtime snapshot 必须 seqlock | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_service.c | 代码审查 | 2026-08-19 | active |
-| TDMA-HOP-01 | tdma | hop_limit 归属 ring profile | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_ring_profile.h | 符号存在性 | 2026-08-19 | active |
-| REFMEM-260B-01 | refmem | critical delta ≤260B | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | refmem_frame.h | 常量比对 | 2026-08-19 | active |
-| VDC-DPLL-01 | vdc | DPLL 准入 resolution≤100ns | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_timestamp_clock.h | 符号存在性 | 2026-08-19 | active |
-
-## 条款落点表
-
-规则：顶层每条硬约束必须有落点行，不允许孤儿条款。评审发现违规 → 状态改 VIOLATED。
-
-| clause_id | 顶层条款 | domain_loc | module | verify | status |
-|---|---|---|---|---|---|
-| HAOFV-140 | 跨核多字段事实必须 seqlock/双缓冲/version | tdma: 双 FIFO 契约 | tdma_flight_fifo | 代码审查 | PARTIAL |
-| HAOFV-879 | 多字段事实必须 seqlock | tdma: runtime snapshot | tdma_pio_spi_ring_adapter | 代码审查 | VIOLATED |
-| HAOFV-365 | TDMA 声明 UP/DOWN group | tdma: ring profile | tdma_ring_profile.h | 符号存在性 | OK |
-
-## 状态说明
-
-- contract status: active / pending / superseded
-- clause status: OK / PARTIAL / VIOLATED / PENDING
-- 新契约登记后，顶层 `docs/arch/HAOFV_ARCHITECTURE.md` 须在 7 天内刷新（环1 校验）
-```
 
 ## §2 检查器
 
 实现唯一事实源：`tools/doc_regression_check.py`。**本文件不再复制源码** —— 历史副本已与实现分叉（旧 `ROW_RE` 只认两段 id，导致 10 行契约长期未被校验；现行为 `<DOMAIN>-<TOPIC>-<NN>` 全量校验）。需要看实现请直接读该文件；skill 模板见 `.agents/skills/doc-self-regression/`。
 
-## §2.5 .agents/skills/doc-self-regression/SKILL.md（完整内容）
+## §2.5 文档治理 skill
 
-```markdown
----
-name: doc-self-regression
-description: Use when maintaining the HAOFV docs corpus — registering a frozen contract, refreshing the top-level doc, reviewing doc changes, or on "docs drift / register contract / check docs" requests. Enforces contract registration, freshness windows, and verify-doc-* gates.
----
+唯一事实源：`.agents/skills/doc-self-regression/SKILL.md`（frontmatter + 触发 + 规则 + 命令）。
+本文件不再复制 skill 全文；改 skill 后按 skill 自身流程跑 `--skill-sync`。
 
-# Doc Self-Regression
 
-## 触发时机
-- 域文档冻结跨域契约（wire 格式/错误码/容量/时序门禁）→ 必须登记
-- 修改 canonical 文档 / 顶层文档 → 必须更新 Last updated，登记影响
-- 评审 / 审查文档变更 → 先跑 verify-doc-*
+## §2.6 核验提交单与 AGENTS 章节
 
-## 硬约束（以方案 §0 为准，冲突时不可违反）
-- 检查器只读；登记契约不可物理删除（只能 superseded）
-- 临时内容（评审快照/草稿）不得登记为契约
-- 新契约登记后顶层 7 天内刷新
+- 提交单模板：`docs/check/submissions/README.md`（复制使用；C11 交叉审核记录必填）。
+- AGENTS 文档章节：以 `AGENTS.md` 当前内容为准，本章节不再保留历史快照。
 
-## 工作流
-1. 冻结契约 → `docs/check/DOCS_REGISTRY.md` 加一行（contract_id 唯一）
-2. 改文档 → 更新 Last updated；数字引用代码符号，不手写
-3. 提交前 → `python tools/docs_check/docs_check.py && python tools/doc_regression_check.py`
-4. 评审 → 结论写回登记表 status（OK/PARTIAL/VIOLATED/PENDING）
-
-## 检查命令
-- 全量: `python tools/doc_regression_check.py`
-- 变更范围: `python tools/doc_regression_check.py --scope <git diff --name-only>`
-- pytest: `pytest tests/python/test_doc_regression.py`
-```
-
-## §2.6 核验提交单（Agent Note 格式）+ AGENTS.md 章节
-
-### 核验提交单（采用 Agent Note header 块 + Alternatives considered）
-
-```markdown
-Status: Active
-Domain: TDMA
-Canonical: <本提交单路径>
-Related: <父层文档>, <登记表>
-Last updated: 2026-08-19
-
-## 提交内容
-| 父层条款 | 符合性 | 证据 |
-|---|---|---|
-| HAOFV-879 seqlock 快照 | ❌ | adapter get_snapshot 裸读，见偏差声明 |
-
-## 偏差声明
-- TDMA-SEQLOCK-01: 计划迁移步骤2修复；接受理由=当前 DIAGNOSTIC_ONLY 无 100ns 证据需求
-
-## Alternatives considered
-- 方案A 立即加 seqlock（拒绝：迁移阶段未到，改动面大）
-- 方案B 登记偏差分批修复（接受）
-
-## 核验结论
-- 结论: ACCEPT_WITH_DEVIATION
-- 核验人: <owner>
-
-## 交叉审核记录（C11，必填）
-- 审核方: <另一 agent / 人工 / 另一份文档>
-- 审核方式: agent 交叉（独立评审）/ 文档交叉（域↔域对照，如 TDMA↔VDC）/ 层间交叉（代码↔登记表↔文档）
-- 审核结论: PASS / PASS_WITH_NOTE / FAIL
-- 审核日期: 2026-08-19
-```
 
 ### 根 AGENTS.md 文档章节（Codex 每次会话可读）
 
@@ -262,95 +171,21 @@ Last updated: 2026-08-19
 - 冲突处理：以文档治理方案 §0 硬约束为准
 ```
 
-## §3 tests/python/test_doc_regression.py（完整代码）
+## §3 自回归测试
 
-```python
-from __future__ import annotations
-
-from pathlib import Path
-
-from tools.doc_regression_check import check_registry, check_freshness, Result
+唯一事实源：`tests/python/test_doc_regression.py`（含检查器正反用例）。本文件不再复制测试代码。
 
 
-def test_registry_accepts_valid_contract_rows(tmp_path: Path) -> None:
-    reg = tmp_path / "docs" / "check"
-    reg.mkdir(parents=True)
-    (reg / "DOCS_REGISTRY.md").write_text(
-        "| contract_id | domain | contract | ver | clause_loc | code_anchor | check | registered | status |\n"
-        "|---|---|---|---|---|---|---|---|---|\n"
-        "| TDMA-REASON-01 | tdma | ring reason code | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_ring_runtime.h | enum 比对 | 2026-08-19 | active |\n",
-        encoding="utf-8",
-    )
-    result = Result(failures=[], warnings=[])
-    check_registry(tmp_path, result)
-    assert result.failures == []
+## §4 门禁钩子
+
+唯一事实源：`.githooks/pre-commit`（按改动类别路由 docs / host / firmware 三类凭证）。本文件不再复制钩子脚本。
 
 
-def test_registry_rejects_duplicate_ids(tmp_path: Path) -> None:
-    reg = tmp_path / "docs" / "check"
-    reg.mkdir(parents=True)
-    (reg / "DOCS_REGISTRY.md").write_text(
-        "| contract_id | domain | contract | ver | clause_loc | code_anchor | check | registered | status |\n"
-        "|---|---|---|---|---|---|---|---|---|\n"
-        "| TDMA-REASON-01 | tdma | a | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_ring_runtime.h | x | 2026-08-19 | active |\n"
-        "| TDMA-REASON-01 | tdma | b | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_ring_runtime.h | x | 2026-08-19 | active |\n",
-        encoding="utf-8",
-    )
-    result = Result(failures=[], warnings=[])
-    check_registry(tmp_path, result)
-    assert any("duplicate" in f for f in result.failures)
+## §5 安装与验收
 
+命令唯一事实源：`AGENTS.md` §5（改文档后必跑）+ pre-commit 门禁。安装只需
+`git config core.hooksPath .githooks`（clone/迁移后重配）。本文件不再复制命令块。
 
-def test_freshness_rejects_stale_top_doc(tmp_path: Path) -> None:
-    (tmp_path / "docs" / "arch").mkdir(parents=True)
-    (tmp_path / "docs" / "tdma").mkdir(parents=True)
-    (tmp_path / "docs" / "arch" / "HAOFV_ARCHITECTURE.md").write_text(
-        "Last updated: 2026-08-01\n", encoding="utf-8")
-    (tmp_path / "docs" / "tdma" / "TDMA_DOMAIN_ARCHITECTURE.md").write_text(
-        "Last updated: 2026-08-19\n", encoding="utf-8")
-    result = Result(failures=[], warnings=[])
-    check_freshness(tmp_path, result)
-    assert any("freshness" in f for f in result.failures)
-```
-
-## §4 .githooks/pre-commit（完整内容）
-
-```bash
-#!/bin/sh
-# Doc self-regression gate: block commit when docs drift.
-set -e
-cd "$(git rev-parse --show-toplevel)" || exit 1
-
-python tools/docs_check/docs_check.py --strict-names || {
-    echo "docs_check FAILED - fix docs before committing"
-    exit 1
-}
-python tools/doc_regression_check.py || {
-    echo "doc_regression FAILED - fix docs before committing"
-    exit 1
-}
-exit 0
-```
-
-## §5 安装与验收（复制粘贴即可）
-
-```powershell
-# 安装（一次性）
-cd <仓库根>                    # AGENTS.md 所在目录
-git config core.hooksPath .githooks
-
-# 验收 1：检查器（预期环1 报顶层过期 = 准绳，非失败）
-python tools/doc_regression_check.py
-#   预期: FAIL freshness: top doc is N d older than ...（顶层未刷新，正确报警）
-#         OK   registry: 5 contracts, ids unique
-
-# 验收 2：pytest
-pytest tests/python/test_doc_regression.py -v
-#   预期: 3 passed
-
-# 验收 3：门禁（故意造重复 id 再 commit → 应被拒）
-# 在 DOCS_REGISTRY.md 里复制一行 TDMA-REASON-01 再 git add . && git commit → 拒绝
-```
 
 ## §6 本次明确不做
 

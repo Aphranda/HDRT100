@@ -12,6 +12,14 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-017：M4 后半 + M5——PLAN 副本清零、对账测试扩到 tools 文档
+
+- TODO task ID：`TOOLS-CHECK-001`。只改文档/测试，未上板。
+- **PLAN 404→239 行**：删除 §1 登记表副本、§2.5 skill 全文、§2.6 提交单模板与 AGENTS 章节副本、§3 测试代码、§4 pre-commit、§5 命令块，全部改为指向唯一事实源（`DOCS_REGISTRY.md`、skill、`submissions/README.md`、`tests/`、`.githooks/pre-commit`、`AGENTS.md` §5）；内部引用（T1–T7、G10、决策记录）仍指向同名小节，未制造悬空编号。
+- **对账测试扩容**：`test_constraint_sync` 的规范文档集加入 `tools/README.md`、`tools/tool_governance/README.md`、`docs/console/CONSOLE_WORKFLOW_ARCHITECTURE.md`；文档里的 `tools/*.py` 命令必须真实存在。
+- **验证**：`docs_check` 253 files OK；`doc_regression` PASS；governance `errors=0/warnings=198`；triage `errors=0/warnings=92`；`test_constraint_sync` + `test_doc_regression` 46 passed。
+- **残余**：领域文档仍有已归档的 `p3_hardware_acceptance.py` 命令（OTA playbook、校准 plan、seat review、validation README 等）——历史与领域文档不在对账范围内，留 M7 文档批统一改指 `workflow_steps.py`。
+
 ### TOOLS-PROGRESS-20261104-016：M6 后半——注册表转绿、治理门禁接线、workflow 迁移登记
 
 - TODO task ID：`TOOLS-CHECK-001`。按用户 2026-11-04 指令：tools 域引用 workflow 定义，保证后续脚本都是 workflow 形式、现有脚本逐步迁移。
