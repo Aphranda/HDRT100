@@ -4,13 +4,113 @@ Status: Active
 Domain: CONSOLE
 Canonical: `docs/console/CONSOLE_TASK_PROGRESS.md`
 Related: `docs/console/CONSOLE_ARCHITECTURE.md`, `docs/console/CONSOLE_TK_ARCHITECTURE.md`, `docs/console/CONSOLE_DOMAIN_TODO.md`, `docs/README.md`
-Last updated: 2026-11-02
+Last updated: 2026-11-04
 
 ## 文档接口
 
 本文记录 CONSOLE 域的真实执行、证据和失败；稳定语义见 [Architecture](CONSOLE_ARCHITECTURE.md)，任务状态见 [TODO](CONSOLE_DOMAIN_TODO.md)。条目标签使用 `CONSOLE-PROGRESS-YYYYMMDD-NNN`，最新在最上面。
 
 ## 当前 checkpoint
+
+### CONSOLE-PROGRESS-20261104-029：HIL 物理链路最终判定（六对板零连通 + 单板回环无 RX）
+
+- 追加“直连镜像”映射：NO.1 master `rx19,csn17,sck18,tx16` / NO.4 slave `rx16,csn17,sck18,tx19`，`BOOTstrap:STATus?` physical rx 仍 **0**。
+- 单板回环：NO.1 `rx20,csn17,sck18,tx16`（假设 16→20 跳线），physical rx 仍 **0**。
+- 六对板 `two_board_io_validate` 全部 FAIL、observed 映射为空；`SYST:REFMEM:SYNC:TDMA:STATus?` 四板均回 `1,1,...` 但无对端 ready 证据。
+- 结论：当前台架没有可用的两板物理链路（IO 组与回环都不通），HIL 无法执行；代码侧（carrier/命令/reply/超时、RX DMA 888B）已完成并有 host/链接证据。
+
+### CONSOLE-PROGRESS-20261104-028：RX DMA 单字节 lane 收缩（-888B，ON/OFF 双镜像）
+
+- `s_refmem_spi_rx_dma_words` 由 `uint32_t[296]`（1184B）改为 `uint8_t[296]`（296B），两处 DMA 配置（`capture_words`、`receive_begin`）统一 `DMA_SIZE_8`，三处读取去掉 `& 0xFFu`。
+- 收益：ON `.bss` 0x68a94→**0x6871c**，余量 364B→**1252B**；OFF `.bss` 0x68998→**0x68620**，余量 616B→**1504B**（与预测一致，各 −888B）。
+- 新增 `tests/python/test_refmem_spi_rx_dma_width.py`（2 passed）：锁死 `uint8_t` 声明、恰好两处 `DMA_SIZE_8`、无 `DMA_SIZE_32/16`、DMA 读取行无掩码、4+36+256=296。ON/OFF 四板均链接 exit 0；refmem host 全通过。
+- **未验证的硬件前提**：`DMA_SIZE_8` 读 PIO `rxf` 是否按“一次一个条目、取 bits[7:0]”工作，需两板 `SYNC:RAW:RX? 256,165` 要求 `mismatch_count=0`；当前台架 IO 组零连通，无法执行。
+
+### CONSOLE-PROGRESS-20261104-027：HIL 物理链路判定——两板 IO 预检零连通
+
+- 用仓库自带 `tools/two_board_io_validate/two_board_io_validate.py` 分别测 **NO.1↔NO.4** 与 **NO.1↔NO.2**：两边 IO profile 都是 `IN GPIO20..23 / OUT GPIO16..19`，但所有输出位在对面输入 mask 均为 `0x0`，observed 映射为空，结论 **FAIL（无任何连线）**。
+- 随后用 IO profile 推导的引脚（master `rx20,csn17,sck18,tx16`；slave `rx20,csn21,sck22,tx16`）ARM，`BOOTstrap:STATus?` 仍 physical rx=0；此前 16..19 与 TDMA 24..29 映射同样 rx=0。
+- 结论：**当前台架不存在两板 IO 组直连**；若“线序未变”指的是 TDMA/RJ45 链路，则低速 SPI 需要按该链路的电气方向重新映射（现有 SPI adapter 的 master/slave 方向与 BiSS 单链路方向不一致），不能直接套用 16..19。
+- 台架已刷：NO.1/NO.2/NO.4 均为 `20261104055417`（ON 镜像），HIL 只差物理链路确认。
+
+### CONSOLE-PROGRESS-20261104-026：bootstrap carrier 注册与 reply/超时闭环；台架 NO.1/NO.2 已刷 ON 镜像
+
+- **代码**：`distributed_refmem_link.c` 新增 bootstrap binding——命令 envelope（kind/type/generation/target_mask）、`distributed_refmem_cmd_frame_receive`、reply envelope（source/seq16/flags/reason）→ `cmd_reply_store`、`cmd_reply_tx_get`→relay 回送、reply 超时→`node_control_update_status(TIMED_OUT/TIMEOUT)` fail-closed；`bootstrap_start` 注册 carrier，stop/handover 注销。ON 双板链接 exit 0，`.bss` 0x68a94，余量 **364B**；refmem host 全通过。
+- **台架**：用 `tools/picotool_flash/picotool_flash.py` 按序列号把 ON factory UF2 刷入 **NO.1/NO.2**，两板 `SYST:FW:BUILD? = "20261104055417"`，`BOOTstrap:STATus?` 可查；ARM 返回 `"OK",1,...` / `"OK",2,...`（pin 16..19 与 TDMA 24/26/25/29、24/27/28/29 都试过）。
+- **HIL 未通**：master relay/physical tx 增长、physical rx=**0**；slave physical rx=**0**、每 tick timeout。即两板间没有收到任何字节，carrier `ready` 始终为 0，命令准入不会放行。下一步用 `SYNC:SPI:RAW:TX/RX?` 或逻辑分析定位交叉线序/CSN（raw 与 relay 共用 adapter，需先解决互斥）。
+- **未做**：分片命令（fragment）不在此 carrier 承载；HIL 未通过前不把“承载”写成完成。
+
+### CONSOLE-PROGRESS-20261104-025：独立冗余审查结论与 HIL 线序纠正
+
+- **独立审查**（只读子代理，map 13:39 快照）：全仓**没有**可安全合并的两个 live 实例；SCPI 诊断 context 与常驻 context 不能合并（`refmem_sync_init` 会 `memset` 掉 `command_handler`，且 `SYNC:RX` 注入口会升级为真实命令通道），只能开关化。可回收 top：`s_refmem_spi_rx_dma_words` 4× 容量（888B，需 HIL 改 DMA 宽度）、SCPI 桥开关化（2252B，产品面决策）、校准阶段 union（最多 ~7176B，owner 仲裁不对称，暂不合并）。三份 8KB 表镜像/`s_capture_payload_storage`（已是 union）/三个 `s_action` 均**不可合并**。CRC 去重只省 flash，不增主 RAM。
+- **线序纠正**：两板最小系统沿用既有 TDMA/GPIO16..19 线序，**无需改线**；此前“GPIO16-19 未接线”的阻塞判断作废。HIL 唯一剩余动作是刷 `PROJECT_REFMEM_BOOTSTRAP_ENABLED=ON` 镜像并执行 ARM/STATus。
+- **台架读数**：COM5=`NO.1`、COM6=`NO.4`，仍是旧 build；`SYSTem:REFMEM:BOOTstrap:STATus?` 无响应，确认需刷 ON 镜像。
+
+### CONSOLE-PROGRESS-20261104-024：低速 SPI 承载 REFMEM——relay 出站/入站与 reply 窗口
+
+- **结果**：relay 增加 `refmem_bootstrap_relay_submit()`（同步 TX，无需新缓冲）、`WAIT_REPLY` 状态、`reply_timeout_ms`、`frame_handler` 入站回调；initiator 提交后切 SLAVE 等 reply，responder 从 LISTEN 直接回帧；坏帧/非 probe 帧交给 `frame_handler`（供 REFMEM binding 解析命令/回执）。
+- **验证**：`run_refmem_bootstrap_relay_tests.ps1` 通过（未 ready 拒绝提交、ready 提交、reply handler 收到帧、reply 超时 reason、responder 提交）；ON 镜像 `DHRT100`/`DHRT100_B` 链接 exit 0，余量 **372B**。
+- **未做**：固件 binding（envelope、`distributed_refmem_cmd_frame_receive`、reply 回送、超时 NACK）与 carrier 注册；未 HIL。
+- **下一 gate**：binding + carrier 注册（带 timeout fail-closed），再做 ON 链接/文档。
+
+### CONSOLE-PROGRESS-20261104-023：定向释放与 CRC 合并（ON 镜像恢复链接）
+
+- **释放**：移除 SCPI `s_refmem_package_chunk[512]`；LOAD:SD 改为 `storage_manager_copy_file_read_job_result()` 直接写入目标 buffer，不再经 512B 静态中转。分块读取循环保留，行为等价；省 **512B 主 RAM**。
+- **合并**：`tdma_origin_calibration_crc.c` 删除自带 16-entry residue 表与 kernel，改为调用 `tdma_transport_crc32_compute()`（同为 reflected CRC-32 / ISO-HDLC，transport kernel 仍是 SRAM 常驻）。省 64B `scratch_y` 与一套重复 kernel；数值等价由 `test_tdma_origin_calibration_crc.py`（3 passed）与 `run_tdma_transport_frame_tests.ps1` 证明。
+- **构建**：`PROJECT_REFMEM_BOOTSTRAP_ENABLED=ON` + `pico2-v2-factory-candidate` → `DHRT100.elf` / `DHRT100_B.elf` 链接 exit 0；`.bss` 0x68a84，heap 结束 0x2007fe84，**余量 380B**。
+- **未计入证据**：`test_tdma_origin_admission.py` 在编译期因既有 `ota_ao_tdma_maintenance_allowed` 隐式声明失败（与本合并无关），未用于本次证明；HIL/FULL 仍因两板 GPIO16-19 线序缺失未执行。
+- **残余**：默认编译开关仍 OFF（功能未 HIL 验证）；SCPI SYNC 诊断桥（2252B）与 action probe（1432B）两个重复控制面未合并；RX DMA 1184B 的 4× 单位疑点未修。
+
+### CONSOLE-PROGRESS-20261104-022：RAM 预算回退方案 B（编译开关默认 OFF）与镜像恢复
+
+- **决策**：RAM 预算三选一未获 owner 决策，按上轮声明执行 **B**：新增 `PROJECT_REFMEM_BOOTSTRAP_ENABLED`（默认 OFF）。OFF 时三个 bootstrap 源文件不参与镜像、SCPI/核心接线编译为 fail-closed stub；ON 时恢复完整接线。
+- **构建证据**：`pico2-v2-factory-candidate` + OFF → **DHRT100/DHRT100_B 链接成功**，产出 `DHRT100.elf`、`DHRT100_B.elf`、`DHRT100_V2_CANDIDATE_FACTORY.uf2`，`flash_link_contract=OK`，重复构建 exit 0。ON → 双板 6 个 bootstrap 对象编译通过，但 `DHRT100.elf` 仍 `overflowed by 132 bytes`——确认瓶颈是 RAM 预算，不是编译/逻辑。
+- **验证**：`run_refmem_all_host_tests.ps1` 全 PASS；docs 250/0、38 doc tests。
+- **残余**：ON 镜像仍差 132B（heap/.bss）；HIL 需刷机 + 两板 GPIO16-19 线序；carrier 未注册；无 FULL 凭证；未提交。
+
+### CONSOLE-PROGRESS-20261104-021：M4 台架勘察与 RAM 预算阻塞
+
+- **台架**：COM3=NO.3、COM4=NO.2、COM5=NO.1、COM6=NO.4，全部运行 build `20261103195548`；`SYSTem:REFMEM:SYNC:SPI:STATus?` 返回 `-113 Undefined header` → 运行固件不含本轮 bootstrap SCPI；当前是产品四板机架，P4.5 两板 GPIO16-19 SPI 线序未建立。故 HIL 前置 = 刷入新固件 + 恢复两板 SPI 线序，二者都不是软件可自证的。
+- **构建**：对象编译双板通过；**整链失败**：`pico2-v2-factory-candidate` 溢出 **132 bytes**，`pico2-release`（v1_compat）溢出 4064 bytes。实测 v2 基线（03:55 成功构建）`.bss` 后仅剩 0 字节余量；本轮新对象 `.bss` = owner 149 + relay 88，SCPI 移除字段回收 116，净增 132 → 正好压垮。这不是逻辑错误，是**零余量的 RAM 预算墙**。
+- **代码**：`refmem_cmd_load` 的两条 submit 路径改用 `refmem_control_transport_route()`（与单测同一决策函数），去掉重复的 ring/bootstrap 布尔组合。
+- **待决**：RAM 预算需 owner 决策——(a) 在别处释放 ≥256B；(b) 给 bootstrap 加编译开关默认关，待预算批准再开；(c) 缩 heap（运行时风险）。
+- **残余**：carrier 未注册；HIL 未做；无 P3/FULL；代码未提交。
+
+### CONSOLE-PROGRESS-20261104-020：M3 失败 reason/交接与资源归属澄清
+
+- **结果**：relay 增加 `last_reason`（BUILD_FAIL / TX_FAIL / ACK_TIMEOUT / INVALID_FRAME / PEER_TIMEOUT / RING_HANDOVER），并追加到 `BOOTstrap:STATus?`；core0 在 ring ready 时自动 `handover`（撤销 readiness + disarm adapter，计数与 reason 保留），ring stop 后不自动 re-arm；修正资源判断：REFTMEM SPI 在 `pio0`、TDMA ring 在 `pio1/pio2`，二者不共享 PIO 指令空间，真正冲突的是 `pio0` 上的 SYNC_IO 调试组。
+- **验证**：relay host 用例新增 peer-timeout reason、handover reason、TX-fail reason；DHRT100/DHRT100_B 的 relay/link/scpi_system 对象编译 exit 0；`run_refmem_all_host_tests.ps1` 待本轮收口复跑。
+- **残余**：carrier 未注册（命令 ACK 跟踪未做）；无两板 HIL/P3；产品台控制对未决；`pio0` 归还 SYNC_IO 的 program release 未做；代码未提交（firmware 需 FULL）。
+- **下一 gate**：两板 HIL 验证 readiness/RX/TX 角色切换；或先做 carrier 的 ACK 跟踪。
+
+### CONSOLE-PROGRESS-20261104-019：M2b HELLO/responder/core0 hook 与只读状态
+
+- **结果**：新增 HELLO probe 绑定（`refmem_bootstrap_hello_*`，round-trip host 用例）；relay 增加 responder 模式（LISTEN → 收到对端 probe → guard → MASTER 回帧 → LISTEN）；`distributed_refmem_service()` 调用 relay；SCPI `SYNC:SPI:ARM` 成功后启动 relay、`DISarm` 停止；重新登记 `SYSTem:REFMEM:SYNC:SPI:ARM/DISarm/STATus?`，新增 `SYSTem:REFMEM:BOOTstrap:STATus?`（armed/ready/state/peer/tx/rx/timeout/retry/invalid/build_fail/tx_fail + owner 拒绝计数）。
+- **验证**：`run_refmem_bootstrap_hello_tests.ps1`、`run_refmem_bootstrap_relay_tests.ps1`（含 responder/guard）、owner 与 035 policy 用例全绿；DHRT100/DHRT100_B 的 hello/relay/link/scpi_system/scpi_port 对象编译 exit 0。
+- **残余**：carrier **未注册**（命令 ACK 跟踪未做，避免 POSTED 永久挂起）；无两板 HIL/P3；PIO 回收与 018 交接未做；代码未提交（firmware 需 FULL）。
+- **下一 gate**：命令 ACK 跟踪 + carrier 注册，或先做两板 HIL 验证 readiness/TX/RX 角色切换。
+
+### CONSOLE-PROGRESS-20261104-018：M2 relay 状态机（半双工 TX/RX 角色交替）
+
+- **结果**：新增 `refmem_bootstrap_relay`：TX(MASTER)→RX(SLAVE) 交替、ack 超时/重试预算、peer 心跳超时撤销 readiness、坏帧/TX 失败计数；readiness 只由收到对端帧置位。owner 增加 `transmit/receive_begin/receive_poll` 包装（每次交换重新 arm 角色）。架构 §6.1 记录半双工约束：`transmit` 要求 MASTER、`receive_*` 要求 SLAVE，角色只在 arm 固定，因此握手是角色切换而非常驻双向连接。
+- **验证**：`run_refmem_bootstrap_relay_tests.ps1` 通过（未 armed/成功/peer 超时/3 次超时+2 次重试后 backoff/坏帧/TX 失败预算）；`run_refmem_bootstrap_transport_tests.ps1` 通过；DHRT100 与 DHRT100_B 的 relay/owner 对象编译 exit 0。
+- **残余**：relay 未接 core0（无 `distributed_refmem_service()` hook）、无 HELLO 绑定/对端 responder/guard、carrier 未注册、只读状态未暴露；无 HIL/P3；代码未提交（firmware 需 FULL）。
+- **下一 gate**：M2b 集成——HELLO 绑定 + responder + core0 hook + carrier 注册 + 只读计数。
+
+### CONSOLE-PROGRESS-20261104-017：M1 adapter 所有权迁移到 REFMEM bootstrap owner
+
+- **结果**：新增 `refmem_bootstrap_transport` owner（arm/disarm/snapshot/armed/adapter 诊断入口 + 拒绝计数）；`refmem_spi_physical_adapter_t` 从 SCPI `scpi_refmem_sync_state_t` 移除，SCPI `SYNC:SPI:ARM/DISarm/STATus?`、raw/line 全部改走 owner；arm 现在带前置门：model/realtime idle 且 ring 未 ready，否则拒绝并给 `REFMEM_BOOTSTRAP_NOT_STOPPED` / `REFMEM_BOOTSTRAP_RING_READY`。
+- **验证**：`tools/tests/run_refmem_bootstrap_transport_tests.ps1` 通过（NULL/未 STOP/ring ready/adapter 失败/成功/Snapshot/disarm/转发参数）；`ninja -C build` 编译 DHRT100 与 DHRT100_B 的 owner、`scpi_system_snapshot_commands.c`、`scpi_platform_snapshot_commands.c`、`scpi_node_snapshot_commands.c` 通过。
+- **残余**：carrier 未注册、relay/逐 target 握手 readiness 未做；PIO 指令空间回收未做；无 HIL/P3；代码未提交（firmware 需 FULL）。
+- **下一 gate**：M2 relay + readiness（注册 carrier、超时/重试、reason/计数）。
+
+### CONSOLE-PROGRESS-20261104-016：建环前低速承载的设计冻结与准入层
+
+- **结果**：架构 §6.1 改为复用 REFMEM `refmem_spi_physical` adapter（不新增 TDMA persona program），并写清 profile 边界：P4.5 最小系统/调试 profile 与产品 BiSS/RJ45 线序不是同一条，产品侧建环前控制面仍需 owner 决策。§6.3 新增命令面三层口径（本地 SCPI / REFMEM 类型+目录 / 目标 handler），修正 §6.2 把“本地已有”写成“缺失”的表述；TODO 017/018/035 与阻塞项同步；REFMEM TODO 新增 P4.7（建环前低速控制面）任务清单。
+- **代码**：新增 control-transport 准入/路由（`refmem_control_transport_route/submit/admits` + carrier 注册/注销）；`distributed_refmem_ring_transport_ready()` 语义扩展为 ring 或 carrier，`distributed_refmem_ring_link_ready()` 保留 ring-only 供路由判优先级；`refmem_cmd_load` 的单帧与分片两条 submit 路径接入 carrier；carrier 未注册时行为与原 ring-only 一致。
+- **验证**：`tools/tests/run_refmem_position_reset_policy_tests.ps1` 通过（ring/双无/carrier 未就绪/就绪/ring 优先/注销/回调参数）；`ninja -C build` 编译 DHRT100 与 DHRT100_B 的 `refmem_cmd_load.c`、`refmem_position_reset_policy.c`、`distributed_refmem_plane.c` 通过。
+- **未做/残余**：carrier 本体（adapter 所有权迁移、逐 target 握手 readiness、core0 relay、PIO 指令空间回收、两板 HIL）未做；无 P3/台架证据；产品线序是否提供控制对未决；代码未提交（firmware 改动需覆盖当前指纹的 FULL 凭证）。
+- **下一 gate**：CONSOLE-017 的 adapter 所有权迁移 + relay；CONSOLE-018 的 bootstrap→ring 交接顺序。
 
 ### CONSOLE-PROGRESS-20261102-015：M5 CONSOLE 范围收口
 

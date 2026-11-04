@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-10-29
+Last updated: 2026-11-04
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -313,6 +313,48 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 完成 COM3/COM4 双板 overlay 方向 HIL：build `20260814104920`，package CRC `0x2DF62B6E`，`GPIO4/5/7` X->Y、`GPIO6` Y->X 均验证通过。
 - [ ] 增加最小业务 HIL：A1 输出位置脉冲，A4 捕获并更新时间事实，A3 按 VDC 预约输出 `LINK_SWITCH`，A5 输出 `VNA_TRIG` 并等待 A2 `VNA_READY`。
 - [ ] 将 overlay 结果写入 RefMem snapshot / quality / evidence，供 `READ:*` 或维护接口读取。
+
+## P4.7 - 建环前低速控制面承载（bootstrap control transport）
+
+目标：在 TDMA 环未启动时，让 REFMEM 统一控制面仍能跨板工作（command/ACK/NACK/fragment/table/status），从而把校准训练、拓扑/时钟准备等 bring-up 流程内化到 REFMEM，而不是退回“多端口 + 每板本地 SCPI”。本项是 CONSOLE-017/018/035 的固件侧对应物。
+
+**profile 边界（先决）**：
+
+- 现有可复用的是 P4.5 的最小系统/调试 profile：`BOARD_REFMEM_SPI_*`（`pio0`、独立 PIO/DMA、`BOARD_REFMEM_SPI_BAUD_HZ`），`board_config.h` 已注明它 overlaps the debug SYNC_IO groups，只能在 RefMem SPI HIL 占有期间 arm。该 profile 不写入产品板约束。
+- 产品四板链路的物理线序是 TDMA persona 的 BiSS/RJ45 组，与上者不同。产品侧建环前控制面要么增加控制对，要么在 persona 引脚上做低速 mode；该选择由 TDMA/RefMem/校准三方 owner 决定，未决前不得把最小系统路径当产品路径。
+
+**任务**：
+
+- [x] 传输所有权迁移：`refmem_spi_physical` adapter 已由 REFMEM `refmem_bootstrap_transport` owner 持有；SCPI `SYNC:SPI:ARM/DISarm/STATus?` 只做委托与前置检查（STOP + ring 未 ready），`s_refmem_sync.spi_adapter` 已移除；raw/line 仅经 owner 的诊断入口访问。
+- [x] 低速 arm 与资源交接：arm 的 STOP gate 已落（model/realtime idle + ring 未 ready）；ring 交接时自动 disarm，计数与 reason 保留。**注**：ring 在 `pio1/pio2`，不共享 `pio0` 指令空间，因此 ring 加载不需要 REFMEM SPI 卸载；`pio0` 归还 SYNC_IO 调试组时的 program release 仍是独立任务。
+- [x] 半双工角色/窗口状态机（relay core）：TX(MASTER) → RX(SLAVE) 交替、ack 超时/重试预算、peer 心跳超时、readiness 只由收到对端帧置位；host 用例覆盖未 armed/成功/超时/重试上限/坏帧/TX 失败。
+- [x] core0 hook + HELLO 绑定 + 对端 responder + guard：已接 `distributed_refmem_service()`；HELLO 用 `refmem_sync_hello_encode_frame`，responder 在 guard 后回帧并回到 listen；host 用例 + 双板对象编译通过。两板实测见 M4/HIL。
+- [x] 只读状态：`SYSTem:REFMEM:BOOTstrap:STATus?` 暴露 armed/ready/state/peer/tx/rx/timeout/retry/invalid/build_fail/tx_fail 与 owner 拒绝计数；`SYSTem:REFMEM:SYNC:SPI:ARM/DISarm/STATus?` 重新登记（SCPI 只 arm/status）。
+- [ ] 注册 carrier：readiness 已有，但命令 ACK 跟踪未做；在 ACK 聚合完成前不得注册，避免命令记录永久 POSTED。
+- [x] 逐 target 握手与 readiness（代码层）：HELLO 帧判定、超时/无对端撤销；ARM 不推断 ready。多 target 拓扑未建模，当前按两板点对点。
+- [x] 承载路由接口：`refmem_control_transport_route()`（ring 优先，其次 bootstrap）已接入 `refmem_cmd_load_submit_type` / `refmem_cmd_load_submit_fragments`；carrier 未注册时行为与 ring-only 一致（host 用例覆盖准入/路由/回调参数）。
+- [x] relay 出站/入站：`refmem_bootstrap_relay_submit()`（同步 TX）、`WAIT_REPLY`、`reply_timeout_ms`、`frame_handler`；host 用例覆盖未 ready/提交/reply 超时/responder 提交。
+- [x] 固件 binding + carrier 注册：envelope（kind/type/generation/target_mask 或 reply seq16/flags/reason）、目标 `distributed_refmem_cmd_frame_receive`、reply `cmd_reply_store`、超时 `node_control_update_status(TIMED_OUT/TIMEOUT)` fail-closed；carrier 在 start 注册、stop/handover 注销。
+- [ ] 分片命令承载：当前只承载整帧 REFMEM_CMD，fragment 类型拒绝（fail-closed）。
+- [ ] HIL：NO.1/NO.2/NO.4 已刷 ON 镜像并 ARM 成功；但 `two_board_io_validate` 对 NO.1↔NO.4 与 NO.1↔NO.2 均报 **零连通**（IN GPIO20..23 / OUT GPIO16..19，mask 全 0），且 16..19 / TDMA 24..29 映射下 physical rx 均为 0。需先确认物理连接（IO 组 vs TDMA/RJ45）与链路方向。
+- [x] 失败 reason：relay 增加 `last_reason`（BUILD_FAIL/TX_FAIL/ACK_TIMEOUT/INVALID_FRAME/PEER_TIMEOUT/RING_HANDOVER），状态页可读。
+- [x] 交接/回滚：ring ready 时 core0 自动 `handover`（撤销 readiness + disarm adapter，reason=RING_HANDOVER，计数保留）；ring stop 后不自动 re-arm。
+- [x] 资源归属澄清：REFTMEM SPI 在 `pio0`，TDMA ring 在 `pio1/pio2`，二者不共享 PIO 指令空间；与 bootstrap 冲突的是 `pio0` 的 SYNC_IO 调试组，不是 ring persona。`pio0` 归还 SYNC_IO 的 program release 仍是独立任务。
+- [ ] HIL：两板最小系统 `RAW → HELLO → REFMEM command/ACK → fragment 多帧 → 断链重试` 闭环，输出可复跑报告与 build/fingerprint。
+- [ ] 产品线序决策：若产品台需要建环前控制面，明确“控制对 / persona 低速 mode”二选一并给出资源预算。
+
+**退出判据**：ring 未启动时，远程 REFMEM 命令经 bootstrap 有 ACK/NACK 与回读；ring 启动后自动回到 ring 路径且 bootstrap 退役；无对端/超时不会留下永久 POSTED；Host 用例 + 两板 HIL 证据齐全，scope 覆盖改动路径。
+
+**当前阻塞（2026-11-04 更新）**：RAM 预算已彻底解决——定向释放 512B + CRC 合并 + RX DMA lane 收缩 888B 后，ON 镜像余量 **1252B**（OFF 1504B）。HIL 的物理线序**不是阻塞项**：两板最小系统沿用既有 TDMA/GPIO16..19 线序，无需改线；唯一剩余动作是把 ON 镜像刷到台架并执行 ARM/STATus。台架已刷 NO.1/NO.2/NO.4 到 `20261104055417`，但 `two_board_io_validate` 对全部六对板均报零连通，HIL 仍需确认实际连接器（IO 组 vs TDMA/RJ45）。默认开关仍 OFF。
+
+**两板 HIL 操作序列（线序接好后可直接执行）**：
+
+1. 构建并刷入同源 ON 镜像（`-DPROJECT_REFMEM_BOOTSTRAP_ENABLED=ON`，需先解决 132B 预算）；
+2. A 板（initiator）：`SYSTem:REFMEM:SYNC:SPI:ARM 1,<baud>,<rx>,<csn>,<sck>,<tx>`；
+3. B 板（responder）：`SYSTem:REFMEM:SYNC:SPI:ARM 0,<baud>,<rx>,<csn>,<sck>,<tx>`；
+4. 两板轮询 `SYSTem:REFMEM:BOOTstrap:STATus?`：期望 `armed=1, ready=1`，`tx/rx` 增长、`last_reason=0`；
+5. 断开一条线/掉电一侧：期望 readiness 撤销且 `last_reason` 变为 PEER_TIMEOUT/ACK_TIMEOUT；
+6. 起 ring：期望 `armed=0`、`last_reason=RING_HANDOVER(6)`，不再自动 re-arm。
 
 ## P5 - 代码组件化
 

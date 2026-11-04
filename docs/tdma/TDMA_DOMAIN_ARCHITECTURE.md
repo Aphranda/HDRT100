@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-26
+Last updated: 2026-11-04
 
 ## 文档接口与范围
 
@@ -337,6 +337,48 @@ Core0 准备、Core1 固定窗口选择、PIO/DMA 发送；`TDMA_RECOVERY_BUFFER
 ### SPI 速率与 TDMA 周期 operating profile
 
 `TDMA-OPMODE-01` 采用离散 baud/cycle 组合，事实源为 `s_tdma_operating_profiles`。STAGE 不更改线上状态，STOP 后 APPLY、下次 ARM 安装；effective schedule CRC 绑定 profile。不能运行中单板私自降频，candidate 档不自动成为已验收回退档。Core1 整表周期是另一项配置，两者均需通过一致性及资源门禁。
+
+### 低速档与速率切换路径（10 kHz 起）
+
+目标：在高速环之前先跑一个 **10 kHz 低速档**，不依赖相位标定，用它承载 CAL/训练命令，再逐级升到 100 kHz / 1 MHz / 5 MHz / 10 MHz。低速档仍是 `TDMA-OPMODE-01` 的一个正式 profile，不是第二条物理链路。
+
+**两个时基不能混用**：
+
+| 项 | 事实源 | 作用 | 低速时必须区分 |
+|---|---|---|---|
+| Core1 整表周期 | `SYST:TDMA:PERiod`（1500/5000/10000/15000 µs 白名单） | 相位调度粒度 | **不改**；10 kHz 帧可跨多相，RX 增量扫描推进。 |
+| 环 slot 周期 | `TDMA:OPMode:STAGe/APPLy` 的 operating profile | 一个节点的线上时隙 | 新增低速档，`cycle_period_ns` 按帧长取。 |
+
+**关键事实（按当前代码）**：
+
+- `app_runtime.c:128-134` 的线时断言使用编译期 `BOARD_TDMA_SPI_BAUD_HZ`，不是运行态约束；运行态准入在 `tdma_origin_plan.c:652` 的 `required_cycles > fixed_cycles`。
+- level 19（1 MHz/2 ms）对 4 节点 174 B 实际帧可用（1.392 ms），对 307 B 最坏帧不可用（2.456 ms）。
+- 10 kHz 的 PIO 侧是非阻塞的（TX launch+轮询、RX 增量扫描）；246 ms 级阻塞只出现在 RefMem 调试 SPI ops（`refmem_spi_physical_adapter.c` 的逐字节 put + `sleep_us`），不在环上。
+- `tdma_pio_spi_phys_flight_io.c:140-143` 的 TX 完成余量固定 1 ms，小于服务粒度时会长帧误判超时并触发 `origin_recover`；低速必须按 `cycle_period_ns` 派生。
+- 标定 gate 绑定 `profile_crc32` + `schedule_crc32`（`tdma_service.c:585-604`）；换档必失配。低速会话只 `clear_calibration_stage()`，**禁止 commit**，避免覆盖 flash 唯一标定记录。
+
+**速率阶梯（4 节点，推导值，待实测）**：
+
+| baud | 40 B 命令 | 174 B 实际帧 | 307 B 最坏帧 | 最小 slot（含 guard） | profile 表现状 |
+|---|---:|---:|---:|---:|---|
+| 10 kHz | 32.0 ms | 139.2 ms | 245.6 ms | wire + 533 µs | 缺档 |
+| 100 kHz | 3.2 ms | 13.9 ms | 24.6 ms | wire + 53 µs | 缺档 |
+| 1 MHz | 320 µs | 1.39 ms | 2.46 ms | wire + 5.3 µs | level 19（2 ms）：174 B 可用 |
+| 5 MHz | 64 µs | 278 µs | 491 µs | wire + 1.1 µs | 缺档 |
+| 10 MHz | 32 µs | 139 µs | 246 µs | wire + 0.53 µs | level 20/0 可用 |
+
+**实现路径（A 路：改现有基础件，不新写 PHY）**：
+
+1. 在 `tdma_operating_profile.c`/`.h` 新增档位：10 kHz（slot 按 174 B 或 307 B 取 150/246 ms）、100 kHz、5 MHz；同步 `TDMA_OPERATING_PROFILE_COUNT` 与 `tests/unit/test_tdma_operating_profile.c`。
+2. 修 `tdma_pio_spi_phys_flight_io.c:140-143`：TX 完成余量改为 `max(2*cycle_period_ns, 1 ms)` 或等价派生，覆盖低速长帧。
+3. 低速会话流程（全部在 STOP 窗口，顺序不可换）：
+   `RING:STOP` → 等 `config_seq==applied_config_seq` 且 `adapter_started==0` → `OPMode:STAGe/APPLy` 低速档 → `clear_calibration_stage()`（不 commit）→ `RING:ARM` → `RING:STARt`。
+4. 退出：`RING:STOP` → 切回高速档 → 必要时重上电恢复训练记录 → `ARM`/`STARt`。
+5. 负测必须保留：未清 gate → `CALIBRATION_GATE_REJECTED`；slot=wire → cadence 计算 false；每周期容量仍按 10 MHz 配 → `budget_overrun`。
+
+**禁止改**：`clk_sys`、`TDMA_ORIGIN_CONTROL_CYCLES_PER_BIT`/guard 常量、`physical_bytes` 上界、标定 flash 单记录 schema；不得让 `tdma_service_ops_t` 在 Core1 相内阻塞。
+
+**未决项**：10 kHz 下 PIO 分频抖动、246 ms CS 低电平的驱动/线缆表现、几何训练在低速档的稳定性、训练记录是否有运行时热重载路径；均需台架实测，不能由 host 结果替代。
 
 ### Ring reason code
 

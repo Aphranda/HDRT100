@@ -4,7 +4,7 @@ Status: Active
 Domain: CONSOLE
 Canonical: `docs/console/CONSOLE_ARCHITECTURE.md`
 Related: `docs/README.md`, `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`, `docs/console/CONSOLE_TK_ARCHITECTURE.md`
-Last updated: 2026-11-02
+Last updated: 2026-11-04
 
 ## 1. 定位
 
@@ -83,46 +83,67 @@ CONSOLE 不能成为第二套 command slot、第二套 ACK 事实或第二套 ac
 
 - **最终目标：所有流程单端口**。GUI、TCP、OTA、T2、TDMA、DPLL、校准、REFMEM 都共用同一个串口或 USB TMC 会话。
 - 单端口跨板写操作必须走 REFMEM 统一控制面（`SYSTem:CTRL:EXECute` / `SYSTem:CTRL:FUNCtion:RUN`）；新增功能默认按单端口设计，不得先做多端口再等以后收敛。`target_transport` 枚举仍是候选契约 `CONSOLE-FLOW-01`。
-- **单端口可用前提（硬 gate）**：带远程 target 的 REFMEM 命令要求 `distributed_refmem_ring_transport_ready()` 为真；当前实现等价于 `ring.enabled && adapter_started && config_seq == applied_config_seq`（`refmem_control_submit.c:68-75`、`refmem_position_reset_policy.c:15-21`、`distributed_refmem_plane.c:736-738`）。ring 未就绪时命令被**直接拒绝**，不会排队等待。
+- **单端口可用前提（硬 gate）**：带远程 target 的 REFMEM 命令要求 `distributed_refmem_ring_transport_ready()` 为真；该谓词的 ring 部分是 `ring.enabled && adapter_started && config_seq == applied_config_seq`（`refmem_control_submit.c:68-75`、`refmem_position_reset_policy.c:15-21`、`distributed_refmem_plane.c:736-738`）；`CONSOLE-035` 落地后语义扩展为 **ring ready 或 bootstrap carrier ready**（§6.1）。两者都不成立时命令被**直接拒绝**，不会排队等待。
 - 因此 ring 未 ready 前只有三条合法路径：
   1. 只对本地 target 下命令（单板）；
   2. 显式维护多端口；
-  3. 固件新增 control-transport 准入，让低速 bootstrap persona 被视为可承载 REFMEM 远程命令（当前**未实现**）。
-- **低速 persona 不等于 ring ready**：它只是候选承载层；在固件准入（`CONSOLE-035`）落地前，不能宣称“单端口可建环”。
-- 当前命令面分两类，不能混写：
-  - **命令面已有、Console 未封装**：`LOAD:BOARD/NODE/SD`、`LEASE:TAKE/RELEASE`、`DPLL:ROLE/TUNE/OVERRIDE`、`VDC:REFERENCE/OUTPUT:TIMING/DELAY/RUN/STOP`、`T2:CONFIGURE/MOUNT/UNMOUNT`；
-  - **命令面缺失**：`LOAD:ACTIVATE`、`TABle?`、`QUALity?`、`RING:ARM/TRAIN/START`、`OPMode`、校准 persona/stage、T2 表安装、`VDC:FEEDBACK/PRIORITY/LOCK:READINESS`。
+  3. 固件 control-transport 准入：准入/路由接口已落（`CONSOLE-035`：ring 或 carrier，其余 fail-closed），carrier 本体（adapter 所有权迁移 + relay）见 `CONSOLE-017`；产品线序是否覆盖见 §6.1 的 profile 边界。
+- **低速承载不等于 ring ready**：它只是另一条被显式准入的承载通道；carrier 未注册或未握手前，不能宣称“单端口可建环”。
+- 命令面必须按**三层口径**判定（本地 SCPI / REFMEM 类型+目录 / 目标 handler），不能把“本地有”写成“单端口可用”；矩阵见 §6.3。
+  - **已有本地 SCPI、Console 未封装**：`LOAD:BOARD/NODE/SD`、`LEASE:TAKE/RELEASE`、`DPLL:ROLE/TUNE/OVERRIDE`、`VDC:REFERENCE/OUTPUT:TIMING/DELAY/RUN/STOP`、`T2:CONFIGURE/MOUNT/UNMOUNT`；
+  - **本地 SCPI 有、REFMEM 承载层缺失**：`LOAD:ACTIVATE`、`TABle?`、`QUALity?`、`RING:ARM/TRAIN/START`、`OPMode`、`VDC:FEEDBACK/PRIORITY/LOCK:READINESS`、T2 表安装、校准 persona/stage。
 - 过渡期多端口必须登记：当前/目标 transport、阻塞命令、迁移任务、退出标准（单端口回读 + ACK 证据）。UI 必须显示 `过渡 · 多端口`、占用端口和退出条件。
 - `ring_not_ready` 时，runner 允许 `maintenance_multiport` 并标记 `reason=RING_NOT_READY`，不得把它当成长期路径；ring ready 或 bootstrap 准入通过后，默认 workflow 必须回到单端口。
 - `CONSOLE-017/018/035` 是 §6.2 所有行的**共同前置**，不是并列可选项；单端口 wrapper 通过后，多端口路径从默认 workflow 退役。
 
-### 6.1 引导期低速 SPI PIO（bootstrap persona）
+### 6.1 引导期低速 SPI 承载（bootstrap transport）
 
-校准和 TDMA 高速环建立之前，四板之间还没有可用的高速 TDMA 数据面。为了让 REFMEM 统一控制面先工作，架构允许在**同一组 SPI 引脚**上热加载一个低速 SPI PIO persona，作为引导期的控制面 transport：
+校准、T2 与 TDMA 建环之前，四板没有可用的高速数据面。为了让 REFMEM 统一控制面先工作，引导期需要一条低速控制链路，承载 REFMEM command/ACK/NACK/fragment/table/status。**该链路不新增 TDMA persona program**：复用 REFMEM 已有的 PIO SPI 物理 adapter（`refmem_spi_physical`，PIO/引脚由 `BOARD_REFMEM_SPI_*` 给出，baud 由调用方传入），在 STOP/维护边界重新 arm。链路与状态：
 
 ```text
 STOP all
-  → PIO/SM/DMA 资源仲裁
-  → persona: STOPPED → VALIDATING → QUIESCING → UNLOADING → LOADING → ACTIVE
-  → 低速 SPI persona 承载 REFMEM command / ACK / NACK / table load / status
+  → 释放 SYNC_IO 调试组（pio0 指令空间/SM 归还）
+  → REFMEM bootstrap owner: arm(MASTER/SLAVE, low baud, profile pins)
+  → 逐 target 握手（同一 REFMEM frame/CRC/seq 语义）
   → 校准、拓扑、时钟训练
-  → persona: QUIESCING → UNLOADING → 加载高速 TDMA persona → ACTIVE
+  → handover: bootstrap disarm → TDMA persona LOADING → ACTIVE
   → 回读 ring/adapter/cursor，确认高速链路
-  → 失败则 ROLLING_BACK 回低速 persona（恢复/取证）
+  → 失败则回退：ring STOP → bootstrap re-arm（恢复/取证）
 ```
 
-机制复用现有 `tdma_pio_spi_persona_fsm_t` 的**生命周期状态机**与 `tdma_pio_spi_ring_adapter` 的资源/角色边界，但低速控制面 **persona program 是新增的**：现有 persona program 列表不含低速控制面项，PIO 指令集/资源预算必须另行核算。
+**依据（先例，不是本轮新设计）：**
 
-低速 persona **不会自动让** `distributed_refmem_ring_transport_ready()` 为真；它只是一条候选承载通道。要让远程 REFMEM 在建环前可用，必须由固件增加 control-transport 准入（`CONSOLE-035`），或接受该阶段使用维护多端口。
+- `docs/refmem/REFMEM_DOMAIN_TODO.md` 的 P4.5 阶段 2 已在两板最小系统上用真实 PIO+DMA 物理链路完成 `RAW/HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 双向闭环。
+- `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_05.md` 的 `REFTMEM-TASK-20260815-013` 在 TDMA HIL 通过后删除了 `SYSTem:REFMEM:SYNC:SPI:*` 的帧级阻塞命令，只保留 `ARM/DISarm/STATus?/LINE:*/RAW:*`，目的正是禁止 core0/SCPI 直驱 frame transport。本方案**不恢复**帧级 SCPI 直发。
+- 因此 carrier 的 owner 是 REFMEM 的 core0 bootstrap service；SCPI 只做 arm/status，Console 只通过 REFMEM 命令面与回读页观测。
+
+**profile 边界（必须先说清）**：`BOARD_REFMEM_SPI_*` 属于 P4.5 最小系统/调试 profile（`board_config.h` 注明它 overlaps the debug SYNC_IO groups，且只能在 RefMem SPI HIL 占有期间 arm）。产品四板链路的物理引脚是另一组（TDMA persona 的 BiSS/RJ45 组），两者不是同一套线序：
+
+- **最小系统/调试台**：可直接复用该 adapter 作为建环前控制面；前提是 STOP 且 SYNC_IO 调试组已释放。这是本轮可执行的路径。
+- **产品四板台**：产品线序上没有现成的建环前控制链路。要达到同一目标，需要（a）产品线序提供控制对，或（b）在 TDMA persona 引脚上新增低速控制 mode（即原 `CONSOLE-017` 的 persona 工作量，受 PIO 指令空间约束）。该选择由 TDMA/RefMem/校准三方 owner 决定，Console 不能单方面假定。
+
+**准入与路由（`CONSOLE-035`）**：
+
+- 远程命令 gate 仍是 `distributed_refmem_ring_transport_ready()`；语义扩展为 **ring ready 或 bootstrap carrier 已注册且握手 ready**，取或，其余 fail-closed。
+- 路由由 `refmem_control_transport_route()` 判定：ring 优先；ring 不在时，只有 carrier 的 `submit` 非空且 `ready()` 为真才允许；否则拒绝，不排队、不自动降级。
+- readiness 是 carrier 的运行时事实（握手/计数/超时），**不是** SCPI `ARM` 的成功返回；`ARM` 只准备物理层。
+- 同一时刻只有一个控制 transport active；切换必须走 STOP 边界并留证据。
+- **交接**：ring 变为 ready 时，core0 服务自动 `handover`（撤销 readiness 并 disarm adapter），记录 `RING_HANDOVER` reason；ring stop 后**不自动 re-arm**，需操作员/Console 显式 arm，避免两条路径来回切。
+
+**半双工约束（代码实测）**：`refmem_spi_physical_adapter_transmit()` 要求 `MASTER`，`receive_begin/receive_poll` 要求 `SLAVE`，角色只在 arm 时固定。因此 bootstrap 的“握手”不是常驻双向连接，而是 **TX 窗口(MASTER) → 角色切换 → RX 窗口(SLAVE)**；对端必须在 guard 之后应答，readiness 以**收到对端帧**为准，不以 ARM 成功或本地 TX 成功为准。多 target 需要逐 link / 逐窗口会话；当前先按两板点对点实现，四板拓扑另议。
+
+**当前接入面**：`SYSTem:REFMEM:SYNC:SPI:ARM/DISarm/STATus?`（只准备/撤销物理层与诊断，不直发 REFMEM 帧）与 `SYSTem:REFMEM:BOOTstrap:STATus?`（armed/ready/state/peer、timeout/retry/invalid/build_fail/tx_fail 计数、last_reason）。**carrier 已注册**：`bootstrap_start` 注册，`ready` 门控命令准入；命令帧/reply 已绑定到 relay envelope，reply 超时以 `TIMED_OUT/TIMEOUT` fail-closed。**镜像开关**：`PROJECT_REFMEM_BOOTSTRAP_ENABLED` 默认 OFF；ON 镜像已可链接（RX DMA 收缩 −888B 后余量 **1252B**，OFF 1504B），默认启用仍待 HIL。**HIL 现状**：NO.1/NO.2/NO.4 已刷 ON 镜像并 ARM 成功；但 `two_board_io_validate` 对 NO.1↔NO.4 与 NO.1↔NO.2 均报零连通（IN GPIO20..23 / OUT GPIO16..19，mask 全 0），16..19 与 TDMA 24..29 映射下 physical rx 均为 0，链路尚未承载任何字节。
+
+低速承载**不会自动让** `distributed_refmem_ring_transport_ready()` 为真：该 gate 只在 ring ready 或 carrier 已注册且握手 ready 时为真。准入/路由接口按 `CONSOLE-035` 落地；carrier 本体（adapter 所有权迁移 + core0 relay）见 `CONSOLE-017`。未落地前，环未 ready 时只能走维护多端口。
 
 约束：
 
-- **只在 STOP/维护边界热加载**。RUN 中禁止改变 PIO persona、GPIO route 或时间片动作表（`ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS` §6）。
-- **不是第二条总线、第二个命令槽或第二个 ACK 事实**。低速 persona 只是 REFMEM 控制面的承载层；REFMEM 的 CRC、seq、fence、quality、ACK/NACK 语义不变。
-- **低速与高速 persona 互斥**：共享 SPI 引脚和 PIO 指令空间，不允许同时 ACTIVE。
-- **fail-closed + 可回滚**：加载失败、握手超时或回读不一致时回到低速 persona，保留 persona 状态、错误码、命令/ACK 计数和 build/fingerprint 证据。
+- **只在 STOP/维护边界切换**。RUN 中禁止改变 PIO 归属、GPIO route 或时间片动作表（`ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS` §6）。
+- **不是第二条总线、第二个命令槽或第二个 ACK 事实**。低速承载的仍是同一条 REFMEM 命令/ACK 语义；CRC、seq、fence、quality、ACK/NACK 含义不变，同一时刻只有一个 command slot。
+- **PIO/引脚仲裁**：REFTMEM SPI adapter 用 `pio0` + 最小系统/调试组引脚（`BOARD_REFMEM_SPI_*`），**与 TDMA ring 的 `pio1/pio2` 及产品环引脚不共享指令空间/引脚**；真正冲突的是 `pio0` 上的 SYNC_IO 调试组。产品台若复用该 adapter，需要产品线序提供控制对（当前没有），不需要改 TDMA persona。
+- **fail-closed + 可回滚**：握手超时、readiness 丢失或回读不一致时立即撤销 readiness 并拒绝新的远程命令；保留 reason、tx/rx/timeout/retry 计数与 build/fingerprint 证据。
 - **低速只是引导与恢复通道**：高速 TDMA 建立并验证后应退役或只保留恢复入口，不作为产品数据面。
-- 低速速率、指令字数、DMA/SM 预算不在此写死；实现时必须用符号和资源工具核算，并写入 receipt。
+- 速率、MTU、DMA/SM 预算用符号和资源工具核算并写入 receipt，不在文档写死。
 
 ### 6.2 单端口路径优化登记
 
@@ -130,13 +151,43 @@ STOP all
 
 | 流程 | 当前 transport | 目标 transport | 主要阻塞（命令面 / Console） | 迁移任务 | 退出标准（单端口回读+ACK） |
 |---|---|---|---|---|---|
-| REFMEM 装载/激活/表/质量 | 多端口 | 单端口 REFMEM | `LOAD:BOARD/NODE/SD`、`LEASE` 已在目录但 Console 未封装；`LOAD:ACTIVATE`、`TABle?`、`QUALity?` 缺失 | CONSOLE-005/026 | LOAD/ACTIVATE/TABLE/QUALITY 全链路单端口 ACK + 回读 |
-| T2 表安装 | 多端口 | 单端口 REFMEM | `T2:CONFIGURE/MOUNT` 已在目录；`TEMPLATE/DEPLOYMENT/GRID/ACTION/COUNTER/SWITCH/GATEWAY` 表安装缺失，需 table package | CONSOLE-008/021 | 表安装 + T2 config/mount 单端口 ACK，表 generation/CRC 回读一致 |
-| TDMA 启环 | 多端口 | 单端口 REFMEM | `TOPOLOGY/SEAT/PERIOD/LOAD_MASK` 已有；`OPMode`、`RING:ARM/TRAIN/START` 缺失 | CONSOLE-010/022 | 启环每步单端口 ACK + ring/arm/train status 回读 |
-| DPLL/VDC 启动 | 混合 | 单端口 REFMEM | `ROLE/TUNE/OVERRIDE`、`OUTPUT:TIMING/DELAY/RUN/STOP` 已有；`FEEDBACK/PRIORITY/LOCK:READINESS` 未封装/缺失 | CONSOLE-011/023 | output/feedback/priority/lock 全链路单端口回读 |
-| 校准训练 | 多端口 | 单端口 REFMEM | `CAL` persona/stage/矩阵与控制面均缺失或未封装 | CONSOLE-012/024 | stage/link + persistence 单端口回读，失败 trial 证据齐全 |
+| REFMEM 装载/激活/表/质量 | 多端口 | 单端口 REFMEM | `LOAD:BOARD/NODE` 有类型+handler；`LOAD:SD` 类型在但目标 handler 未注册；`LOAD:ACTIVATE` 无 REFMEM 类型；`TABle?/QUALity?` 仅本地查询 | CONSOLE-005/026 | LOAD/ACTIVATE/TABLE/QUALITY 全链路单端口 ACK + 回读 |
+| T2 表安装 | 多端口 | 单端口 REFMEM | `T2:CONFIGURE/MOUNT/UNMOUNT` 有类型+handler；`TEMPLATE/DEPLOYMENT/GRID/ACTION/COUNTER` 表安装只有本地 SCPI，无 REFMEM 类型（还需 table package 载荷决策） | CONSOLE-008/021 | 表安装 + T2 config/mount 单端口 ACK，表 generation/CRC 回读一致 |
+| TDMA 启环 | 多端口 | 单端口 REFMEM | `TOPOLOGY/SEAT/PERIOD/LOAD_MASK` 有类型+handler；`OPMode`、`RING:ARM/TRAIN/START` 只有本地 SCPI，无 REFMEM 类型 | CONSOLE-010/022 | 启环每步单端口 ACK + ring/arm/train status 回读 |
+| DPLL/VDC 启动 | 混合 | 单端口 REFMEM | `ROLE/TUNE/OVERRIDE`、`OUTPUT:TIMING/DELAY/RUN/STOP` 有类型+handler；`FEEDBACK/PRIORITY/LOCK:READINESS` 只有本地 SCPI，且流程未冻结（HAOFV_VDC_DPLL §11） | CONSOLE-011/023 | output/feedback/priority/lock 全链路单端口回读 |
+| 校准训练 | 多端口 | 单端口 REFMEM | CAL 类型未实现/未注册；stage 语义未冻结（`CALIBRATION_DOMAIN_TODO`）；建环前还依赖 §6.1 的低速承载 | CONSOLE-012/024 | stage/link + persistence 单端口回读，失败 trial 证据齐全 |
 | 常规 OTA | 单端口顺序 | 单端口顺序 | 单板直连已具备；跨板远程仍受 ring-ready gate 约束 | 已具备（单板） | 单板顺序 OTA + receipt；远程 OTA 需 ring ready |
 | TDMA 流式 OTA | 单端口 relay | 单端口 relay | 固件开发中 | CONSOLE-033 | durable wait/close/boot + receipt 可复跑 |
+
+### 6.3 命令面三层口径（§6.2 的判定依据）
+
+“命令存在”不等于“单端口可用”。每一步必须三层同时成立：
+
+1. **本地 SCPI 入口**：该板自己的命令表里有 handler；
+2. **REFMEM 命令面**：`refmem_command_type_t` 有类型、`config/refmem/command_catalog.yaml` 有目录行；
+3. **目标 handler**：目标板在 `app_refmem_domain_config_init()` 注册了 handler，且 dispatch 的 idle/run 门禁允许。
+
+任一缺失，单端口远程就断；Console 不得用 raw SCPI 转发绕过（§7.12）。
+
+当前矩阵（快照，以代码/目录为准）：
+
+| 流程步骤 | 本地 SCPI | REFMEM 类型+目录 | 目标 handler | 单端口 |
+|---|---|---|---|---|
+| LOAD:BOARD / NODE | ✅ | ✅ | ✅ | ✅（受 ring/bootstrap gate） |
+| LOAD:SD 表包 | ✅ | ✅ | ❌ 未注册 | ❌ |
+| LOAD:ACTIVATE | ✅ | ❌ | ❌ | ❌ |
+| TABle? / QUALity? | ✅ | —（查询） | — | ❌ 只能逐板读 |
+| RING:TOPology/SEAT/PERIod/LOAD:MASK | ✅ | ✅ | ✅ | ✅（需 ring ready） |
+| RING:ARM / TRAIN / STARt | ✅ | ❌ | ❌ | ❌ |
+| OPMode | ✅ | ❌ | ❌ | ❌ |
+| DPLL ROLE/TUNE/OVERRIDE | ✅ | ✅ | ✅ | ✅ |
+| VDC REF/DELAY/TIMING/STOP/START | ✅ | ✅ | ✅ | ✅ |
+| VDC FEEDBACK/PRIORITY/LOCK | ✅ | ❌ | ❌ | ❌ |
+| T2 CONFIGURE/MOUNT/UNMOUNT | ✅ | ✅ | ✅ | ✅ |
+| T2 表安装（TEMPLATE/GRID/DEPLOYMENT/ACTION/COUNTER） | ✅ | ❌ | ❌ | ❌ |
+| 校准训练 | ✅ | ❌（枚举遗留类型未实现） | ❌ | ❌ |
+
+结论：建环前单端口受限的根因不是“SCPI 没实现”，而是**承载层与目标 handler 缺失 + ring-ready 循环依赖**；因此先做 §6.1 的 bootstrap carrier 与 `CONSOLE-035` 准入，再逐类补类型/目录/handler。
 
 ## 7. 工作流约束（Workflow-first）
 

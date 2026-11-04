@@ -12,6 +12,16 @@ Last updated: 2026-11-04
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261104-008：P0T 100ms gap / FULL profile 修复 + 新 run scope-qualified FULL 凭证
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。以下为运行快照，非事实源。
+- **P0T 通讯 gap**：`add_serial_timing(--gap)` 硬下限 **0.1 s（100 ms）**，避免 50 ms 在复位后触发 `<timeout>`/`TDMA_RING_START` 竞态；本 run step8 **OK 41.3 s**（100 ms gap）。
+- **FULL profile**：`--profile full` 现在等价 `--full`（`acceptance_args` 设置 `launch.full`），修复续跑把凭证写成 `QUICK_DIAGNOSTIC` 的问题；stale bench lock 兼容 Windows `os.kill` 的 `SystemError`。
+- **测试隔离**：`test_scope_monitor_disables_forced_internal` 写 tmp 路径，不再覆盖生产 `out/HardwareAcceptance/p3_bench_scope.json`（曾导致 receipt config hash 失配）。
+- **新 FULL 凭证**：`hawf-162803`，step0/1/3/5/6/7/8–36 全 OK（step29 **114.2 s**、step34 PASS 42/0/0/0、step35/36 OK）；receipt sha `e7289ebd…`、`FULL/FULL`、build `20261104074335`、指纹 `533663bd…`/965、`external_status=PASS`、外部最大 |phase|≈92.13 ns。代码提交 `385e888e`。
+- **同批**：含 refmem/bootstrap 固件与 host 测试（凭证覆盖 965 files）；`test_tdma_origin_admission.py::[stale]` 既有失败未纳入本批，保持工作区 WIP。
+- 下一 gate：R2 角色持久化；origin-admission stale 用例单独修复。
+
 ### TOOLS-PROGRESS-20261104-007：`--monitor scope` 修复 + 示波器实测并重签 scope-qualified FULL 凭证
 
 - TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。以下为运行快照，非事实源。
