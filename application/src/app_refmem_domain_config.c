@@ -706,6 +706,14 @@ bool app_cal_guide_get_q_result(app_cal_guide_q_t *out)
     return s_cal_guide_q.have_result;
 }
 
+void app_cal_guide_set_commit_result(uint32_t decision, uint32_t applicable,
+                                     uint32_t ok)
+{
+    s_cal_guide_q.commit_decision = decision;
+    s_cal_guide_q.commit_applicable = applicable;
+    s_cal_guide_q.commit_ok = ok;
+}
+
 static bool cal_guide_config_handler(const uint32_t *params, uint32_t param_words,
                                      uint32_t *reason)
 {
@@ -824,6 +832,9 @@ bool app_cal_guide_snapshot(app_cal_guide_snapshot_t *snapshot)
     snapshot->progress_reason = s_cal_guide_q.progress.reason;
     snapshot->reconcile_decision = (uint32_t)s_cal_guide_q.reconcile.decision;
     snapshot->reconcile_resume_trial = s_cal_guide_q.reconcile.resume_trial;
+    snapshot->commit_decision = s_cal_guide_q.commit_decision;
+    snapshot->commit_applicable = s_cal_guide_q.commit_applicable;
+    snapshot->commit_ok = s_cal_guide_q.commit_ok;
     return true;
 }
 bool app_refmem_domain_config_init(void)

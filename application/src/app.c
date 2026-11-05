@@ -1803,12 +1803,61 @@ static void app_ctrqs_abort(uint32_t reason)
 
 static void app_ctrqs_finalize(void)
 {
-    s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_COMPLETE;
-    s_ctrqs.progress.reason = 0u;
+    if (s_ctrqs.progress.trials_done < s_ctrqs.trials) {
+        /* A short slot window (ring formed late / missed slots) is not a
+         * completed action: fail closed instead of reporting COMPLETE with a
+         * partial trial count. */
+        s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
+        s_ctrqs.progress.reason = (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
+    } else {
+        s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_COMPLETE;
+        s_ctrqs.progress.reason = 0u;
+    }
     app_ctrqs_publish();
     app_guide_window_close(app_ctrqs_now_ms());
     s_ctrqs.state = APP_CTRQS_RESTORE_WAIT;
     s_ctrqs.deadline_ms = app_ctrqs_now_ms() + APP_CTRQS_RESTORE_MS;
+}
+
+/* S segment: HAOFV flash rule 2.1 #7 forbids a normal write transaction while
+ * calibration training is in progress.  By the time Q runs the R window is
+ * closed and the ring is re-formed, so the training flag is clear; the write
+ * still goes through the canonical manager/store path, and an already
+ * committed generation is skipped instead of appending a duplicate record.
+ * P1 has no training-store payload, so it records the decision without a
+ * write. */
+static void app_ctrqs_commit(guide_action_reconcile_t reconcile)
+{
+    tdma_ring_calibration_stage_t stage;
+    calibration_training_store_status_t status;
+    bool complete = false;
+    const bool action_ok = reconcile == GUIDE_ACTION_RECONCILE_COMPLETE;
+    const bool have_stage =
+        calibration_manager_get_training_stage(&stage, &complete);
+    calibration_manager_get_training_store_status(&status);
+    const bool session_closed =
+        !calibration_manager_training_offline_active_core1();
+    const bool already =
+        have_stage && complete && status.persisted_valid != 0u &&
+        status.record_generation != 0u &&
+        status.calibration_generation == stage.calibration_generation;
+    const guide_action_commit_t decision =
+        guide_action_commit_decision(session_closed, already);
+    const bool applicable = action_ok && have_stage && complete;
+    uint32_t ok = 0u;
+    /* An aborted/reconciled-failed action must not persist the (unrelated)
+     * training stage: the S segment only runs for a completed Q. */
+    if (decision == GUIDE_ACTION_COMMIT_ALLOW && applicable) {
+        ok = calibration_manager_commit_training_stage() ? 1u : 0u;
+        if (ok == 0u) {
+            s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
+            s_ctrqs.progress.reason =
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+            app_ctrqs_publish();
+        }
+    }
+    app_cal_guide_set_commit_result((uint32_t)decision, applicable ? 1u : 0u,
+                                    ok);
 }
 
 static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
@@ -2176,6 +2225,7 @@ static void app_ctrqs_service(void)
                                s_ctrqs.plan.plan_crc32,
                                s_ctrqs.plan.generation, &reconcile);
         app_cal_guide_set_q_result(&readback, have, &reconcile);
+        app_ctrqs_commit(reconcile.decision);
         s_ctrqs.state = APP_CTRQS_DONE;
         return;
     }
