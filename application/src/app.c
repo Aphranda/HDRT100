@@ -1715,6 +1715,8 @@ bool app_guide_scan_get_pair(uint32_t index,
 #define APP_CTRQS_T2_STEP_MS 6000u
 #define APP_CTRQS_T2_STOP_MS 4000u
 #define APP_CTRQS_T2_INJECT_DELAY_MS 200u
+#define APP_CTRQS_ACTION_T3 7u
+#define APP_CTRQS_T3_ARM_MS 20000u
 
 typedef enum {
     APP_CTRQS_IDLE = 0,
@@ -1741,6 +1743,8 @@ typedef enum {
     APP_CTRQS_T2_PREP,
     APP_CTRQS_T2_RUN,
     APP_CTRQS_T2_STOP,
+    APP_CTRQS_T3_PREP,
+    APP_CTRQS_T3_ARM,
     APP_CTRQS_RESTORE_WAIT,
     APP_CTRQS_REBUILD,
     APP_CTRQS_Q,
@@ -1838,6 +1842,9 @@ typedef struct {
     bool t2_prepared;
     bool t2_injected;
     bool t2_trial_passed;
+    /* T3 (final staging + 10 MHz start): only this action may START 10 MHz. */
+    bool t3_topo;
+    bool t3_armed;
     uint32_t hard_fail_reason;
     uint64_t stop_try_ms;
     guide_action_progress_t progress;
@@ -2197,6 +2204,13 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         if (s_ctrqs.slot_ms < 500u) {
             s_ctrqs.slot_ms = 500u;
         }
+    } else if (plan->action_id == APP_CTRQS_ACTION_T3) {
+        /* T3 is the final action: any candidate table is ignored, the stage
+         * already carries the trained phases and only this action may start
+         * the ring at 10 MHz (profile_level). */
+        plan_valid = plan_valid && plan->profile_level != 0u;
+        s_ctrqs.trials = 1u;
+        s_ctrqs.slot_ms = plan->window_ms;
     } else {
         plan_valid = false;
     }
@@ -2668,6 +2682,19 @@ static void app_ctrqs_t2_step(uint64_t now)
     }
 }
 
+static void app_ctrqs_t3_advance(bool passed)
+{
+    if (passed) {
+        s_ctrqs.progress.passed_mask |= 1u;
+    } else {
+        s_ctrqs.progress.failed_mask |= 1u;
+    }
+    s_ctrqs.progress.trials_done = 1u;
+    s_ctrqs.progress.deepest_trial = 0u;
+    app_ctrqs_publish();
+    app_ctrqs_finalize();
+}
+
 static void app_ctrqs_service(void)
 {    const uint64_t now = app_ctrqs_now_ms();
     switch (s_ctrqs.state) {
@@ -2696,7 +2723,10 @@ static void app_ctrqs_service(void)
                                       : (s_ctrqs.plan.action_id ==
                                          APP_CTRQS_ACTION_T2)
                                             ? APP_CTRQS_T2_PREP
-                                            : APP_CTRQS_STOP;
+                                            : (s_ctrqs.plan.action_id ==
+                                               APP_CTRQS_ACTION_T3)
+                                                  ? APP_CTRQS_T3_PREP
+                                                  : APP_CTRQS_STOP;
             s_ctrqs.deadline_ms = now + APP_CTRQS_STOP_MS;
         }
         return;
@@ -3126,6 +3156,74 @@ static void app_ctrqs_service(void)
         app_ctrqs_t2_advance(idle && s_ctrqs.t2_trial_passed, now);
         return;
     }
+    case APP_CTRQS_T3_PREP:
+        if (!app_ctrqs_ring_torn_down()) {
+            app_ctrqs_stop_throttled(now);
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            }
+            return;
+        }
+        s_ctrqs.t3_topo = false;
+        s_ctrqs.t3_armed = false;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_T3_ARM_MS;
+        s_ctrqs.state = APP_CTRQS_T3_ARM;
+        return;
+    case APP_CTRQS_T3_ARM:
+        if (app_ctrqs_restore_formed()) {
+            app_ctrqs_t3_advance(true);
+            return;
+        }
+        if (!s_ctrqs.t3_topo) {
+            if (!distributed_refmem_set_tdma_ring_topology(
+                    s_ctrqs.local_slot, s_ctrqs.ref_slot,
+                    (uint32_t)PROJECT_TDMA_GUIDE_NODES)) {
+                if (now >= s_ctrqs.deadline_ms) {
+                    app_ctrqs_abort(
+                        (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
+                }
+                return;
+            }
+            app_ctrqs_ring_diagnostic_after_topo();
+            s_ctrqs.t3_topo = true;
+            return;
+        }
+        if (!app_ctrqs_ring_quiescent()) {
+            app_ctrqs_stop_throttled(now);
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort(
+                    (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
+            }
+            return;
+        }
+        if (!s_ctrqs.t3_armed) {
+            if (now < s_ctrqs.arm_try_ms) {
+                return;
+            }
+            s_ctrqs.arm_try_ms = (uint32_t)now + 300u;
+            if (distributed_refmem_tdma_ring_arm() &&
+                distributed_refmem_tdma_ring_arm_last_result() ==
+                    DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
+                s_ctrqs.t3_armed = true;
+            } else if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort(
+                    (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
+            }
+            return;
+        }
+        if (now < s_ctrqs.arm_try_ms) {
+            return;
+        }
+        s_ctrqs.arm_try_ms = (uint32_t)now + 150u;
+        (void)distributed_refmem_tdma_ring_start();
+        if (app_ctrqs_restore_formed()) {
+            app_ctrqs_t3_advance(true);
+            return;
+        }
+        if (now >= s_ctrqs.deadline_ms) {
+            app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
+        }
+        return;
     case APP_CTRQS_RESTORE_WAIT:
         if (s_boot_guide_done && s_boot_fail_step == 0u) {
             if (app_ctrqs_restore_formed()) {
