@@ -95,6 +95,21 @@ dispatch（`scpi_tdma_snapshot_commands.c` 两个处理器尾部）。
 然后四板读 `PLAN?`：只有 NO.1 有效 ⇒ 本地 dispatch 补丁在跑；四板全 0 ⇒ 清零记录路径；
 四板全有效 ⇒ 参数已进记录且帧/服务路径工作。另可读 NO.1 slot 0 的节点控制记录，word 0 应为计划
 magic 而非 0。
+### 5.2 工作区未提交的改动（新会话先看这里）
+
+`middleware/scpi_port/src/scpi_tdma_snapshot_commands.c` 在交接时**仍是未提交状态**（本会话末已决定
+"不碰台架只做交接"，因此拿不到 P3 凭证）：
+
+- **已改内容**：两个处理器（`scpi_cmd_system_tdma_guide_config` / `_trigger`）从
+  "`distributed_refmem_command_try_post` + 本地直接 `refmem_domain_config_dispatch`" 改为
+  调用**既有 canonical 路径** `distributed_refmem_control_submit(command_id, target_mask,
+  required_mask, params, param_words, &seq)`（`refmem_control_submit.c:22`）。该函数会按目录校验字数、
+  远端目标检查环传输并就绪、用 `refmem_cmd_load_submit_fragments` 携带参数下发，本地单点则构造
+  命令帧走 `refmem_cmd_frame_receive` 回环——**参数不再经过会上锁清零的 node-control 镜像**。
+- **为什么更好**：正是 §5.1 结论要求的修法，且无需改 refmem 内部文件；直接删除了错误的本地 dispatch。
+- **备份**：`refs/wip/guide-scpi-reroute` = `22fb5fff`（未提交改动的 stash 快照）。
+- **注意**：HEAD（`0ff5262d`）里仍是**旧的 workaround** 版本；新会话要么先应用该 wip 改动，
+  要么照 §5.1 自己实现 `try_post_with_params`。两者取其一，不要并存。
 ## 6. 下一步（按顺序，最短路径）
 
 ```powershell
