@@ -725,6 +725,45 @@ pathspec 提交会被 hook 判"未暂存差异"、整索引提交会带上该批
 持久化板号（NO.0），需逐板重写 `SYSTem:BOARD:NO`。清 journal 后 P3（build `20261105035001`）
 恢复 `PASS_WITH_WARNINGS`。
 
+### 9.18 M0 复跑 runbook（四板自组 + 半环拒绝）
+
+前提：四板已迁移到 v2 地图、板号 NO.1..NO.4 已写入、环线按 NO.1→2→3→4 接好。
+
+```powershell
+# 1) 构建带引导档的台架镜像（slot = NO-1，nodes=4，level=23 = 10 kHz）
+cmake -S . -B out/build/v2-guide -G Ninja -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_TOOLCHAIN_FILE=<pico-sdk>/cmake/preload/toolchains/pico_arm_cortex_m33_gcc.cmake `
+  -DPICO_BOARD=pico2 -DPICO_SDK_PATH=<pico-sdk> -DPROJECT_NODE_CAPACITY=4 `
+  -DPROJECT_FLASH_DEPLOYMENT_MAP=v2_candidate -DPROJECT_FACTORY_MIGRATION_BUILD=ON `
+  -DPROJECT_TDMA_GUIDE_AUTOFORM=ON -DPROJECT_OTA_SECURITY_COUNTER=1 `
+  -DPROJECT_OTA_SIGNING_KEY_ID=3506438145 -DPROJECT_OTA_KEY_PROFILE=v2_debug `
+  -DPROJECT_OTA_TDMA_V2_BRIDGE=ON
+cmake --build out/build/v2-guide -j 8
+
+# 2) 逐板刷 factory 镜像（串口 OTA 在 factory 迁移后不可用，picotool 是正规路径）
+Copy-Item out/build/v2-guide/DHRT100_V2_CANDIDATE_FACTORY.uf2 out/build/v2-guide-picotool/DHRT100_FACTORY.uf2 -Force
+foreach ($s in @('0010071E65B5CB38','FB276192BEF9CCE1','2BD5090FE009FA2A','A1E549202D18ED6A')) {
+  python tools/picotool_flash/picotool_flash.py out/build/v2-guide-picotool/DHRT100_FACTORY.uf2 --serial-number $s --out "out/flash/m0-$s"
+}
+
+# 3) 同步重启（不要用主机起环命令）
+foreach ($s in @('0010071E65B5CB38','FB276192BEF9CCE1','2BD5090FE009FA2A','A1E549202D18ED6A')) {
+  python tools/picotool_reboot/picotool_reboot.py --serial-number $s --settle 1.0 --reopen-timeout 20 --retries 2
+}
+```
+
+**判据（等待 ≥26 s 后读）**：
+
+- `SYSTem:TDMA:BOOT:PLAN?` 四板 `fail_step=0`；NO.1 `action=1`，其余 `action=2`；末尾 `half_ring=0`；
+- `SYSTem:TDMA:RING:STATus?` 四板 `enabled=1 node_count=4`, `up_running=1 down_running=1`,
+  `tx/rx` 计数增长，NO.2/3/4 `join_frame_seen=1`。
+
+**半环拒绝**：对 NO.2 发 `SYSTem:TDMA:RING:STOP`（不重启它），同步重启其余三块；≥26 s 后
+三块应 `half_ring=1` 且 `up=0/down=0/adapter_started=0`。随后四块全部重启即恢复 `half_ring=0`。
+
+**注意**：整片擦除会清板号（NO.0），刷完需 `SYSTem:BOARD:NO <n>` 逐板写回；本 runbook 用普通
+`picotool load`（不 `--full-erase`），保留板号与标定。
+
 
 
 
