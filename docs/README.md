@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-11-04
+Last updated: 2026-11-05
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -196,6 +196,7 @@ docs/
 | `docs/check/submissions/TRIGGER_CROSS_REVIEW_02.md` | T2 位置邮箱跨域契约 `ARCH-TRIGGERMAILBOX-01` 的 C11 独立交叉核验：单生产者/单消费者四态邮箱、`READY` release/acquire 配对、载荷读写态与静默边界复位例外、FREEZE latch 归属、以及「位置」域三方口径（15 / 3 / 3）不一致；结论 APPROVE WITH NOTES，四项措辞/归属缺陷已修正，域口径收敛另立 `T2-IDENT-002`。 |
 | `docs/check/submissions/TRIGGER_CROSS_REVIEW_03.md` | T2 一等席运输的 **TDMA 域联审**（关闭 `T2-AUDIT-03` 第三项）：10 B 单帧布局/越界/静态断言与轮换、「机会不空过」机制均成立，`SYNC_TRIGGER` 相位预算获独立重算确认；结论**有条件接受**，登记行三处表述与一处悬空契约引用已修正，跨域条件 C1–C5（TDMA 席位条款/布局版本递增/预算比例矛盾/期限口径、arch 文档引用已删除符号）仅登记为指针。 |
 | `docs/check/submissions/DOCS_CROSS_REVIEW_01.md` | agent 约束收敛的 C11 独立交叉核验：`tools/**` 与 `.agents/**/*.py` 归 host、契约 id 全量校验、`DRAFT_CLAUSE_DEBT` 限时债务、§8 模板迁入 EXE §7；初审 `APPROVE-WITH-FIXES` → 复审 `PASS_WITH_NOTE`，4 项必修功能面闭环，minor 残留随 M2/M3 处理。 |
+| `docs/check/submissions/CALIBRATION_GUIDE_CROSS_REVIEW_01.md` | 单口引导期校准流程（10 kHz 载体）HAOFV 双审：v1 判 `REJECT`（9 BLOCKER / 13 MAJOR），v2 逐条处置，待复审；未登记、未改 registry。 |
 | `docs/trigger/t2/TRIGGER_T2_HANDOFF_CHECKLIST.md` | T2 会话交接与自审清单：环境事实、已闭环项与可核验处、立即要做的 3 项、流程铁律与自审命令（原「用户偏好」小节已于 2026-10-13 移除，索引随之更正）。 |
 | `docs/trigger/t2/TRIGGER_T2_DEBUG_PLAYBOOK.md` | T2 调试手册：测量纪律、失败定位的固定顺序、已踩坑位（症状→根因→修法）、决策规则、工具配方、网关预装两组的精确设计。 |
 | `docs/interface/SCPI_HOST_ARCHITECTURE.md` | 接口域架构：上位机与多板系统的通信边界、单串口 + RefMem 分布式控制拓扑与待冻结项。 |
@@ -216,6 +217,7 @@ docs/
 | `calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md` | 校准域 P0 环序搜索、P1--P3 板内单指令自校准、SCPI 候选接口、状态机和实施待办。 |
 | `calibration/CALIBRATION_DOMAIN_TODO.md` | 校准域分阶段待办、跨域边界、验收门禁和八节点扩展准备。 |
 | `calibration/CALIBRATION_TASK_PROGRESS.md` | 校准域方案、粗捕获、编码测距和双向测距的任务记录与证据规则。 |
+| `calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md` | 单口引导期（10 kHz 载体）C/T/R/Q/S 五段流程、跨域 owner 边界、失败归属与验收判据（Draft，未登记）。 |
 | `tdma/TDMA_DOMAIN_TODO.md` | TDMA 未完成/已完成任务及退出门禁，优先实时预算、resident 飞行和确定性交付，保留原 ID。 |
 | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 近期进展、失败及证据，历史从文末归档索引查找。 |
 | `tdma/TDMA_TIMING_REVIEW.md` | 2026-10-09 TDMA 飞行处理与 PIO 时序冗余评审快照：重复计算/复制、预留与 guard 叠加、短槽恢复原因码误读；非契约。 |

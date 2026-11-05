@@ -2804,7 +2804,7 @@ def _state_decode(value: Any) -> Any:
 
 def acceptance_step_plan(args: argparse.Namespace) -> list[int]:
     """The canonical step order of `run` (build+OTA) or `resume` (reuse firmware)."""
-    firmware = [3, 5, 6] if args.command == "resume" else [2, 3, 4, 5]
+    firmware = [3, 5, 6] if args.command == "resume" else [2, 3, 4, 5, 6]
     return [0, 1, *firmware, *range(7, 37)]
 
 

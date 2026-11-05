@@ -37,6 +37,9 @@
 #include "trigger_sequence_service.h"
 #include "trigger_t2_runtime.h"
 #include "tdma_runtime_owner.h"
+#include "tdma_boot_plan.h"
+#include "tdma_boot_profile_store.h"
+#include "tdma_boot_sequence.h"
 #include "tdma_service_timing.h"
 #include "sync_io.h"
 #include "sync_io_reference.h"
@@ -57,6 +60,9 @@
 
 static bool s_app_ready;
 static bool s_app_control_plane_ready;
+static tdma_boot_plan_t s_boot_plan;
+static tdma_boot_step_t s_boot_steps[TDMA_BOOT_SEQUENCE_MAX];
+static size_t s_boot_step_count;
 
 #define APP_ANALYZER_STORAGE_SEGMENT_RECORDS 128u
 #define APP_ANALYZER_STORAGE_MAGIC 0x59414C53u /* SLAY */
@@ -421,6 +427,21 @@ bool app_init(void)
         return false;
     }
 
+    /* Single-port guide ring: load the durable boot profile once (v2 map) and
+     * freeze the local formation decision. Executing the step list is a
+     * separate boot stage; on the v1 map the store reports unsupported and the
+     * plan stays NONE (multi-port bring-up). */
+    (void)tdma_boot_profile_store_init();
+    tdma_boot_profile_t boot_profile;
+    if (tdma_boot_profile_store_get(&boot_profile)) {
+        tdma_boot_plan_decide(true, &boot_profile, boot_profile.node_count,
+                              boot_profile.local_slot, &s_boot_plan);
+    } else {
+        tdma_boot_plan_decide(false, NULL, 0u, 0u, &s_boot_plan);
+    }
+    s_boot_step_count = tdma_boot_sequence_build(
+        &s_boot_plan, s_boot_steps, TDMA_BOOT_SEQUENCE_MAX);
+
     if (!vdc_dpll_manager_init()) {
         diagnostics_mark_fault("vdc_dpll", "VDC/DPLL manager initialization failed");
         return false;
@@ -479,6 +500,26 @@ bool app_init(void)
 bool app_is_ready(void)
 {
     return s_app_ready;
+}
+
+bool app_guide_boot_plan_get(tdma_boot_plan_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    *out = s_boot_plan;
+    return true;
+}
+
+size_t app_guide_boot_steps_get(tdma_boot_step_t *out, size_t capacity)
+{
+    if (out == NULL || capacity < s_boot_step_count) {
+        return 0u;
+    }
+    for (size_t i = 0u; i < s_boot_step_count; i++) {
+        out[i] = s_boot_steps[i];
+    }
+    return s_boot_step_count;
 }
 
 bool app_is_control_plane_ready(void)

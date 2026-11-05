@@ -4,11 +4,197 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-10-26
+Last updated: 2026-11-05
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20261105-039 - P3 验收：run 的 stale-build 误判、resume 通过、工具修正
+
+- **首次 `run`**（build `20261105002955`）：OTA 四板 PASS、P0T/CLK/marker/TRN-00/01/02 全 OK，
+  但在 step 24（TDMA 过程镜像）第一句失败：`board build mismatch: expected 20261105002955;
+  四板=20261104164938`。
+- **根因（主会话 + 只读子代理独立取证一致）**：`validate_recorded_builds` 校验的是 **OTA summary**
+  的 `boards[].build_id`，而该值是 OTA **前**探测快照（`ota_multi_update.py:294/607/623` 从不回填）；
+  live 豁免依赖 `online_builds`，但 `acceptance_step_plan`（`workflow_steps.py:2807`）的 `run` 计划
+  是 `[2,3,4,5]`、**不含 step 6**，`phase_online_builds` 永不执行 → 豁免恒空 → 确定性误判。
+  四板实时 `SYSTem:FW:BUILD?` 全为 `20261105002955`，属"记录证据过期"，不是真回退。
+- **恢复**：`resume --package …/DHRT100_UPDATE.pkg --ota-summary …/ota-four-board/summary.json
+  --out-dir …/p3-082941-resume` → `reuse live build=20261105002955`，全套台架重跑，
+  **P3 graded PASS**（INFO 42 / WARN 0 / ERROR 0 / FATAL 0），receipt
+  `config/hardware_acceptance/p3_acceptance_receipt.json`，证据
+  `out/HardwareAcceptance/20261105/p3-082941-resume/`。
+- **工具修正**：`workflow_steps.py:2807` 的 `run` 计划补 step 6（`[2,3,4,5,6]`），避免下次 `run`
+  再因"记录证据过期"而在 step 24 误判；属 host 作用域，需 host 凭证。
+- **未覆盖**：本次 P3 为 quick diagnostic profile（`strict_gates_passed` 以 receipt 为准）；
+  未做 FULL bench、未跑 600 s soak。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-038 - WP-1 boot 载入接线（app_init + 双构建）
+
+- **改动**：`application/src/app.c` 在 `tdma_runtime_owner_init()` 之后调用
+  `tdma_boot_profile_store_init()`，有档则 `tdma_boot_plan_decide()`+`tdma_boot_sequence_build()`，
+  无档则显式 `NONE`；`application/inc/app.h` 新增只读访问器
+  `app_guide_boot_plan_get()` / `app_guide_boot_steps_get()`（执行序列是后续独立阶段，本次不 ARM/START）。
+- **构建验证**：v1 `pico2-lowrate4` 增量 **157/157**、`flash_link_contract=OK`；v2 候选
+  `v2-boot-candidate` 增量 **164/164**、四份 map 契约 OK。
+- **运行时语义**：v1 地图 store 返回 `UNSUPPORTED` → 计划 `NONE`（保持多口 bring-up）；
+  v2 地图 boot 时载入 profile 并冻结计划/步骤，但尚未执行 ARM/START（`LISTEN` 仍待 RX-join）。
+- **边界**：未上板；`app_guide_boot_*` 暂无 SCPI 出口，属代码级接线。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-037 - v2 候选固件构建通过（真实引导档 store 分支编入）
+
+- **配置**：`-DPROJECT_FLASH_DEPLOYMENT_MAP=v2_candidate -DPROJECT_FACTORY_MIGRATION_BUILD=ON
+  -DPROJECT_NODE_CAPACITY=4 -DPROJECT_OTA_SECURITY_COUNTER=1 -DPROJECT_OTA_SIGNING_KEY_ID=3506438145
+  -DPROJECT_OTA_KEY_PROFILE=v2_debug`（debug 私钥在 `out/keys/`，不入库）；目录
+  `out/build/v2-boot-candidate`。
+- **结果**：`cmake --build … -j 8` 完成 **1472/1472**，产出
+  `DHRT100_V2_CANDIDATE_FACTORY.uf2`（10028 blocks）；`flash_link_contract=OK` 覆盖 app A/B、
+  boot、recovery 四份 map；`flash_inventory`/`factory_region_report` 生成成功。
+- **意义**：`FLASH_DEPLOYMENT_MAP_HAS_TDMA_BOOT_PROFILE=1`，因此
+  `tdma_boot_profile_store.c` 的真实实现（双扇区、v2 子区 offset 4×erase）首次进入固件构建，
+  不再只有 host 分支。
+- **边界**：这是 **debug 签名**的 factory-migration 候选（非 release）；未上板、未跑 HIL；
+  `app.c` 尚未调用 store。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-036 - WP-1/B7 新模块进固件构建（CMake + flash 白名单）
+
+- **构建接线**：`CMakeLists.txt` 的 TDMA 源清单加入 `tdma_boot_profile.c`/`tdma_boot_profile_store.c`/
+  `tdma_boot_plan.c`/`tdma_boot_sequence.c`，calibration_manager 源清单加入 `calibration_stage_derive.c`。
+- **flash 白名单**：`config/flash_raw_call_allowlist.json` 新增
+  `components/tdma/src/tdma_boot_profile_store.c`（`xip_ptr`、`v1_product_nvs_calibration_compat`/
+  `v2_calibration_nvs`），与 calibration/seat-mount store 同形态；`flash_inventory` 的 raw-caller
+  drift 消除。
+- **构建证据**：`cmake --build out/build/pico2-lowrate4 -j 8` 完成 **214/214**，`build_id=20261105001036`，
+  `image_a_size=1111736`/`image_b_size=1111752`，`flash_link_contract=OK`（app A/B + boot 三份 map）。
+- **覆盖边界**：该构建是默认 **v1 compat** 地图，所以只编到 store 的 `UNSUPPORTED` 分支；v2 子区
+  分支（offset 4×erase 的真实 store）仍只有 host gcc 测试，未跑 v2 固件构建。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-035 - WP-1 自组步骤序列落地（纯函数 + host 测试）
+
+- **新增**：`components/tdma/inc/tdma_boot_sequence.h` 与 `src/tdma_boot_sequence.c`——把
+  `tdma_boot_plan_decide()` 的动作翻成有序本地步骤：
+  - `START_REF`：`SET_BRINGUP_NO_CAL → SET_BRINGUP_TOPOLOGY → STAGE_PROFILE → APPLY_PROFILE →
+    RING_ARM → RING_START`；
+  - `LISTEN`：同前五步，最后 `RING_LISTEN`（不启 TX）；
+  - `REJECT`：`STOP`；`NONE`：空。
+- **fail-closed**：容量不足时返回 0（不静默截断成"半启动"），空指针返回 0。
+- **验证**：`gcc -std=c11 -Wall -Wextra -Werror` 编译通过，`test_tdma_boot_sequence.c` 输出
+  `tdma boot sequence host tests passed`（6 步序、LISTEN 无 TX、REJECT/ NONE、容量与空指针负测）。
+- **未闭环**：序列尚未在 `app.c` boot 调用点执行；`RING_LISTEN` 需要 adapter 的 RX-join 支持
+  （N1=B 的实现项，未做）。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-034 - WP-1 引导档双扇区 store 落地（host 测试）
+
+- **新增**：`components/tdma/inc/tdma_boot_profile_store.h` 与 `src/tdma_boot_profile_store.c`——
+  v2 子区上的双扇区 NVS（scan/append/rotate/commit marker/写后重扫校验），记录用
+  `tdma_boot_profile`（32 B + CRC32）；v1 compat 编译分支显式返回 `UNSUPPORTED`。
+- **验证**：host 侧以 RAM 扇区 stub（`drv_flash_xip_ptr`/`drv_flash_is_erased`/
+  `flash_transaction_ao_execute`）+ 真实 `flash_store_nvs`/`flash_store_record`/`pota_crc32`
+  编译运行：v2 输出 `tdma boot profile store host tests passed`（空→commit→get、同代 append、
+  高代覆盖、旧代拒绝、20 次提交触发轮换后仍可读、re-init 回读）；v1 输出
+  `v1 compat: boot profile store unsupported`。两个 TU 均 `-Wall -Wextra -Werror`。
+- **已知取舍**：store 复用 `FLASH_TRANSACTION_REQUESTER_CALIBRATION`（同一 `CALIBRATION_NVS`
+  分区），专用 requester 与 flash 策略白名单待 flash 域评审。
+- **未闭环**：boot 载入与定序自组未接调用点；runner 未登记；未跑固件 CMake 构建。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-033 - WP-1 自组决策模块落地（N1=B 纯函数 + host 测试）
+
+- **新增**：`components/tdma/inc/tdma_boot_plan.h` 与 `src/tdma_boot_plan.c`——
+  `tdma_boot_plan_decide(has_profile, profile, expected_nodes, local_slot, out)`，输出四选一动作
+  （`NONE/START_REF/LISTEN/REJECT`）与原因码（`NO_PROFILE/BAD_PROFILE/NODE_MISMATCH/SLOT_MISMATCH`）。
+- **语义**（N1=B）：无档→不动（v1 compat 保持多口 bring-up）；coordinator（slot 0）arm+start；
+  其余 slot 先 RX 监听、等协调板帧；profile 与 expected_nodes/local_slot 不一致→REJECT，
+  不形成半环；非法记录→REJECT。
+- **验证**：`gcc -std=c11 -Wall -Wextra -Werror` 编译通过，`test_tdma_boot_plan.c` 输出
+  `tdma boot plan host tests passed`（覆盖 7 类输入 + 空输出指针）。
+- **未闭环**：决策尚未接 boot 调用点（`app.c` / TDMA owner）；store 与 flash 读写未接线；runner 未登记。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-032 - WP-1 v2 引导档子区定义与双图验证
+
+- **改动**：`config/flash_deployment_map.h` 在 v2 分支新增
+  `FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_*`（`CALIBRATION_NVS` 内、relative offset
+  4×erase、2 扇区）并加 static assert（不越过分区、不与 seat mount 重叠）；v1 compat 分支显式
+  定义 `HAS=0`、offset/size 全 0，表示"无引导档、保持多口 bring-up"。
+- **验证**：`tests/unit/test_flash_tdma_boot_profile_region.c` 分别在
+  `-DPROJECT_FLASH_DEPLOYMENT_V2=1` 与默认（v1 compat）下编译运行：v2 输出
+  `v2 boot profile region ok`（offset/size/分区/不重叠四条断言），v1 输出
+  `v1 compat: no boot profile region`。两个 TU 均以 `-Wall -Wextra -Werror` 通过。
+- **未闭环**：子区只定义了落点，双扇区 NVS store、boot 载入、定序自组尚未接线；未跑固件 CMake 构建。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-031 - WP-1 引导档记录模块落地（C 纯函数 + host 测试）
+
+- **新增**：`components/tdma/inc/tdma_boot_profile.h` 与 `src/tdma_boot_profile.c`——固定 32 B 记录
+  （version/profile_level/node_count/local_slot/flags/topology_crc32/generation + CRC32），
+  `encode/decode/valid` 三个入口；字段校验覆盖 level≠0、slot<node_count、node 2..8、flag 子集、
+  generation/topology 非零。
+- **验证**：`gcc -std=c11 -Wall -Wextra -Werror` 编译通过，`test_tdma_boot_profile.c` 运行输出
+  `tdma boot profile host tests passed`；含 roundtrip、单字节翻转拒收、七个字段负测、尺寸/空指针负测。
+- **未闭环**：双扇区 NVS store、v2 子区落点（`CALIBRATION_NVS` offset 4×erase）、boot 载入与定序自组
+  均未接线；与派生模块一样，正式 runner（`tools/tests/run_*.ps1` + registry/triage）仍待补。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-030 - R2b 派生模块落地（C 纯函数 + host 测试）
+
+- **新增**：`components/calibration_manager/inc/calibration_stage_derive.h` 与 `src/calibration_stage_derive.c`
+  ——`calibration_stage_derive_pio`（persona/clkdiv_q16/clk_sys/instruction_period/bit_cycles）、
+  `calibration_stage_link_base_delay_ns`、`calibration_stage_phase_delay_samples` 三个纯函数，
+  非法输入返回 false，不做静默截断。
+- **对齐 oracle**：数值逐项等于 `tests/python/test_cal_guide_derive_golden.py` 冻结的 golden 向量
+  （10/25/30 MHz 的 `273152/17`、`109312/7`、`91136/6`；base 160/162/164→80/81/82；
+  phase 80/4/0→20、+1→21、−1→19、81→20）。
+- **验证**：`gcc -std=c11 -Wall -Wextra -Werror` 编译通过，`test_calibration_stage_derive.c` 运行输出
+  `calibration stage derive host tests passed`。
+- **未闭环**：`tests/unit/test_calibration_stage_derive.c` 还没有正式的 runner（`tools/tests/run_*.ps1`），
+  需在 `tool_registry`/`tool_workflow_triage` 登记后才进 host 聚合；本轮是直接 gcc 编译验证。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
+## CAL-TASK-20261105-029 - 单口引导期三项裁定（B/1/R2b）与 R2b golden 向量
+
+- **裁定**：用户 2026-11-05 确认"可以，继续吧"，按建议组合冻结 **N1=B**（主从成环：协调板先发、
+  从板 RX-join、缺槽由 bitmap 判定）、**B9=1**（v2 地图 + factory migration；代码侧先做 v2 分支
+  引导档子区）、**B7=R2b**（紧凑 stage 104 B + 派生公式从 Python 移植到 C）。
+- **落点**：playbook §9.15 裁定记录、§9.1（B 规格 + 编队模型）、§9.2（B9=1）、§9.4/§9.12–§9.14
+  （R2b）、TODO `CAL-GUIDE-01/04` 转 `IN PROGRESS`。
+- **新增可执行守卫**：`tests/python/test_cal_guide_derive_golden.py`（3 用例）把 `pio_facts`
+  （level 7/8/9/20/21/22 的 persona/clkdiv/q16/instruction_period/bit_cycles）与 `link_base_delay_ns`、
+  `phase_delay_samples` 的期望值冻结为 golden 向量，作为 C 侧 `calibration_stage_derive` 移植的
+  对齐 oracle（C 实现必须复现同一组数值）。
+- **状态**：本轮只冻结决策与 golden 向量，未改固件；WP-1（引导档/自组）与 B7（派生移植）可开工。
+- **门禁**：docs_check 256 OK、doc_regression OK、含新向量在内 80 passed。
+
+## CAL-TASK-20261105-028 - 单口引导期流程（10 kHz 载体）规划与 HAOFV 双审
+
+- **范围**：最终形态只接协调板单口；10 kHz 4 节点低速 TDMA 作为引导期唯一跨板命令载体，
+  承担校准训练配置/触发/查询，并把 10 MHz 环所需 per-link staging 交给 `S` 段。流程文档
+  `docs/calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md`（Draft，未登记），任务行
+  `CAL-GUIDE-01..10` 见 [校准域待办](CALIBRATION_DOMAIN_TODO.md) §2.6。
+- **审查**：两份独立只读审查（HAOFV owner/实时；控制面/契约）均判 `REJECT`。合并后 9 项
+  `BLOCKER`、13 项 `MAJOR`：边跑边写 flash 的自指死锁；恢复失败不可恢复（默认档 10 MHz、
+  无 stage 时 ARM 被拒）；Δ 无派生下界且无 ARM 依据；T 为隐式广播（CP5）且发起方写目标事实
+  （CP2）；接受即返回后停环、ACK 无聚合（CP8）；目录缺 RING/OPMode/CAL 全部条目；
+  `param_words ≤ 16` 且全 inline 装不下 CAL LINK；无去重（CP7）；持久化绕过 idle 窗口且与
+  `REFTMEM-PERSIST-01` 冲突。逐条处置与证据见
+  [核验提交单](../check/submissions/CALIBRATION_GUIDE_CROSS_REVIEW_01.md)。
+- **v2 修订**：C 拆为"环上 RAM staging + STOP 本地 commit"；T 改为目录内命令 + 显式掩码 +
+  三元组去重 + required 全 ACK 才停环；恢复改为"持久化开机 10 kHz 引导档 + 定序自组"
+  （`BRINGUP_NO_CAL`），Q 开机可答；Δ 逐节点派生 + ARM 有界窗口（明确不是握手证明）；
+  inject 归 core1 定时；Q 记录绑定 build/topology/profile/schedule/calibration 与逐 trial
+  字段并带 age/stale；新增 `S` 段做 staging/ARM gate；不新增代际、不新开契约 id（复用
+  `CONSOLE-FLOW-01`、`REFMEM-CTRL-01` 增量、`CALIBRATION-PHASE-01`）。
+- **未闭环（复审前不得当事实引用）**：10 kHz 作为"引导期唯一载体"的 TDMA 条款原文；ring status
+  进 REFMEM mirror 的读数面；`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` §8/§10 逐行条文；
+  10 kHz 相位 WCET/迟到/IRQ 与 SD 写时延均无实测；C4/C5 未闭合，单口必接协调者板。
+- **提交**：无代码改动；本批仅文档（playbook + 核验单 + TODO §2.6 + 本条）。下一 gate 是
+  v2 独立复审（C11），通过后才允许登记任何条款。
 
 ## CAL-TASK-20261026-027 - 校准 SCPI 命令拆分（N5.0.4c）
 

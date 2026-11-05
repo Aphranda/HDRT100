@@ -70,6 +70,27 @@ _Static_assert(FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_RELATIVE_OFFSET + \
                    FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_SIZE <= \
                FLASH_MAP_CALIBRATION_NVS_SIZE,
                "Seat mount store must fit the calibration NVS partition");
+
+/* TDMA boot profile store (v2 map only): the single-port guide ring needs a
+ * durable profile (10 kHz level, node count, local slot, BRINGUP_NO_CAL,
+ * topology identity) so a board can rebuild the guide ring after power-up
+ * without any cross-board command. Two erase sectors, same rotation pattern as
+ * the calibration and seat-mount stores. The v1 compatibility map has no
+ * calibration partition, so it reports "no boot profile" instead. */
+#define FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_PARTITION_ID \
+    FLASH_MAP_CALIBRATION_NVS_ID
+#define FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_OFFSET \
+    FLASH_MAP_CALIBRATION_NVS_OFFSET
+#define FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_RELATIVE_OFFSET \
+    (4u * FLASH_GEOMETRY_ERASE_SIZE_BYTES)
+#define FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_SIZE \
+    (2u * FLASH_GEOMETRY_ERASE_SIZE_BYTES)
+#define FLASH_DEPLOYMENT_MAP_HAS_TDMA_BOOT_PROFILE 1u
+_Static_assert(FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_RELATIVE_OFFSET + \
+                   FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_SIZE <= \
+               FLASH_MAP_CALIBRATION_NVS_SIZE,
+               "TDMA boot profile store must fit the calibration NVS partition");
+
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_ID FLASH_MAP_SCRATCH_ID
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_OFFSET FLASH_MAP_SCRATCH_OFFSET
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_SIZE FLASH_MAP_SCRATCH_SIZE
@@ -148,6 +169,17 @@ _Static_assert(FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_RELATIVE_OFFSET + \
                    FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_SIZE <= \
                FLASH_COMPAT_MAP_SEAT_MOUNT_SIZE,
                "Seat mount store must fit its own partition");
+
+/* The deployed v1 compatibility map has no calibration partition and no free
+ * erase sectors, so the TDMA boot profile store does not exist there. The
+ * guide ring keeps its multi-port bring-up on v1 and self-forms only after the
+ * v2 factory migration. */
+#define FLASH_DEPLOYMENT_MAP_HAS_TDMA_BOOT_PROFILE 0u
+#define FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_PARTITION_ID 0u
+#define FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_OFFSET 0u
+#define FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_RELATIVE_OFFSET 0u
+#define FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_SIZE 0u
+
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_ID FLASH_COMPAT_MAP_SCRATCH_ID
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_OFFSET FLASH_COMPAT_MAP_SCRATCH_OFFSET
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_SIZE FLASH_COMPAT_MAP_SCRATCH_SIZE

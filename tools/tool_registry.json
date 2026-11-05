@@ -4582,18 +4582,6 @@
           "role": "test_runner"
         },
         {
-          "path": "tools/tests/run_refmem_bootstrap_hello_tests.ps1",
-          "role": "test_runner"
-        },
-        {
-          "path": "tools/tests/run_refmem_bootstrap_relay_tests.ps1",
-          "role": "test_runner"
-        },
-        {
-          "path": "tools/tests/run_refmem_bootstrap_transport_tests.ps1",
-          "role": "test_runner"
-        },
-        {
           "path": "tools/tests/run_refmem_cmd_codec_tests.ps1",
           "role": "test_runner"
         },

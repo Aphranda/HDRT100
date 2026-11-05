@@ -3,8 +3,8 @@
 Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
-Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-10
+Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
+Last updated: 2026-11-05
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -249,6 +249,34 @@ TRN-00A..D
 在 `TRN-00D` 通过前不得开始 SCK/DATA 时隙收敛；在 `TRN-01B` 和 `TRN-02D`
 通过前不得 ARM 四板 TDMA；
 在 `TRN-03C` 通过前不得向 VDC/DPLL 发布 active calibration。
+
+### 2.6 单口引导期（10 kHz 载体）
+
+最终产品形态只接协调板单口。10 kHz 4 节点低速 TDMA 作为引导期唯一跨板命令载体，完成
+校准训练并把 10 MHz 环所需的 per-link staging 交给 `S` 段。流程与跨域边界见
+[单口引导期校准流程](../calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md)（Draft，未登记）；
+v1 方案经两份独立只读审查判 `REJECT`，结论与逐条处置见
+[核验提交单](../check/submissions/CALIBRATION_GUIDE_CROSS_REVIEW_01.md)。
+
+该路径不改变 §2.4/§2.5 的训练门禁，也不替代 `TRN-03C` 的 active candidate 条件；它只定义
+"命令面在 10 kHz、测量面在环外、编排在单口"这一执行形态。
+
+| ID | 任务 | 状态 | 完成/退出门禁 |
+|---|---|---|---|
+| CAL-GUIDE-01 | 五段语义（C/T/R/Q/S）、失败归属与维护窗口定位冻结 | `IN PROGRESS` | playbook 经独立复审（C11）；"维护窗口"与 `REFMEM-CTRL-01` 不停机前提不混写。**裁定已给（2026-11-05）：N1=B、B9=1、B7=R2b** |
+| CAL-GUIDE-02 | C 段只做 RAM staging（目标本地 owner 解析 + ACK，不写 flash） | `PENDING` | host 用例 + 四板 ACK；环运行期无 flash 事务 |
+| CAL-GUIDE-03 | T 段目录内命令：显式 `target_mask/required_mask`、目标自置 pending、`(boot_id,seq,target)` 去重 | `PENDING` | 零掩码拒绝；重传只回既有终态；required 未全 ACK 不得停环 |
+| CAL-GUIDE-04 | 开机 10 kHz 引导档持久化与定序自组（10 kHz + `BRINGUP_NO_CAL` + bring-up topology） | `IN PROGRESS` | 拔口上电自组；半环拒绝；掉电重载；P3。**B9=1（v2 地图 + factory migration）已裁定，代码侧按 v2 分支实现** |
+| CAL-GUIDE-05 | Δ 逐节点派生 + ARM 窗口 + core1 定时 inject | `PENDING` | Δ 由 WCET/guard 派生（非常量）；超窗 trial 记 FAIL；core0 不注入时序 |
+| CAL-GUIDE-06 | Q 完成记录：身份（build/topology/profile/schedule/calibration）+ 逐 trial 字段 + age/stale，单 writer + seqlock | `PENDING` | 缺字段即 FAIL；stale 负测；host 用例 |
+| CAL-GUIDE-07 | 单口读回：CAL/ring 快照进 typed mirror 行 | `PENDING` | 单口读四板；stale 显式；不读取不透明 buffer 当事实 |
+| CAL-GUIDE-08 | S 段：STOP 下逐 link staging + generation/CRC/freshness 校验 + ARM 门禁 | `PENDING` | 缺任一 link 整轮 STOPPED；10 MHz 起环；P3 |
+| CAL-GUIDE-09 | 目录 7 类（RING STOP/ARM/START/BRINGup/TRAIN、OPMode）+ `allowed_states/required_capabilities/idempotent` 执行侧校验 + `param_kind: ref` | `PENDING` | 目录版本 + 负测；`CAL_START` 等既有枚举补目录行 |
+| CAL-GUIDE-10 | 10 kHz 相位 WCET/迟到/IRQ 实测；SD 写时延上界 | `PENDING` | 同源码实测；`T_trial` ≥ 锁存 + 落盘上界，否则不得开启 R 段 |
+
+**批次。** B1 文档（本表 + playbook + 核验单）；B2 `CAL-GUIDE-04`（TDMA 域）；B3
+`CAL-GUIDE-03/09`（REFMEM 域）；B4 `CAL-GUIDE-02/05/06`（CAL 域）；B5 `CAL-GUIDE-07`（REFMEM/CONSOLE）；
+B6 `CAL-GUIDE-08/10` 与四板拔三口验收。B2/B3 文件域不相交可并行，B4 依赖两者，B6 是唯一总门禁。
 
 ## 三、P0T 线序与环路顺序校准
 

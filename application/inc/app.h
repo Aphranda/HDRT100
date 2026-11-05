@@ -5,6 +5,8 @@
 #include <stdint.h>
 
 #include "app_realtime_schedule.h"
+#include "tdma_boot_plan.h"
+#include "tdma_boot_sequence.h"
 
 #define APP_REALTIME_SCHEDULE_VERSION 3u
 #define APP_REALTIME_LOAD_COUNT 8u
@@ -81,6 +83,11 @@ bool app_realtime_get_priority_snapshot(app_realtime_priority_snapshot_t *snapsh
 
 bool app_init(void);
 bool app_is_ready(void);
+/* Boot-time guide-ring decision captured during app_init: the stored boot
+ * profile (v2 map only) is loaded once and turned into a local step list.
+ * Execution is a separate step; this accessor only exposes what was decided. */
+bool app_guide_boot_plan_get(tdma_boot_plan_t *out);
+size_t app_guide_boot_steps_get(tdma_boot_step_t *out, size_t capacity);
 void app_tdma_record_service(void);
 bool app_tdma_record_copy(uint32_t offset, uint8_t *data, uint32_t size);
 bool app_is_control_plane_ready(void);

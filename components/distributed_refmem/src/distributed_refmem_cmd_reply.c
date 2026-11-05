@@ -123,11 +123,19 @@ void distributed_refmem_cmd_reply_service(void)
     if (snapshot.command_seq == 0u) {
         s_cmd_reply_last_seq = 0u;
         s_cmd_reply_last_complete = 0u;
+        /* An idle local record must not leave the previous command's replies
+         * latched: the next command would fold them in as stale forever. */
+        memset(s_cmd_reply_rx, 0, sizeof(s_cmd_reply_rx));
         return;
     }
     if (s_cmd_reply_last_seq != snapshot.command_seq) {
         s_cmd_reply_last_seq = snapshot.command_seq;
         s_cmd_reply_last_complete = 0u;
+        /* Replies belong to one command generation. Keeping the previous
+         * command's snapshot makes the aggregate re-reject it as stale on
+         * every service pass (observed as stale_count in the tens of
+         * thousands for a single misplaced reply). */
+        memset(s_cmd_reply_rx, 0, sizeof(s_cmd_reply_rx));
     }
     if (s_cmd_reply_last_complete != 0u) {
         return;

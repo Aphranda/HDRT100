@@ -16,10 +16,6 @@ scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_cmd_submit(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_cmd_submit_type(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_arm(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_disarm(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_status_q(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_bootstrap_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_cmd_drop(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_lease_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_idle_window(scpi_t *context);
@@ -284,10 +280,6 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:CMD:SUBmit", .callback = scpi_cmd_refmem_cmd_submit}, \
     {.pattern = "SYSTem:REFMEM:CMD:SUBmit:TYPe", .callback = scpi_cmd_refmem_cmd_submit_type}, \
     {.pattern = "SYSTem:REFMEM:CMD:STATus?", .callback = scpi_cmd_refmem_cmd_status_q}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:ARM", .callback = scpi_cmd_refmem_sync_spi_arm}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:DISarm", .callback = scpi_cmd_refmem_sync_spi_disarm}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:STATus?", .callback = scpi_cmd_refmem_sync_spi_status_q}, \
-    {.pattern = "SYSTem:REFMEM:BOOTstrap:STATus?", .callback = scpi_cmd_refmem_bootstrap_status_q}, \
 {.pattern = "SYSTem:REFMEM:CMD:DROP", .callback = scpi_cmd_refmem_cmd_drop}, \
 {.pattern = "SYSTem:REFMEM:LEASE?", .callback = scpi_cmd_refmem_lease_q}, \
 {.pattern = "SYSTem:REFMEM:IDLE:WINDow", .callback = scpi_cmd_refmem_idle_window}, \

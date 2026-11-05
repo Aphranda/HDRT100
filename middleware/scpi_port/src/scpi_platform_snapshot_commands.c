@@ -24,7 +24,6 @@
 #include "project_build_info.h"
 #include "refmem_application_model.h"
 #include "refmem_pio_spi_adapter.h"
-#include "refmem_bootstrap_transport.h"
 #include "refmem_quality.h"
 #include "refmem_spi_physical_adapter.h"
 #include "refmem_slot_claim.h"
