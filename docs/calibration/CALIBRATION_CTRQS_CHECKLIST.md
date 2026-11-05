@@ -45,6 +45,10 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 | `e18429a9` | T 段扇出、窗口自恢复、TOPO/ARM 重试（**R/Q 实板闭环**） |
 | `f6bff624` | S 提交门：会话关闭来源、动作成功门、代数幂等 |
 | `4df276da` | 七动作阶梯状态：顺序约束、COMPLETE 推进、拒绝留痕 |
+| `542dcc0c` | 环 STOP 节流（`config_seq` 每调用递增，1 ms 每拍 STOP 使静默屏障永不成立）+ P2 窗口骨架 |
+| `dab5e8b6` | `calibration_manager_restore_training_stage()`（从持久 store 重 stage）+ P2 prep 同序 clear |
+| `21d50a37` | coded 请求共享 epoch（C 段 `plan.generation`）+ P2 全拆环门 + follower 接受判据 |
+| `aca13990` | 引导窗口每次 TOPO 后重设 `TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE`（P1/P2/REBUILD） |
 
 ## 4. 现状（2026-11-06 03:10 快照，非事实源）
 
@@ -65,6 +69,20 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 - P2–T3 的 R 段 trial body（当前只有 P1 已实现）；七动作全链；T3 的 S 后 `ARM → START 10 MHz`。
 - 参考板窗口偶发 FORWARD 超时（约半数轮次之一），自恢复后可重触发；根因未定位。
 
+**2026-11-06 04:55 追加快照**：
+
+- 已修：P2_STOP 每拍 STOP 的 `config_seq` 抖动（`542dcc0c`）；P2 prep 的 stage clear 与窗口复环
+  并存（`dab5e8b6`）；四板 coded 身份不一致（`21d50a37`）。
+- 已实证：P2 能进入 coded 测量（state=P2_WAIT），但参考板 `reject_reason=262`（MANCHESTER）、
+  `best_distance=3210`（=6420/2，平线特征）、`margin=0`；follower 的 `program_persona` 在窗口内
+  仍为 13（`FLIGHT_PROCESS_FOLLOWER`），不是 `CLOCK_CODED(4)`；同一 build 上 host 工具
+  `calibration_clk_coded.py` 仍 accepted（best_lag 101、margin 486）。
+- 已发现：§1 规定引导环是 **10 kHz 低速环**，而此前 P1/P2 的 C 段用了 level 7（10 MHz）；
+  level 23（10 kHz）经 `OPMode:STAGe/APPLy` 可应用，但四板 `RING:ARM` 全 `-200`——标准环路径
+  要求与档位匹配的校准 stage（10 kHz 的 TRN-00 矩阵尚未生成）。
+- 已实证：`RING:TOPology` 会重建 staged config 并清掉 `DIAGNOSTIC_CONTINUE`；手工起环要按
+  `STOP → TOPO → DIAGnostic 1 → ARM → START`，且该 flag 只容忍“警告级”相位准入，裕量不足的板仍会 `-200`。
+
 ## 5. 阻塞点状态
 
 1. **B1（inline 参数丢失）——已解决**：`a9fbe9ca` 把 C/T 改走
@@ -78,6 +96,13 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
    `calibration_generation` 与当前 stage 相同则 SKIP。
 4. **残余**：参考板窗口偶发 FORWARD 超时（`reason=TIMEOUT`，trials=0），跟随板正常；
    窗口自恢复成功后可重触发。未定位确定性根因，按残余记录。
+5. **B4（低速引导环未接通）——未解决**：§1 的 10 kHz 引导环尚未与标准环路径匹配：
+   level 23 可 apply，但 `RING:ARM` 四板全 `-200`；需要 10 kHz 档位对应的校准 stage
+   （TRN-00/01/02/03 at level 23）或让 `set_tdma_ring_topology` 接受低速率档。当前 P1/P2
+   窗口用 level 7（10 MHz），与“仅 T3 的 S 可起 10 MHz”冲突，需在 C 段档位与窗口档位一并修正。
+6. **B5（P2 coded DATA 回路）——未解决**：参考板捕获为平线（MANCHESTER 拒绝），follower 的
+   `program_persona` 停在 13；coded first-stage 只重编程 SCK 转发，DATA/CS 不在该路径。
+   下一步需读 phys 原始快照或按 §7.4 开只读子代理定位 DATA 引脚归属/转发路径。
 
 ### 5.1 历史：B1 交叉排查结论（保留供追溯）
 
@@ -88,10 +113,12 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 
 ## 6. 下一步
 
-1. **P2 trial body**：按 C 段 `candidates[]` 驱动 coded marker 的 R 段（复用
-   `calibration_manager_*` 训练原语与窗口原语，不新建相位机/存储），Q/S 复用现有路径。
-2. P2 通过后逐动作推进 P3 → T0 → T1 → T2 → T3；只有 T3 的 S 允许 `ARM → START 10 MHz`。
-3. 每次 P3 前确认四板 `SYST:FW:BUILD?` 一致；窗口偶发超时先重触发一次再归因。
+1. **B4 先行**：接通 10 kHz 低速引导环（生成 level 23 的校准 stage，或让标准环路径接受
+   低速档），并让 C 段的 `level` 固定为引导档；P1/P2 窗口随之改用引导档，10 MHz 只留 T3 的 S。
+2. **B5**：修复 coded 的 DATA 回路（先读 phys persona/引脚归属，再决定是否在 P2 prep 显式
+   释放/切换 persona），让 P2 参考板 `capture` 非平线且 `margin>0`。
+3. P2 通过后逐动作推进 P3 → T0 → T1 → T2 → T3；只有 T3 的 S 允许 `ARM → START 10 MHz`。
+4. 每次 P3 前确认四板 `SYST:FW:BUILD?` 一致；窗口偶发超时先重触发一次再归因。
 
 命令形状（C 段参数必须逗号分隔）：
 
@@ -112,6 +139,8 @@ commit_ok、ladder_index、ladder_step）。
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
+- `RING:TOPology` 会清掉 `DIAGNOSTIC_CONTINUE`；台架诊断起环顺序是
+  `STOP → TOPO → DIAGnostic 1 → ARM → START`。该 flag 只容忍警告级相位准入，裕量不足仍 `-200`。
 - 窗口自恢复不依赖 boot plan（bench 镜像 `BOOT:PLAN?` 首字段为 0）；恢复用捕获的
   `node_count/local/reference` 走同一组 TOPO/ARM/START。
 - 工具侧 STOP 合成串（`OK(no payload; verified by state readback)`）只在新鲜停止态读回后接受；
