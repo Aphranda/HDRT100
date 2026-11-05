@@ -1048,6 +1048,16 @@ C→T→R→Q→S**；环在动作之间保持 10 kHz，只有 R 段进暗窗，
 | **Q** | 重放冻结 boot 步骤复环 10 kHz，逐板发布该动作的身份 + 逐 trial 字段（带 age/stale） | 身份缺失或 stale → 该动作 FAIL |
 | **S** | 该动作结果通过校验后变成可 ARM 的 staging（T3 的 stage 即由此而来）；**只有最后一个动作的 S** 才 `ARM → START 10 MHz` | 校验不过 → 保留上一份 staging，回到 10 kHz |
 
+**S 段即固化（2026-11-05 用户要求）**：每个动作 Q 通过后，**立刻把它自己的参数写进 flash**
+（`calibration_training_store_commit`，带 `record_generation`/`calibration_generation`/`topology_generation`
+与 CRC），而不是等整条链跑完才写一次。这样：
+
+- 断口/断电后重跑，已完成的动作可以直接复用，不必从 P1 重来（配合 §9.25 的"上一动作 Q 不通过不进下一动作"）；
+- 每个动作的写入是**一次**（幂等键 = 动作 id + 计划 CRC），重跑同一动作不会重复磨损 flash；
+- 固化失败（写校验不过）⇒ 该动作 FAIL，generation 不前进，staging 保持上一份；
+- 只有 T3 的 S 在固化后额外允许 `ARM → START 10 MHz`。
+
+
 **执行器形状**：一个通用 `guide_action_runner`，输入 `(action_id, plan_ref, epoch)`，
 按 `C→T→R→Q→S` 五个阶段推进，每阶段有**完成条件 + 超时 + reason**；动作表是数据
 （类似 `k_guide_phase_ms`），不是五段各自写死。M1 扫描的暗窗原语（`STOP→配置→等 applied→
