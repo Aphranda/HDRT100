@@ -3403,6 +3403,11 @@ def phase_topology(run: AcceptanceRun) -> None:
     build_id = run.get("build_id")
     topology_reuse_source = run.state.get("topology_reuse_source")
     topology_dir = out_dir / "p0t-topology"
+    # P0T probes pairs while the ring is idle; a read that needs more than one
+    # second means the command plane is starved (busy board), not "slow line".
+    # Keep this independent from the global serial timeout so a busy board is
+    # classified quickly instead of being masked by the 3 s default.
+    topology_timeout_s = 1.0
     topology_command = [
         sys.executable,
         str(root / "tools/calibration_ring_validate/calibration_ring_topology.py"),
@@ -3420,6 +3425,9 @@ def phase_topology(run: AcceptanceRun) -> None:
     if topology_reuse_source is None:
         print("Hardware acceptance: P0T line order and NO assignment", flush=True)
         add_serial_timing(topology_command, timing, action=True, gap=True)
+        if "--timeout" in topology_command:
+            topology_command[topology_command.index("--timeout") + 1] = str(
+                topology_timeout_s)
         _run_step(topology_command, root, out_dir / "topology.log")
     else:
         print("Hardware acceptance: reuse measured line order; read current UID/build/NO", flush=True)
