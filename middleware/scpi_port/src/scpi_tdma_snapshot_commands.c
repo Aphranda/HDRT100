@@ -687,29 +687,13 @@ scpi_result_t scpi_cmd_system_tdma_guide_config(scpi_t *context)
         scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
         return SCPI_RES_ERR;
     }
-    refmem_command_request_t request;
-    memset(&request, 0, sizeof(request));
-    request.command_seq = plan_crc32 != 0u ? plan_crc32 : 1u;
-    request.source_node = 0u;
-    request.target_mask = target_mask;
-    request.required_mask = target_mask;
-    request.command_type = REFMEM_COMMAND_TYPE_CAL_GUIDE_CONFIG;
-    request.command_class = REFMEM_COMMAND_CLASS_CALIBRATION;
-    request.payload_kind = REFMEM_COMMAND_PAYLOAD_INLINE_SMALL;
-    request.payload_size = (uint32_t)sizeof(params);
-    request.payload_crc32 = refmem_param_pool_crc(params, sizeof(params));
-    request.issue_epoch = generation;
-    if (!distributed_refmem_command_try_post(&request, osal_tick_ms())) {
-        scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
-        return SCPI_RES_ERR;
-    }
-    /* The ring carries the command to the other nodes; the local node applies it
-     * directly because the RefMem node-control record does not preserve the
-     * inline parameter words (the mirror writes params=NULL), so the local
-     * dispatch would otherwise see zeros. */
-    uint32_t reason = (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
-    if (!refmem_domain_config_dispatch(REFMEM_COMMAND_TYPE_CAL_GUIDE_CONFIG,
-                                       params, GUIDE_ACTION_PLAN_WORDS, &reason)) {
+    /* Canonical unified-control path: the catalog entry (id 50, 16 inline words)
+     * is validated and submitted by refmem itself, which carries the words in the
+     * command frame/fragments instead of relying on the node-control mirror. */
+    uint32_t command_seq = 0u;
+    if (!distributed_refmem_control_submit(50u, target_mask, target_mask, params,
+                                           (uint16_t)GUIDE_ACTION_PLAN_WORDS,
+                                           &command_seq)) {
         scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
         return SCPI_RES_ERR;
     }
@@ -725,36 +709,21 @@ scpi_result_t scpi_cmd_system_tdma_guide_trigger(scpi_t *context)
         return SCPI_RES_ERR;
     }
     const uint32_t target_mask = cal_guide_target_mask();
-    const uint32_t params[2] = {action_id, epoch};
     if (target_mask == 0u) {
         scpi_port_push_exec_error(context, "TDMA_GUIDE_TRIGGER");
         return SCPI_RES_ERR;
     }
-    refmem_command_request_t request;
-    memset(&request, 0, sizeof(request));
-    request.command_seq = epoch != 0u ? epoch : 1u;
-    request.source_node = 0u;
-    request.target_mask = target_mask;
-    request.required_mask = target_mask;
-    request.command_type = REFMEM_COMMAND_TYPE_CAL_GUIDE_TRIGGER;
-    request.command_class = REFMEM_COMMAND_CLASS_CALIBRATION;
-    request.payload_kind = REFMEM_COMMAND_PAYLOAD_INLINE_SMALL;
-    request.payload_size = (uint32_t)sizeof(params);
-    request.payload_crc32 = refmem_param_pool_crc(params, sizeof(params));
-    request.issue_epoch = epoch;
-    if (!distributed_refmem_command_try_post(&request, osal_tick_ms())) {
-        scpi_port_push_exec_error(context, "TDMA_GUIDE_TRIGGER");
-        return SCPI_RES_ERR;
-    }
-    uint32_t reason = (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
-    if (!refmem_domain_config_dispatch(REFMEM_COMMAND_TYPE_CAL_GUIDE_TRIGGER,
-                                       params, 2u, &reason)) {
+    /* Same canonical path as C: catalog entry 51 validates the two words and
+     * refmem carries them; the local node gets them through the frame loopback. */
+    const uint32_t params[2] = {action_id, epoch};
+    uint32_t command_seq = 0u;
+    if (!distributed_refmem_control_submit(51u, target_mask, target_mask, params,
+                                           2u, &command_seq)) {
         scpi_port_push_exec_error(context, "TDMA_GUIDE_TRIGGER");
         return SCPI_RES_ERR;
     }
     return scpi_port_result_ok(context);
 }
-
 scpi_result_t scpi_cmd_system_tdma_guide_plan_q(scpi_t *context)
 {
     app_cal_guide_snapshot_t snapshot;
