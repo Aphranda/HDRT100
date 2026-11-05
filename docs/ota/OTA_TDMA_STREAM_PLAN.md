@@ -1,3 +1,11 @@
+# TDMA 流式 OTA 里程碑计划（M5）
+
+Status: Draft
+Domain: OTA
+Canonical: `docs/ota/OTA_TDMA_STREAM_PLAN.md`
+Related: `docs/ota/OTA_V2STREAM_PLAYBOOK.md`, `docs/ota/OTA_TODO.md`, `docs/check/DOCS_REGISTRY.md`
+Last updated: 2026-10-29
+
 ## TDMA 流式 OTA 里程碑（M5，2026-10-29 重新规划：决策门 + 台架夜次）
 
 ### 0. 目标与非目标

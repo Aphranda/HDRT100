@@ -111,9 +111,11 @@ docs/
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 域 owner、OtaAO/OtaFB/OtaVector、BCB selection 和 Boot 交接；跨域 Flash 语义服从 `arch/HAOFV_FLASH_ARCHITECTURE.md`。 |
 | OTA/OPS | `ota/OTA_OPERATIONS_PLAYBOOK.md` | OTA 日常操作：单板/四板刷写、失败分类、恢复与证据留档。 |
+| OTA | `ota/OTA_TDMA_STREAM_PLAN.md` | TDMA 流式 OTA（M5）里程碑计划：目标/前提、三个决策门、夜次编排、任务表与硬门禁（2026-10-29 重规划，Draft）。 |
 | SD | `storage/SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
 | LOG | `storage/LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |
 | SCPI | `interface/SCPI_COMMANDS.md` | SCPI 命令语义、兼容性和用户可调用接口入口。 |
+| SCPI | `interface/SCPI_INTERFACE_COMMANDS.md` | SCPI 指令面机械导出清单（813 条 / 28 域，按域-功能-参数归类），含命名一致性审查与接口缺陷记录（Draft）。 |
 | USB | `interface/SCPI_USB_INTERFACE_DESIGN.md` | USB CDC、USBTMC/USB488、VISA 枚举和供电描述符策略。 |
 
 ## 进度记录路由

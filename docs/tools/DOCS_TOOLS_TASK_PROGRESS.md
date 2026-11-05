@@ -12,6 +12,15 @@ Last updated: 2026-11-05
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261105-019：out/ 两份已入库草稿迁入 docs/
+
+- TODO task ID：`TOOLS-CHECK-001`。用户 2026-11-05 决定：「迁移到 docs」（取代 018 里"维持现状"的残余）。
+- `out/scpi_catalog_draft.md` → `docs/interface/SCPI_INTERFACE_COMMANDS.md`：该文档自身的 `Canonical` 本来就指向这个路径，属归位；正文未改。
+- `out/ota_tdma_section.md` → `docs/ota/OTA_TDMA_STREAM_PLAN.md`：补 H1 与 5 字段元数据（Draft / OTA / Canonical / Related / Last updated），正文原样。
+- **索引**：`docs/README.md` 增加 `SCPI`、`OTA` 两行；docs 语料 256→258。
+- **验证**：`docs_check --strict-names` 258 files OK；`doc_regression` PASS；`out/` 顶层不再有 `.md` 草稿（只剩 `README.md`，standards 目录不受影响）。
+- **残余**：两份文档 `Status: Draft` 未冻结（内容复核后才能转 Active，需 C11）。
+
 ### TOOLS-PROGRESS-20261105-018：out/ 只做本地证据——补 .gitignore 漏口并归档 agent 草稿
 
 - TODO task ID：`TOOLS-CHECK-001`。用户 2026-11-05 规则：**out/ 是本地证据位置，不可保存需要云端同步的文件**。
