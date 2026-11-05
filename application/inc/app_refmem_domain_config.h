@@ -26,6 +26,20 @@ bool app_cal_guide_publish_progress(const guide_action_progress_t *progress,
                                     uint32_t epoch);
 bool app_cal_guide_read_progress(guide_action_progress_t *progress, uint32_t epoch);
 
+/* Read-only view of the staged plan and trigger, for the single-port readback. */
+typedef struct {
+    bool plan_valid;
+    bool trigger_pending;
+    uint32_t action_id;
+    uint32_t plan_crc32;
+    uint32_t generation;
+    uint32_t profile_level;
+    uint32_t window_ms;
+    uint32_t trial_count;
+    uint32_t trigger_epoch;
+} app_cal_guide_snapshot_t;
+bool app_cal_guide_snapshot(app_cal_guide_snapshot_t *snapshot);
+
 #ifdef __cplusplus
 }
 #endif

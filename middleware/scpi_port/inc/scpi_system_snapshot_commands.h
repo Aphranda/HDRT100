@@ -207,6 +207,9 @@ scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_rx_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_local(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_topology(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_guide_config(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_guide_trigger(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_guide_plan_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_loop_delay(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_loop_delay_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_diagnostic(scpi_t *context);
@@ -554,6 +557,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:FLIGHT:RX?", .callback = scpi_cmd_system_tdma_flight_rx_q}, \
     {.pattern = "SYSTem:TDMA:RING:LOCAL", .callback = scpi_cmd_system_tdma_ring_local}, \
     {.pattern = "SYSTem:TDMA:RING:TOPology", .callback = scpi_cmd_system_tdma_ring_topology}, \
+    {.pattern = "SYSTem:TDMA:GUIDE:CONFig", .callback = scpi_cmd_system_tdma_guide_config}, \
+    {.pattern = "SYSTem:TDMA:GUIDE:TRIGger", .callback = scpi_cmd_system_tdma_guide_trigger}, \
+    {.pattern = "SYSTem:TDMA:GUIDE:PLAN?", .callback = scpi_cmd_system_tdma_guide_plan_q}, \
     {.pattern = "SYSTem:TDMA:RING:LOOP:DELay", .callback = scpi_cmd_system_tdma_ring_loop_delay}, \
     {.pattern = "SYSTem:TDMA:RING:LOOP:DELay?", .callback = scpi_cmd_system_tdma_ring_loop_delay_q}, \
     {.pattern = "SYSTem:TDMA:RING:DIAGnostic", .callback = scpi_cmd_system_tdma_ring_diagnostic}, \

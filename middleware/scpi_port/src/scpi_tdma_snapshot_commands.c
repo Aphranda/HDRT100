@@ -7,6 +7,9 @@
 #include <string.h>
 
 #include "app.h"
+#include "app_refmem_domain_config.h"
+#include "guide_action_plan.h"
+#include "refmem_param_pool.h"
 #include "diagnostics_tdma_record.h"
 #include "pico/time.h"
 #include "board_config.h"
@@ -633,6 +636,126 @@ scpi_result_t scpi_cmd_system_tdma_ring_topology(scpi_t *context)
     return SCPI_RES_ERR;
 }
 
+/* Guide ladder C/T from the single port: post CAL_GUIDE_CONFIG / CAL_GUIDE_TRIGGER
+ * through the same REFMEM command plane the coordinator uses, so the host does
+ * not need a second control path. */
+static uint32_t cal_guide_target_mask(void)
+{
+    /* The guide ring has exactly the boot-profile node count, so the C/T mask is
+     * the guide ladder's node count - not whatever the running ring reports. */
+    const uint32_t nodes = (uint32_t)PROJECT_TDMA_GUIDE_NODES;
+    if (nodes == 0u || nodes > 32u) {
+        return 0u;
+    }
+    return nodes >= 32u ? 0xFFFFFFFFu : (((uint32_t)1u << nodes) - 1u);
+}
+
+scpi_result_t scpi_cmd_system_tdma_guide_config(scpi_t *context)
+{
+    uint32_t action_id = 0u;
+    uint32_t plan_crc32 = 0u;
+    uint32_t generation = 0u;
+    uint32_t profile_level = 0u;
+    uint32_t window_ms = 0u;
+    uint32_t trial_count = 0u;
+    if (!scpi_port_read_u32(context, &action_id) ||
+        !scpi_port_read_u32(context, &plan_crc32) ||
+        !scpi_port_read_u32(context, &generation) ||
+        !scpi_port_read_u32(context, &profile_level) ||
+        !scpi_port_read_u32(context, &window_ms) ||
+        !scpi_port_read_u32(context, &trial_count)) {
+        return SCPI_RES_ERR;
+    }
+    guide_action_plan_t plan;
+    memset(&plan, 0, sizeof(plan));
+    plan.action_id = action_id;
+    plan.plan_crc32 = plan_crc32;
+    plan.generation = generation;
+    plan.profile_level = profile_level;
+    plan.window_ms = window_ms;
+    plan.trial_count = trial_count;
+    plan.candidate_count = 0u;
+    uint32_t params[GUIDE_ACTION_PLAN_WORDS];
+    if (guide_action_plan_to_words(&plan, params, GUIDE_ACTION_PLAN_WORDS) !=
+        GUIDE_ACTION_PLAN_OK) {
+        scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
+        return SCPI_RES_ERR;
+    }
+    const uint32_t target_mask = cal_guide_target_mask();
+    if (target_mask == 0u) {
+        scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
+        return SCPI_RES_ERR;
+    }
+    refmem_command_request_t request;
+    memset(&request, 0, sizeof(request));
+    request.command_seq = plan_crc32 != 0u ? plan_crc32 : 1u;
+    request.source_node = 0u;
+    request.target_mask = target_mask;
+    request.required_mask = target_mask;
+    request.command_type = REFMEM_COMMAND_TYPE_CAL_GUIDE_CONFIG;
+    request.command_class = REFMEM_COMMAND_CLASS_CALIBRATION;
+    request.payload_kind = REFMEM_COMMAND_PAYLOAD_INLINE_SMALL;
+    request.payload_size = (uint32_t)sizeof(params);
+    request.payload_crc32 = refmem_param_pool_crc(params, sizeof(params));
+    request.issue_epoch = generation;
+    if (!distributed_refmem_command_try_post(&request, osal_tick_ms())) {
+        scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_system_tdma_guide_trigger(scpi_t *context)
+{
+    uint32_t action_id = 0u;
+    uint32_t epoch = 0u;
+    if (!scpi_port_read_u32(context, &action_id) ||
+        !scpi_port_read_u32(context, &epoch)) {
+        return SCPI_RES_ERR;
+    }
+    const uint32_t target_mask = cal_guide_target_mask();
+    const uint32_t params[2] = {action_id, epoch};
+    if (target_mask == 0u) {
+        scpi_port_push_exec_error(context, "TDMA_GUIDE_TRIGGER");
+        return SCPI_RES_ERR;
+    }
+    refmem_command_request_t request;
+    memset(&request, 0, sizeof(request));
+    request.command_seq = epoch != 0u ? epoch : 1u;
+    request.source_node = 0u;
+    request.target_mask = target_mask;
+    request.required_mask = target_mask;
+    request.command_type = REFMEM_COMMAND_TYPE_CAL_GUIDE_TRIGGER;
+    request.command_class = REFMEM_COMMAND_CLASS_CALIBRATION;
+    request.payload_kind = REFMEM_COMMAND_PAYLOAD_INLINE_SMALL;
+    request.payload_size = (uint32_t)sizeof(params);
+    request.payload_crc32 = refmem_param_pool_crc(params, sizeof(params));
+    request.issue_epoch = epoch;
+    if (!distributed_refmem_command_try_post(&request, osal_tick_ms())) {
+        scpi_port_push_exec_error(context, "TDMA_GUIDE_TRIGGER");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_system_tdma_guide_plan_q(scpi_t *context)
+{
+    app_cal_guide_snapshot_t snapshot;
+    if (!app_cal_guide_snapshot(&snapshot)) {
+        scpi_port_push_exec_error(context, "TDMA_GUIDE_PLAN");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.plan_valid ? 1u : 0u);
+    SCPI_ResultUInt32(context, snapshot.action_id);
+    SCPI_ResultUInt32(context, snapshot.plan_crc32);
+    SCPI_ResultUInt32(context, snapshot.generation);
+    SCPI_ResultUInt32(context, snapshot.profile_level);
+    SCPI_ResultUInt32(context, snapshot.window_ms);
+    SCPI_ResultUInt32(context, snapshot.trial_count);
+    SCPI_ResultUInt32(context, snapshot.trigger_pending ? 1u : 0u);
+    SCPI_ResultUInt32(context, snapshot.trigger_epoch);
+    return SCPI_RES_OK;
+}
 scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context)
 {
     if (!distributed_refmem_tdma_ring_arm()) {

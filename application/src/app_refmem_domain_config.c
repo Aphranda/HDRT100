@@ -774,6 +774,23 @@ bool app_cal_guide_take_trigger(guide_action_plan_t *plan, uint32_t *epoch)
     return true;
 }
 
+bool app_cal_guide_snapshot(app_cal_guide_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return false;
+    }
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->plan_valid = s_cal_guide.plan_valid;
+    snapshot->trigger_pending = s_cal_guide.trigger_pending;
+    snapshot->trigger_epoch = s_cal_guide.trigger_epoch;
+    snapshot->action_id = s_cal_guide.plan.action_id;
+    snapshot->plan_crc32 = s_cal_guide.plan.plan_crc32;
+    snapshot->generation = s_cal_guide.plan.generation;
+    snapshot->profile_level = s_cal_guide.plan.profile_level;
+    snapshot->window_ms = s_cal_guide.plan.window_ms;
+    snapshot->trial_count = s_cal_guide.plan.trial_count;
+    return true;
+}
 bool app_refmem_domain_config_init(void)
 {
     refmem_domain_config_reset();
