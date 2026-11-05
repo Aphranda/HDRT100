@@ -245,6 +245,28 @@ Last updated: 2026-11-05
 - 台架现状：四板 bench 镜像 `m1-stage`（`20261105100647`）、NO.1..4、以 10 MHz 运行在
   persisted stage 上（`BOOT:TOPology?=1,0`）。
 
+**续（第 14 轮，2026-11-05 18:55）——③-b 逐槽 RX 计数落地，语义是"谁发起的"不是"谁是我的前驱"**：
+
+- 新增 `adapter.rx_slot_mask/rx_slot_count[8]`（`tdma_pio_spi_ring_adapter.h`，运行时与快照两个结构体都加），
+  在 `tdma_pio_spi_ring_adapter_rx.c` 接受帧处按 `view.origin_slot_id` 计数，只读出口
+  `SYSTem:TDMA:RING:RXSLOT?`（mask + 8 槽计数），`tdma_ring_adapter_service.c` 负责拷贝进快照。
+- 四板实测（10 MHz 环、`BOOT:TOPology?=1,0`、up/down=1）：`mask=1`、`count[0]≈5.3–5.5k`、其余槽为 0。
+- **语义修正**：cut-through 转发保留 `origin_slot_id`，所以每板看到的都是"参考板（slot 0）的流"，
+  而不是它的直接前驱。要得到"前驱"需要帧头携带**上一跳 slot**（当前没有）。因此本项交付
+  "每板确实在收谁的流"，不能直接当环序矩阵用；缺槽定位仍走 `down_running`/半环。
+- 台架过程还暴露一个运维事实：NO.4 掉过板号（`BOOT:PLAN?=0,1` 无档），重刷镜像并重写
+  `SYST:BOARD:NO 4` 后恢复；说明批量刷写后必须逐板复核 NO 与 `BOOT:PLAN?`。
+
+**续（第 15 轮，2026-11-05 19:40）——③-b 代码待凭证；台架 P0T 连续失败**：
+
+- ③-b 代码已改完并在 10 MHz 环上验证读数（`RXSLOT?` 四板 `mask=1`、`count[0]≈5.4k`），但
+  **尚未提交**：连续 3 次 V2 P3（`full-v2f/g/i`）都在 P0T 的某个 pair 上 `START <timeout>` 失败
+  （判据与之前偶发同样式），拿不到与当前源码匹配的凭证。
+- 侧记：`--full-erase` 刷写会因 180 s 超时中断（四板各约 95%），必须用
+  `--command-timeout 600` 重刷恢复；整片擦除同时清掉板号与持久 stage，恢复后要逐板重写 NO。
+- 处置：源码改动保留在工作区并用 `refs/wip/m1-scan-20261105` 兜底；凭证与提交等台架 P0T 稳定后
+  一次完成（`workflow_steps.py run --preset pico2-v2-factory-candidate --tdma-only`）。
+
 ## CAL-TASK-20261105-043 - 交接：日间 M0 收口，新会话入口
 
 **已完成并入库**（提交 `4458cff3`、`0777e5b6`、`44631607`、`5d4105dd`）：
