@@ -19,6 +19,12 @@ bool app_refmem_domain_config_init(void);
 /* Consumes a guide trigger delivered by CAL_GUIDE_TRIGGER (T segment). Returns
  * false when no trigger is pending; the plan is copied on success. */
 bool app_cal_guide_take_trigger(guide_action_plan_t *plan, uint32_t *epoch);
+/* R segment: record progress while the ring is down (refmem parameter pool,
+ * no link needed). Q reads it back after re-form; `epoch` is the trigger epoch
+ * and doubles as the pool slot sequence, so a stale record never matches. */
+bool app_cal_guide_publish_progress(const guide_action_progress_t *progress,
+                                    uint32_t epoch);
+bool app_cal_guide_read_progress(guide_action_progress_t *progress, uint32_t epoch);
 
 #ifdef __cplusplus
 }

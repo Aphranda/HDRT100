@@ -237,3 +237,36 @@ bool guide_action_progress_matches(const guide_action_progress_t *progress,
            progress->plan_crc32 == plan_crc32 &&
            progress->generation == generation;
 }
+
+void guide_action_reconcile(const guide_action_progress_t *progress,
+                            bool have_record, uint32_t action_id,
+                            uint32_t plan_crc32, uint32_t generation,
+                            guide_action_reconcile_result_t *out)
+{
+    guide_action_reconcile_result_t result;
+    memset(&result, 0, sizeof(result));
+    if (out == NULL) {
+        return;
+    }
+    if (!have_record || progress == NULL ||
+        !guide_action_progress_matches(progress, action_id, plan_crc32,
+                                       generation)) {
+        /* No trustworthy record: rerun the action from its first trial. The
+         * caller keeps the reason so a report can say why it restarted. */
+        result.decision = GUIDE_ACTION_RECONCILE_RESTART;
+    } else if (progress->status == GUIDE_ACTION_PROGRESS_COMPLETE) {
+        result.decision = GUIDE_ACTION_RECONCILE_COMPLETE;
+    } else if (progress->status == GUIDE_ACTION_PROGRESS_FAILED ||
+               progress->status == GUIDE_ACTION_PROGRESS_STOPPED) {
+        result.decision = GUIDE_ACTION_RECONCILE_FAILED;
+        result.reason = progress->reason;
+        result.resume_trial = progress->deepest_trial;
+    } else {
+        /* Still running when the ring came back: resume after the deepest trial
+         * that was reached, not after the number of passes. */
+        result.decision = GUIDE_ACTION_RECONCILE_RESUME;
+        result.resume_trial = progress->deepest_trial + 1u;
+        result.reason = progress->reason;
+    }
+    *out = result;
+}

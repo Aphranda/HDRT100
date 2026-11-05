@@ -182,4 +182,10 @@ uint32_t refmem_vector_directory_crc(const refmem_vector_table_t *table);
 bool refmem_vector_table_validate_directory(const refmem_vector_table_t *table);
 uint32_t refmem_vector_header_crc(const refmem_vector_table_t *table);
 
+/* The single process-wide RefMem vector table. Its `tlv` region is the one
+ * handed to refmem_param_pool_init, so an owner that must record results while
+ * the ring is down goes through refmem_param_pool_* with this region instead of
+ * keeping its own storage. */
+refmem_vector_table_t *distributed_refmem_vector_table(void);
+
 #endif

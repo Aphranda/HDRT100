@@ -214,6 +214,44 @@ static void test_progress_rejects_bad_input(void)
                                         &size) == GUIDE_ACTION_PLAN_BAD_ARGUMENT);
 }
 
+static void test_reconcile_decisions(void)
+{
+    guide_action_reconcile_result_t result;
+    guide_action_progress_t progress;
+    memset(&progress, 0, sizeof(progress));
+    progress.action_id = 2u;
+    progress.plan_crc32 = 0x55u;
+    progress.generation = 4u;
+
+    /* No record at all: rerun from the first trial. */
+    guide_action_reconcile(NULL, false, 2u, 0x55u, 4u, &result);
+    assert(result.decision == GUIDE_ACTION_RECONCILE_RESTART);
+    assert(result.resume_trial == 0u);
+
+    /* A record from another generation is not trusted either. */
+    progress.status = GUIDE_ACTION_PROGRESS_RUNNING;
+    progress.deepest_trial = 2u;
+    guide_action_reconcile(&progress, true, 2u, 0x55u, 5u, &result);
+    assert(result.decision == GUIDE_ACTION_RECONCILE_RESTART);
+
+    /* Interrupted window: resume after the deepest trial reached. */
+    guide_action_reconcile(&progress, true, 2u, 0x55u, 4u, &result);
+    assert(result.decision == GUIDE_ACTION_RECONCILE_RESUME);
+    assert(result.resume_trial == 3u);
+
+    /* Finished window: nothing left to measure, go to S. */
+    progress.status = GUIDE_ACTION_PROGRESS_COMPLETE;
+    guide_action_reconcile(&progress, true, 2u, 0x55u, 4u, &result);
+    assert(result.decision == GUIDE_ACTION_RECONCILE_COMPLETE);
+
+    /* Stopped window: propagate the reason instead of retrying blindly. */
+    progress.status = GUIDE_ACTION_PROGRESS_STOPPED;
+    progress.reason = 7u;
+    guide_action_reconcile(&progress, true, 2u, 0x55u, 4u, &result);
+    assert(result.decision == GUIDE_ACTION_RECONCILE_FAILED);
+    assert(result.reason == 7u);
+}
+
 int main(void)
 {
     test_round_trip();
@@ -226,6 +264,7 @@ int main(void)
     test_progress_round_trip();
     test_progress_records_the_stop_reason();
     test_progress_rejects_bad_input();
+    test_reconcile_decisions();
     printf("guide_action_plan: all groups passed\n");
     return 0;
 }

@@ -118,6 +118,33 @@ bool guide_action_progress_matches(const guide_action_progress_t *progress,
                                    uint32_t action_id, uint32_t plan_crc32,
                                    uint32_t generation);
 
+/* What Q decides after reading the record back. */
+typedef enum {
+    /* Continue the same action from `resume_trial`. */
+    GUIDE_ACTION_RECONCILE_RESUME = 0u,
+    /* The action already finished: go to S. */
+    GUIDE_ACTION_RECONCILE_COMPLETE = 1u,
+    /* Nothing trustworthy was written (foreign plan, empty window): rerun. */
+    GUIDE_ACTION_RECONCILE_RESTART = 2u,
+    /* The window stopped for a reason that must not be retried blindly. */
+    GUIDE_ACTION_RECONCILE_FAILED = 3u,
+} guide_action_reconcile_t;
+
+typedef struct {
+    guide_action_reconcile_t decision;
+    /* First trial index the next window should run (COMPLETE/RESTART: 0). */
+    uint32_t resume_trial;
+    /* Reason carried through for the caller/report (0 when healthy). */
+    uint32_t reason;
+} guide_action_reconcile_result_t;
+
+/* Decides from a decoded progress record whether to resume, go on, rerun or
+ * stop. A record from another plan/generation is never trusted. */
+void guide_action_reconcile(const guide_action_progress_t *progress,
+                            bool have_record, uint32_t action_id,
+                            uint32_t plan_crc32, uint32_t generation,
+                            guide_action_reconcile_result_t *out);
+
 #ifdef __cplusplus
 }
 #endif

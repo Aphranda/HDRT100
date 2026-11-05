@@ -8,6 +8,8 @@
 #include "guide_action_plan.h"
 #include "refmem_command.h"
 #include "refmem_domain_config.h"
+#include "refmem_param_pool.h"
+#include "refmem_vector_table.h"
 #include "sync_io_sequence.h"
 #include "sync_io_turntable_source.h"
 #include "trigger_action_service.h"
@@ -693,6 +695,56 @@ static bool cal_guide_config_handler(const uint32_t *params, uint32_t param_word
     return true;
 }
 
+/* R/Q transport for the guide ladder: the progress record lives in the refmem
+ * parameter pool (plain storage, no link), so it survives the dark window and is
+ * read back after the ring is re-formed. Slot 2 is reserved for this record. */
+#define APP_CAL_GUIDE_PROGRESS_SLOT 2u
+
+static uint8_t *cal_guide_progress_region(size_t *out_size)
+{
+    refmem_vector_table_t *table = distributed_refmem_vector_table();
+    if (table == NULL) {
+        return NULL;
+    }
+    if (out_size != NULL) {
+        *out_size = sizeof(table->tlv);
+    }
+    return table->tlv;
+}
+
+bool app_cal_guide_publish_progress(const guide_action_progress_t *progress,
+                                    uint32_t epoch)
+{
+    size_t region_size = 0u;
+    uint8_t *region = cal_guide_progress_region(&region_size);
+    uint8_t payload[GUIDE_ACTION_PROGRESS_SIZE];
+    size_t size = 0u;
+    if (region == NULL || progress == NULL ||
+        guide_action_progress_encode(progress, payload, sizeof(payload), &size) !=
+            GUIDE_ACTION_PLAN_OK) {
+        return false;
+    }
+    return refmem_param_pool_write(region, region_size,
+                                   APP_CAL_GUIDE_PROGRESS_SLOT, epoch, epoch,
+                                   payload, (uint32_t)size);
+}
+
+bool app_cal_guide_read_progress(guide_action_progress_t *progress, uint32_t epoch)
+{
+    size_t region_size = 0u;
+    uint8_t *region = cal_guide_progress_region(&region_size);
+    uint8_t payload[GUIDE_ACTION_PROGRESS_SIZE];
+    uint32_t size = 0u;
+    uint32_t crc = 0u;
+    if (region == NULL || progress == NULL ||
+        !refmem_param_pool_read(region, region_size,
+                                APP_CAL_GUIDE_PROGRESS_SLOT, epoch, payload,
+                                sizeof(payload), &size, &crc)) {
+        return false;
+    }
+    return guide_action_progress_decode(payload, size, progress) ==
+           GUIDE_ACTION_PLAN_OK;
+}
 static bool cal_guide_trigger_handler(const uint32_t *params, uint32_t param_words,
                                       uint32_t *reason)
 {
