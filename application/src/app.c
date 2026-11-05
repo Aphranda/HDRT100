@@ -2238,10 +2238,11 @@ static void app_ctrqs_service(void)
                 }
                 return;
             }
-            /* Keep the training stage: the coded persona expects a matching
-             * topology stage, and the window close needs it to re-form the
-             * guide ring.  The host tool clears it because it never restores
-             * the ring; this loop does. */
+            /* Host-equivalent prep: clear the stale training stage so the
+             * coded persona can acquire the PIO resources.  The persisted
+             * record stays in flash; P2_CODED_STOP re-stages it before the
+             * window close so the guide ring can be re-formed. */
+            (void)calibration_manager_clear_training_stage();
             if (!calibration_manager_set_topology_probe_mode(
                     true, s_ctrqs.p2_probe_phase) ||
                 !tdma_runtime_owner_stage_operating_profile(s_ctrqs.p2_level) ||
@@ -2396,6 +2397,13 @@ static void app_ctrqs_service(void)
         if (!idle && s_ctrqs.hard_fail_reason == 0u) {
             s_ctrqs.hard_fail_reason =
                 (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
+        }
+        /* Re-stage the persisted calibration record cleared by P2_PREP so the
+         * window close can pass the ring phase admission again. */
+        if (!calibration_manager_restore_training_stage() &&
+            s_ctrqs.hard_fail_reason == 0u) {
+            s_ctrqs.hard_fail_reason =
+                (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE;
         }
         app_ctrqs_finalize();
         return;

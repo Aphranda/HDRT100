@@ -2889,6 +2889,51 @@ bool calibration_manager_commit_training_stage(void)
     return true;
 }
 
+/* Rebuild the RAM calibration stage from the persisted record after a caller
+ * deliberately cleared it (e.g. the coded-marker prep).  The flash record is
+ * untouched; this only re-stages the same bytes so the ring phase admission can
+ * run again in the same power cycle. */
+bool calibration_manager_restore_training_stage(void)
+{
+    tdma_ring_calibration_stage_t saved;
+    if (!calibration_training_store_get_stage(&saved) || saved.enabled == 0u ||
+        saved.node_count < 2u ||
+        saved.node_count > CALIBRATION_TRAINING_PHASE_MAX_NODES) {
+        return false;
+    }
+    if (!calibration_manager_begin_training_stage(
+            saved.node_count, saved.evidence_flags,
+            saved.calibration_generation, saved.topology_generation,
+            saved.topology_crc32, saved.profile_crc32, saved.schedule_crc32)) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < TDMA_RING_CALIBRATION_LINK_MAX; i++) {
+        const tdma_ring_calibration_link_t *link = &saved.links[i];
+        if (link->valid == 0u) {
+            continue;
+        }
+        if (!calibration_manager_stage_training_link(
+                link->link_index, link->marker_source_node,
+                link->marker_destination_node, link->data_source_node,
+                link->data_destination_node, link->evidence_flags,
+                link->pio_persona, link->clkdiv_q16, link->clk_sys_hz,
+                link->instruction_period_ns, link->bit_cycles,
+                link->marker_to_data_cycles, link->forward_residence_cycles,
+                link->rx_arm_lead_cycles, link->codeword_cycles,
+                link->guard_cycles, link->link_budget_cycles,
+                link->loop_delay_cycles, link->marker_offset_sample_count,
+                link->sck_offset_sample_count, link->data_offset_sample_count,
+                link->sample_period_ns, link->link_base_delay_ns,
+                link->marker_phase_delay_cycles, link->sck_phase_delay_cycles,
+                link->data_phase_delay_cycles,
+                link->origin_capture_offset_sample_count,
+                link->origin_capture_phase_delay_cycles)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void calibration_manager_get_training_store_status(
     calibration_training_store_status_t *status)
 {

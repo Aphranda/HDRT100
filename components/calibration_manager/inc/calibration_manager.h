@@ -265,6 +265,9 @@ bool calibration_manager_get_training_stage(
     tdma_ring_calibration_stage_t *stage,
     bool *complete);
 bool calibration_manager_commit_training_stage(void);
+/* Rebuild the RAM stage from the persisted store record after an explicit
+ * clear (the flash record stays untouched). */
+bool calibration_manager_restore_training_stage(void);
 void calibration_manager_get_training_store_status(
     calibration_training_store_status_t *status);
 bool calibration_manager_clear_training_stage(void);
