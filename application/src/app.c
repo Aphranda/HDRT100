@@ -40,6 +40,7 @@
 #include "tdma_boot_plan.h"
 #include "tdma_boot_profile_store.h"
 #include "tdma_boot_sequence.h"
+#include "tdma_service.h"
 #include "tdma_service_timing.h"
 #include "sync_io.h"
 #include "sync_io_reference.h"
@@ -63,6 +64,11 @@ static bool s_app_control_plane_ready;
 static tdma_boot_plan_t s_boot_plan;
 static tdma_boot_step_t s_boot_steps[TDMA_BOOT_SEQUENCE_MAX];
 static size_t s_boot_step_count;
+static tdma_boot_profile_t s_boot_profile;
+static bool s_boot_profile_loaded;
+static bool s_boot_guide_done;
+static uint32_t s_boot_fail_step;
+static bool s_boot_listen_pending;
 
 #define APP_ANALYZER_STORAGE_SEGMENT_RECORDS 128u
 #define APP_ANALYZER_STORAGE_MAGIC 0x59414C53u /* SLAY */
@@ -434,6 +440,8 @@ bool app_init(void)
     (void)tdma_boot_profile_store_init();
     tdma_boot_profile_t boot_profile;
     if (tdma_boot_profile_store_get(&boot_profile)) {
+        s_boot_profile = boot_profile;
+        s_boot_profile_loaded = true;
         tdma_boot_plan_decide(true, &boot_profile, boot_profile.node_count,
                               boot_profile.local_slot, &s_boot_plan);
     } else {
@@ -522,6 +530,74 @@ size_t app_guide_boot_steps_get(tdma_boot_step_t *out, size_t capacity)
     return s_boot_step_count;
 }
 
+static bool app_guide_run_step(tdma_boot_step_t step)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    switch (step) {
+    case TDMA_BOOT_STEP_STAGE_PROFILE:
+        return s_boot_profile_loaded &&
+               tdma_runtime_owner_stage_operating_profile(
+                   s_boot_profile.profile_level);
+    case TDMA_BOOT_STEP_APPLY_PROFILE:
+        return tdma_runtime_owner_apply_operating_profile();
+    case TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY:
+        /* The staged ring config is built against the applied profile; the
+         * adapter link map is the bring-up topology the flight engine reads. */
+        return s_boot_profile_loaded &&
+               distributed_refmem_set_tdma_ring_topology(
+                   s_boot_profile.local_slot, 0u, s_boot_profile.node_count) &&
+               tdma_runtime_owner_set_bringup_topology(
+                   s_boot_profile.node_count, 0u);
+    case TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL:
+        return tdma_runtime_owner_set_bringup_no_cal(true);
+    case TDMA_BOOT_STEP_RING_ARM:
+        return owner != NULL && tdma_service_ring_arm(owner);
+    case TDMA_BOOT_STEP_RING_START:
+        return owner != NULL && tdma_service_ring_start(owner);
+    case TDMA_BOOT_STEP_RING_LISTEN:
+        /* RX-join is not implemented yet: arm only and record the gap so a
+         * missing follower cannot be mistaken for a joined one. */
+        if (owner == NULL || !tdma_service_ring_arm(owner)) {
+            return false;
+        }
+        s_boot_listen_pending = true;
+        return true;
+    case TDMA_BOOT_STEP_STOP:
+        return owner != NULL && tdma_service_ring_stop(owner);
+    case TDMA_BOOT_STEP_NONE:
+    default:
+        return true;
+    }
+}
+
+bool app_guide_boot_service(void)
+{
+    if (s_boot_guide_done) {
+        return s_boot_fail_step == 0u;
+    }
+    s_boot_guide_done = true;
+    if (s_boot_plan.action == TDMA_BOOT_ACTION_NONE) {
+        return true;
+    }
+    for (size_t i = 0u; i < s_boot_step_count; i++) {
+        if (!app_guide_run_step(s_boot_steps[i])) {
+            s_boot_fail_step = (uint32_t)(i + 1u);
+            return false;
+        }
+    }
+    return true;
+}
+
+uint32_t app_guide_boot_fail_step(void)
+{
+    return s_boot_fail_step;
+}
+
+bool app_guide_boot_listen_pending(void)
+{
+    return s_boot_listen_pending;
+}
+
 bool app_is_control_plane_ready(void)
 {
     return s_app_control_plane_ready;
@@ -586,6 +662,7 @@ void app_ota_service(void)
 
 void app_diag_service(void)
 {
+    (void)app_guide_boot_service();
     vdc_dpll_manager_core0_service();
     app_analyzer_storage_service();
     diagnostics_housekeeping_service();

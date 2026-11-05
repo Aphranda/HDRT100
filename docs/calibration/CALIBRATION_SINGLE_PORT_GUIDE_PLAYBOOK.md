@@ -681,7 +681,7 @@ v2 分支的引导档子区与 boot 载入。
 | 引导档存储 | `tdma_boot_profile_store.*` | ✅ v2 双扇区 NVS、轮换、写后重扫；v1 返回 UNSUPPORTED；host 通过 |
 | 自组决策 | `tdma_boot_plan.*` | ✅ N1=B 四动作/四原因；host 通过 |
 | 自组步骤 | `tdma_boot_sequence.*` | ✅ START_REF/LISTEN/REJECT/NONE；容量不足不截断 |
-| boot 载入 | `application/src/app.c` + `app.h` 访问器 | ✅ 载入并冻结计划/步骤；**不执行** ARM/START |
+| boot 载入 + 执行 | `application/src/app.c` + `app.h` 访问器 | ✅ 载入并冻结计划/步骤；`app_guide_boot_service()` 由 `app_diag_service` 首轮执行（stage/apply→topology→bringup→ARM→START；v1 空转）；`RING_LISTEN` 仅 ARM，RX-join 未做 |
 | v2 子区 | `config/flash_deployment_map.h` | ✅ offset 4×erase / 2 扇区 + static assert；v1 `HAS=0` |
 | R2b 派生 | `calibration_stage_derive.*` | ✅ pio/base/phase 三纯函数；golden 对齐；LINK v2 未接 |
 | 构建 | `CMakeLists.txt` + flash 白名单 | ✅ v1 157/157、v2 164/164，`flash_link_contract=OK` |

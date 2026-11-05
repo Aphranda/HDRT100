@@ -10,6 +10,24 @@ Last updated: 2026-11-05
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261105-040 - WP-1 START_REF 执行接线（日间目标 M0-②）
+
+- **顺序修正**：`tdma_boot_sequence` 的 `START_REF`/`LISTEN` 改为
+  `STAGE_PROFILE → APPLY_PROFILE → SET_BRINGUP_TOPOLOGY → SET_BRINGUP_NO_CAL → RING_ARM →
+  (START|LISTEN)`，与已验证的 SCPI 起环顺序一致（profile 先于 topology，BRINGup 在 topology
+  之后、ARM 之前）；host 用例同步。
+- **执行器**：`application/src/app.c` 新增 `app_guide_run_step()` / `app_guide_boot_service()`，
+  由 `app_diag_service()` 首轮执行一次；步骤映射 `stage/apply_operating_profile`、
+  `distributed_refmem_set_tdma_ring_topology + set_bringup_topology`、`set_bringup_no_cal`、
+  `tdma_service_ring_arm/start/stop`。失败即停在首个失败步（1-based `app_guide_boot_fail_step()`）。
+- **LISTEN 现状**：`RING_LISTEN` 只做 ARM、置 `app_guide_boot_listen_pending()`，**不启 TX**；
+  RX-join 未实现，属显式缺口，不当作已加入。
+- **构建**：v1 `pico2-lowrate4` 159/159、v2 候选 `v2-boot-candidate` 166/166，均
+  `flash_link_contract=OK`（app A/B/boot/recovery）。
+- **运行时语义**：v1 地图无引导档 → `NONE` → 执行器空转（不改变现网起环方式）；v2 地图载入
+  档案后按序执行。未上板验证执行路径。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed；固件待新一轮 P3。
+
 ## CAL-TASK-20261105-039 - P3 验收：run 的 stale-build 误判、resume 通过、工具修正
 
 - **首次 `run`**（build `20261105002955`）：OTA 四板 PASS、P0T/CLK/marker/TRN-00/01/02 全 OK，

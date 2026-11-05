@@ -88,6 +88,13 @@ bool app_is_ready(void);
  * Execution is a separate step; this accessor only exposes what was decided. */
 bool app_guide_boot_plan_get(tdma_boot_plan_t *out);
 size_t app_guide_boot_steps_get(tdma_boot_step_t *out, size_t capacity);
+/* Execute the frozen guide boot steps once (core0, after the scheduler starts).
+ * Returns false on the first failed step; the failing index is 1-based. */
+bool app_guide_boot_service(void);
+uint32_t app_guide_boot_fail_step(void);
+/* LISTEN is currently ARM-only: true means the board is armed but cannot yet
+ * join as a follower until the adapter RX-join lands. */
+bool app_guide_boot_listen_pending(void);
 void app_tdma_record_service(void);
 bool app_tdma_record_copy(uint32_t offset, uint8_t *data, uint32_t size);
 bool app_is_control_plane_ready(void);

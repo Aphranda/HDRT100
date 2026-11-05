@@ -25,10 +25,12 @@ int main(void)
     tdma_boot_plan_t ref = plan_for(TDMA_BOOT_ACTION_START_REF);
     size_t count = tdma_boot_sequence_build(&ref, steps, TDMA_BOOT_SEQUENCE_MAX);
     assert(count == 6u);
-    assert(steps[0] == TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL);
-    assert(steps[1] == TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY);
-    assert(steps[2] == TDMA_BOOT_STEP_STAGE_PROFILE);
-    assert(steps[3] == TDMA_BOOT_STEP_APPLY_PROFILE);
+    /* Profile before topology: the ring staged config is built against the
+     * applied profile, then the bring-up flag is set, then ARM. */
+    assert(steps[0] == TDMA_BOOT_STEP_STAGE_PROFILE);
+    assert(steps[1] == TDMA_BOOT_STEP_APPLY_PROFILE);
+    assert(steps[2] == TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY);
+    assert(steps[3] == TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL);
     assert(steps[4] == TDMA_BOOT_STEP_RING_ARM);
     assert(steps[5] == TDMA_BOOT_STEP_RING_START);
     assert(strcmp(tdma_boot_step_name(steps[5]), "RING_START") == 0);

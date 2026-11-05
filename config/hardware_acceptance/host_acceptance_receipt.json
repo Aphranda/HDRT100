@@ -5,12 +5,6 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_cal_guide_campaign_budget.py",
-    "tests/python/test_cal_guide_compact_stage.py",
-    "tests/python/test_cal_guide_derive_golden.py",
-    "tests/python/test_cal_guide_formation.py",
-    "tests/python/test_cal_guide_plan.py",
-    "tests/python/test_cal_guide_topology_table.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
@@ -20,35 +14,29 @@
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_cal_guide_campaign_budget.py",
-    "tests/python/test_cal_guide_compact_stage.py",
-    "tests/python/test_cal_guide_derive_golden.py",
-    "tests/python/test_cal_guide_formation.py",
-    "tests/python/test_cal_guide_plan.py",
-    "tests/python/test_cal_guide_topology_table.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 5.813,
+  "duration_s": 8.234,
   "returncode": 0,
   "summary": {
-    "passed": 112,
+    "passed": 77,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "112 passed in 5.41s",
+  "summary_line": "77 passed in 7.72s",
   "tail": [
-    "........................................................................ [ 64%]",
-    "........................................                                 [100%]",
-    "112 passed in 5.41s"
+    "........................................................................ [ 93%]",
+    ".....                                                                    [100%]",
+    "77 passed in 7.72s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "034c585d83e9c4b3fb408e5cdcc2e50b1920d77ea060e6b2e38401d0056fcb28",
+  "fingerprint": "24882df38b219fc431b581adbd89b610926d59314f7be683315981f491d8cf63",
   "file_count": 1148,
-  "working_fingerprint": "034c585d83e9c4b3fb408e5cdcc2e50b1920d77ea060e6b2e38401d0056fcb28",
-  "started_at_utc": "2026-11-05T00:45:32.130836+00:00"
+  "working_fingerprint": "24882df38b219fc431b581adbd89b610926d59314f7be683315981f491d8cf63",
+  "started_at_utc": "2026-11-05T01:29:07.814404+00:00"
 }
