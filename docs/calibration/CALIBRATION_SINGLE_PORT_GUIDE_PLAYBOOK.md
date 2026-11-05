@@ -1266,25 +1266,14 @@ ARM(带屏障)→START→采样→STOP` + 重放 boot 步骤复环）可直接�
    `BOOT:TOPology?` = `1,0`、`RING:STATus?` `enabled=1 node_count=4`；
 5. 负测试：`trn03_stage.py --clear` 后重启 → 活动档回到 23、`BOOT:TOPology?` 仍 `1,0`。
 
+### 9.29 单口 C/T 实测 runbook（2026-11-05 深夜）
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+| 项 | 事实 |
+|---|---|
+| 命令语法 | **参数必须逗号分隔**：`SYSTem:TDMA:GUIDE:CONFig 1,305419896,7,23,4000,4`；空格分隔会得到 `-101,"Invalid character"` |
+| 回读 | `SYSTem:TDMA:GUIDE:PLAN?` → `plan_valid, action_id, plan_crc32, generation, level, window, trials, trigger_pending, epoch` |
+| 目标掩码 | 用引导环节点数（`PROJECT_TDMA_GUIDE_NODES`），不是运行环节点数 |
+| 路由前置（关键） | `distributed_refmem_command_try_post` 先过 `refmem_control_route_decide`：目标掩码=本地单点 → `LOCAL`；含远端 → 必须 `unified_available`（**环 enabled 且 adapter_started**），否则 `-200` |
+| 实测 | 环停时 `CONFig` 返回 `-200`；用 `RING:TOPology 4,<slot>,0` + `RING:ARM` + `RING:START` 起环后，**NO.1 单点发 `CONFig` 返回 `"OK"`** |
+| 未通的一环 | 命令 post 成功，但四板 `PLAN?` 仍为 0：本地派发（`distributed_refmem_node_control_service` → `dispatch_control`）没有把这条命令送到 app 处理器。下一步查镜像/派发路径（`distributed_refmem_mirror_local_control` 之后 seq 是否被 `s_node_control_last_command_seq` 吃掉，或命令槽与节点控制记录不是同一条） |
+| 未通的一环 | 命令 post 成功，但四板 `PLAN?` 仍为 0：本地派发（`distributed_refmem_node_control_service` → `dispatch_control`）没有把这条命令送到 app 处理器 |
