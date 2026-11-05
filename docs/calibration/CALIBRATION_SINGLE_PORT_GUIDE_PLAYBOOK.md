@@ -941,6 +941,40 @@ STOP→配置→等 `applied`→ARM(带屏障)→START→采样→STOP），把"
 host 只在复环后聚合。B7 已裁定 R2b，紧凑 stage 由 `calibration_stage_derive` 派生，LINK schema v2
 待接。
 
+### 9.23 P0T 的三条硬伤与"用 10 kHz 环自证环序"（2026-11-05 专项分析）
+
+自组 10 kHz 环在四板上稳定成立（`BOOT:TOPology?=1,0`、up/down 运行、tx/rx 增长），说明线序正确。
+P0T 的失败因此**不是硬件**，而是算法/协议层面的结构问题。按严重度：
+
+| # | 硬伤 | 证据 | 为什么重试/调参救不了 |
+|---|---|---|---|
+| H1 | **证明过程是破坏性且全有全无**：每对都 STOP×4 + 两次拓扑写 + 两次 ARM + 两次 START，任一步异常就丢弃整张 12 对矩阵 | `calibration_ring_topology.py:554-575`、`:649-650` | 可靠性成本随 N(N−1) 增长；今晚 3 次 `START <timeout>` 就是它 |
+| H2 | **判定没有来源身份**：只看板级 PHY 计数，OR 里还包含 `rx_edges_delta>0`；真实边的唯一稳定特征是 `rx_words≈1e4`（`rx_frames=0`） | `topology.py:600-603`、`:618-631`；§9.17 | 阈值再调也只能把"字动了"当边，不能证明"是驱动方那帧到了" |
+| H3 | **START 应答语义天然二义**：成功时固件不往 error 队列推任何东西，丢应答与拒绝同签名；而契约测试禁止用状态读回推断成功 | `scpi_tdma_snapshot_commands.c:1039-1048`；`tests/python/test_calibration_topology_start.py:222-237` | 只能靠 STOP+重 ARM 把破坏性循环再翻倍 |
+
+**替代：环自证环序（零 wire 改动）**。帧头已带 `hop_count/hop_limit`（`tdma_transport_frame.c:36-37,489`），
+adapter 的 `last_rx_origin_slot_id/last_rx_hop_count/last_rx_hop_limit/last_rx_flags`
+已由 `SYSTem:TDMA:FLIGHT:PROcess?` 只读发布（`scpi_tdma_snapshot_commands.c:415-419`）。判据应为：
+
+1. 四板 `enabled=1 node_count=4 up=1 down=1` 且 `down_rx_sequence` 递增；
+2. 四板 `last_rx_hop_count` 的多重集恰为 `{0,1,2,3}`、无重复（重复或跳号 ⇒ 环序错乱）；
+3. 从板 `origin_slot_id==ref && hop==s−1`，参考板 `origin==ref && hop==hop_limit`。
+
+`app_guide_topology_accepted`（`app.c` 现有实现）目前**没有任何 order 项**，加上 hop 交叉校验即可把
+"12 次带噪推断"换成"4 次只读测量"。注意 `last_rx_*` 是"最后一帧"锁存，需多读几次或改为逐槽聚合再判。
+
+**落地顺序（按收益/成本）**：
+
+- **S0（纯 host，无固件）**：① OR 改 AND（frames/words/edges 同向且连续 k 次）；② 三态判定
+  `DETECTED/ABSENT/INDETERMINATE`，不确定只重测该对、不整轮 abort；③ `magic/bad_header` 变成否决项；
+  ④ workflow 显式写死 `--gap`（现有 `--short-open` 已加，`--gap` 仍由 profile 隐式给）。
+- **S1（极小固件）**：⑤ 补 `SYSTem:TDMA:RING:STARt:STATus?`（与 `RING:ARM:STATus?` 同构，读**意图序列**
+  而非 `enabled` 效果，无竞态）；⑥ hop 交叉校验进接受判据。
+- **S2**：接受判据切到 `BOOT:TOPology?`+hop；12 对矩阵降为 provisioning。注意
+  `workflow_steps.py` 的 `phase_topology_gate` 仍硬要求 12 对结果、从不查 `BOOT:TOPology?`——文档已裁、
+  门禁未接，需同步。
+
+
 **S 段实板测试步骤（待 matrix 就绪后执行）**：
 
 1. 完整验收链产出 `trn03-matrix.json`（`workflow_steps.py run` 的 21 步）；

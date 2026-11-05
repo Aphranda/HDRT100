@@ -3446,6 +3446,11 @@ def phase_topology(run: AcceptanceRun) -> None:
         str(config.get("topology_probe_phase_cycles", 10)),
         "--pair-wait", str(config["topology_pair_wait_s"]),
         "--adjacency-only", "--out-dir", str(topology_dir),
+        # Persistent CDC loses the RING:START acknowledgment on this bench
+        # (measured 2026-11-05: three consecutive "<timeout>" START failures in
+        # this step while the same command with --short-open passed 4/4 twice).
+        # A lost ACK must stay a failure, so fix it at the transport layer.
+        "--short-open",
     ]
     topology_summary_path = topology_dir / "summary.json"
     if topology_reuse_source is None:

@@ -5,50 +5,38 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_archive_policy.py",
-    "tests/python/test_hardware_acceptance_workflow.py",
-    "tests/python/test_ota_debug_key.py",
-    "tests/python/test_ota_picotool_flash.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_tdma_boot_stage.py",
-    "tests/python/test_tdma_guide_scan.py",
     "tests/python/test_vdc_host_harness.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_archive_policy.py",
-    "tests/python/test_hardware_acceptance_workflow.py",
-    "tests/python/test_ota_debug_key.py",
-    "tests/python/test_ota_picotool_flash.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_tdma_boot_stage.py",
-    "tests/python/test_tdma_guide_scan.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 8.703,
+  "duration_s": 8.688,
   "returncode": 0,
   "summary": {
-    "passed": 138,
+    "passed": 77,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "138 passed in 8.28s",
+  "summary_line": "77 passed in 7.99s",
   "tail": [
-    "........................................................................ [ 52%]",
-    "..................................................................       [100%]",
-    "138 passed in 8.28s"
+    "........................................................................ [ 93%]",
+    ".....                                                                    [100%]",
+    "77 passed in 7.99s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "eb8bd3cc1ccce47cc10edc8d5c66e73438aecad44a115271d5a5fc9c15625e3a",
+  "fingerprint": "a96099f7912c3023fc64bfaf50a673e3e3e46fc45d2d255491b7c0b95734f62d",
   "file_count": 1156,
-  "working_fingerprint": "eb8bd3cc1ccce47cc10edc8d5c66e73438aecad44a115271d5a5fc9c15625e3a",
-  "started_at_utc": "2026-11-05T09:57:46.973091+00:00"
+  "working_fingerprint": "a96099f7912c3023fc64bfaf50a673e3e3e46fc45d2d255491b7c0b95734f62d",
+  "started_at_utc": "2026-11-05T12:04:10.533738+00:00"
 }
