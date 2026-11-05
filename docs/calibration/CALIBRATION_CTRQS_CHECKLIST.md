@@ -62,6 +62,39 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
    被拒（环未 running 时 `unified_available=false`），要么 `refmem_domain_config_dispatch`
    对 trigger 的注册字数（2）与实际不符。需在一次环 running 的会话里复测并读 `SYST:ERR?`。
 
+### 5.1 B1 独立交叉排查结论（2026-11-06 00:35，只读取证，HEAD=`cfc58f7e`）
+
+- **机制已确认**：`try_post` 成功后 `mirror_local_control()` 在**首次写记录**分支传
+  `new_params=NULL`（`distributed_refmem_link.c:1535-1539`）→
+  `refmem_node_control.c:36-40` 对 NULL 做 `memset(params,0)` → 16 字被清零；
+  `distributed_refmem_command.c:190/243/178` 派发时读到的就是全零 →
+  `guide_action_plan.c:122-123` 报 BAD_MAGIC → 处理器拒绝 → `PLAN?` 恒 0。
+  注意：**更新分支（`link.c:1528-1533`）会保留 params，只有首写分支清零**。
+- **远端收不到的原因另有一条**：`distributed_refmem_command_try_post` **根本不构造命令帧**，
+  0x52 帧（56 B）也不带 inline words；inline words 只存在于 `refmem_cmd_frame.h:25` 与
+  `refmem_control_submit.c:81` / `refmem_cmd_load.c:487` 那条路径。且 `node_control_service`
+  只读**本地 slot**（`command.c:190`），节点记录虽复制但**按 slot 独立**，不会跨 slot。
+  ⇒ **只修 mirror 只能救 NO.1**，远端必须走带参数的帧/fragment 路径。
+- **当前 SCPI 里的"post 后本地直接 dispatch"是错的补丁**：会双重派发、绕过 take/ack，
+  本地命令槽停在 POSTED 后被服务 NACK，且掩盖缺陷（NO.1 看起来 OK，另外三板仍是 0）。
+
+**正确修法（owner=`components/distributed_refmem/src/distributed_refmem_link.c`）**：
+新增 `distributed_refmem_command_try_post_with_params(request, params, words, tick)` —— 先按今天的方式
+post，再用**已有的** `distributed_refmem_node_control_write_with_params()` 镜像参数
+（`distributed_refmem_node_control.c:5-17`），远端目标用 `refmem_cmd_load_submit_fragments`
+（`refmem_cmd_load.c:463`，参照 `refmem_control_submit.c:63-86`）；随后 **删除** SCPI 里的直接
+dispatch（`scpi_tdma_snapshot_commands.c` 两个处理器尾部）。
+
+**次生风险（必须一起处理）**：
+1. `cal_guide_trigger_handler` **不是幂等**（会消费 plan 状态），双重派发会翻转；
+2. `link.c:1525-1527` 在既有记录 seq 不同时**提前返回**，同一次上电的第二次 C/T 永远不重写记录；
+3. `command.c:233` 在 post/take 成功**之前**就写 `s_node_control_last_command_seq`，失败会永久烧掉该 seq；
+4. SCPI 用 `plan_crc32`/`epoch` 当 `command_seq`：相同 CONFIG 会被去重，`epoch==0` 会塌成 1。
+
+**只读验证配方**：4 节点环跑起来后，只在 NO.1 发 `SYST:TDMA:GUIDE:CONFig 1,2,3,0,100,2`，
+然后四板读 `PLAN?`：只有 NO.1 有效 ⇒ 本地 dispatch 补丁在跑；四板全 0 ⇒ 清零记录路径；
+四板全有效 ⇒ 参数已进记录且帧/服务路径工作。另可读 NO.1 slot 0 的节点控制记录，word 0 应为计划
+magic 而非 0。
 ## 6. 下一步（按顺序，最短路径）
 
 ```powershell
