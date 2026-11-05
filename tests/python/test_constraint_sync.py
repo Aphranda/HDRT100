@@ -17,6 +17,7 @@ paths that no longer exist, so they are out of scope.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -97,3 +98,19 @@ def test_registry_status_values_are_known() -> None:
 ])
 def test_contract_id_formats_are_accepted(contract_id: str) -> None:
     assert ID_RE.match(contract_id)
+
+
+def test_out_is_local_evidence_only() -> None:
+    """out/ must not become a sync location: agent drafts there stay local."""
+    for name in ("out/agent-draft.md", "out/section-plan.md"):
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", name], cwd=ROOT,
+            capture_output=True, text=True)
+        assert result.returncode == 0, (
+            f"{name} is not ignored; out/ is a local evidence area and must not "
+            "carry files that need cloud sync (see out/README.md §0)")
+    for kept in ("out/README.md", "out/standards/OUT_DIRECTORY_STANDARD.md"):
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", kept], cwd=ROOT,
+            capture_output=True, text=True)
+        assert result.returncode == 1, f"{kept} should stay tracked"

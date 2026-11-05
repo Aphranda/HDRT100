@@ -5,40 +5,40 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_hardware_acceptance_workflow.py",
-    "tests/python/test_owner_hook_link.py",
-    "tests/python/test_refmem_host_units.py",
-    "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_vdc_host_harness.py",
+    "tests/python/test_constraint_sync.py",
+    "tests/python/test_workflow_triage.py",
+    "tests/python/test_credential_scope.py",
+    "tests/python/test_doc_regression.py",
+    "tests/python/test_docs_check.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_hardware_acceptance_workflow.py",
-    "tests/python/test_owner_hook_link.py",
-    "tests/python/test_refmem_host_units.py",
-    "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_vdc_host_harness.py"
+    "tests/python/test_constraint_sync.py",
+    "tests/python/test_workflow_triage.py",
+    "tests/python/test_credential_scope.py",
+    "tests/python/test_doc_regression.py",
+    "tests/python/test_docs_check.py"
   ],
-  "duration_s": 9.5,
+  "duration_s": 48.047,
   "returncode": 0,
   "summary": {
-    "passed": 124,
+    "passed": 83,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "124 passed in 8.80s",
+  "summary_line": "83 passed in 44.69s",
   "tail": [
-    "........................................................................ [ 58%]",
-    "....................................................                     [100%]",
-    "124 passed in 8.80s"
+    "........................................................................ [ 86%]",
+    "...........                                                              [100%]",
+    "83 passed in 44.69s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "cdc05f354ae5531fdfe6b521d19339b8fac17def4c76cd6df42ad4038e7a8cd2",
+  "fingerprint": "33c5c405ddfe75f6cc02240daf126d68bf89a284e1e2f33e81fd9a4ffaf82b97",
   "file_count": 1148,
-  "working_fingerprint": "cdc05f354ae5531fdfe6b521d19339b8fac17def4c76cd6df42ad4038e7a8cd2",
-  "started_at_utc": "2026-11-05T01:39:56.612432+00:00"
+  "working_fingerprint": "33c5c405ddfe75f6cc02240daf126d68bf89a284e1e2f33e81fd9a4ffaf82b97",
+  "started_at_utc": "2026-11-05T01:47:06.530314+00:00"
 }
