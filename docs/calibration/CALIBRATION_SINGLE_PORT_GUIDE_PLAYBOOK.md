@@ -1168,6 +1168,32 @@ REFMEM 参数池本来就是"调用方持有 region 的纯存储"，已经覆盖
 
 新增登记格式：概念 | 新 canonical 路径 | 为什么现有实现不适用（必须写清，不能写"更方便"）。
 
+### 9.28 引导命令面：命令登记与"重复算法合并"约定
+
+**C/T 两段用哪两条命令**（已登记进 REFMEM 命令目录，编号 50/51）：
+
+| id | 名称 | class | payload | 语义 |
+|---|---|---|---|---|
+| 50 | `CAL_GUIDE_CONFIG` | `CALIBRATION`(4) | `SLOT_REF` | 计划放在参数池 slot，命令只带引用；idempotent（同 seq 可重发） |
+| 51 | `CAL_GUIDE_TRIGGER` | `CALIBRATION`(4) | `INLINE_SMALL` | 2 words：`action_id`、`epoch` |
+
+**生成链（不要手改生成物）**：`config/refmem/command_catalog.yaml`
+→ `tools/refmem/refmem_command_catalog_gen.py`
+→ `components/distributed_refmem/inc/refmem_command_catalog.h` 与 `src/refmem_command_catalog_table.c`、`out/refmem/SCPI_REFMEM_CATALOG.csv`。
+`refmem_command_type_t` 枚举仍**手写**在 `refmem_command.h`，新增命令要两处同时改（枚举 + YAML）再生成。
+
+**重复算法合并约定**：另一会话正在落 `components/algo/algo_checksum.[ch]`（"one implementation per
+algorithm"，CRC-32/ISO-HDLC）。合并完成后：
+
+1. `refmem_param_pool_crc` 内部的 FNV 必须改为调用共享实现，不得保留第二份；
+2. 计划身份测试（`tests/python/test_guide_action_plan.py`）改为对齐共享实现，仍要保证"同字节同值、异内容异值"；
+3. 任何新代码不得自带 CRC/校验和实现（见 §9.27）。
+
+**并发纪律（实测教训）**：另一会话在改 `components/**` 或 `config/**` 时**不要跑硬件验收**——
+本轮 P3 即因源码在验收期间变化而失败（`source changed while hardware acceptance was running`）。
+验收必须等两边改动都落地后**一次覆盖**（我的命令面扩展 + 对方的算法合并），避免各跑一次浪费台架时间。
+
+
 
 
 
