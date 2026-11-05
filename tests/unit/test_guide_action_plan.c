@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "guide_action_plan.h"
+#include "refmem_param_pool.h"
 
 static guide_action_plan_t sample_plan(void)
 {
@@ -94,6 +95,27 @@ static void test_rejects_small_output(void)
            GUIDE_ACTION_PLAN_BAD_ARGUMENT);
 }
 
+static void test_plan_identity_uses_param_pool_crc(void)
+{
+    /* plan_crc32 must come from the canonical CRC, not from a second
+     * implementation: identical bytes hash identically, a different candidate
+     * table hashes differently, and the value survives the round trip. */
+    const guide_action_plan_t first = sample_plan();
+    guide_action_plan_t second = sample_plan();
+    second.candidates[1] = 99u;
+
+    uint8_t a[GUIDE_ACTION_PLAN_SIZE];
+    uint8_t b[GUIDE_ACTION_PLAN_SIZE];
+    size_t size = 0u;
+    assert(guide_action_plan_encode(&first, a, sizeof(a), &size) == GUIDE_ACTION_PLAN_OK);
+    assert(guide_action_plan_encode(&second, b, sizeof(b), &size) == GUIDE_ACTION_PLAN_OK);
+
+    const uint32_t crc_a = refmem_param_pool_crc(a, GUIDE_ACTION_PLAN_SIZE);
+    const uint32_t crc_b = refmem_param_pool_crc(b, GUIDE_ACTION_PLAN_SIZE);
+    assert(crc_a == refmem_param_pool_crc(a, GUIDE_ACTION_PLAN_SIZE));
+    assert(crc_a != crc_b);
+}
+
 int main(void)
 {
     test_round_trip();
@@ -101,6 +123,7 @@ int main(void)
     test_rejects_truncated();
     test_rejects_out_of_range_counts();
     test_rejects_small_output();
+    test_plan_identity_uses_param_pool_crc();
     printf("guide_action_plan: all groups passed\n");
     return 0;
 }

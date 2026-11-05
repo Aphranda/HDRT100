@@ -14,7 +14,9 @@ def test_guide_action_plan(tmp_path: Path) -> None:
     commands = [
         [gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic",
          "-I" + str(ROOT / "components/calibration_manager/inc"),
+         "-I" + str(ROOT / "components/distributed_refmem/inc"),
          str(ROOT / "components/calibration_manager/src/guide_action_plan.c"),
+         str(ROOT / "components/distributed_refmem/src/refmem_param_pool.c"),
          str(ROOT / "tests/unit/test_guide_action_plan.c"), "-o", str(executable)],
         [str(executable)],
     ]
