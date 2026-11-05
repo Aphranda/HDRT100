@@ -5,40 +5,38 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_constraint_sync.py",
-    "tests/python/test_workflow_triage.py",
-    "tests/python/test_credential_scope.py",
-    "tests/python/test_doc_regression.py",
-    "tests/python/test_docs_check.py",
+    "tests/python/test_owner_hook_link.py",
+    "tests/python/test_refmem_host_units.py",
+    "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_vdc_host_harness.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_constraint_sync.py",
-    "tests/python/test_workflow_triage.py",
-    "tests/python/test_credential_scope.py",
-    "tests/python/test_doc_regression.py",
-    "tests/python/test_docs_check.py"
+    "tests/python/test_owner_hook_link.py",
+    "tests/python/test_refmem_host_units.py",
+    "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 48.047,
+  "duration_s": 13.453,
   "returncode": 0,
   "summary": {
-    "passed": 83,
+    "passed": 77,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "83 passed in 44.69s",
+  "summary_line": "77 passed in 12.90s",
   "tail": [
-    "........................................................................ [ 86%]",
-    "...........                                                              [100%]",
-    "83 passed in 44.69s"
+    "........................................................................ [ 93%]",
+    ".....                                                                    [100%]",
+    "77 passed in 12.90s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "33c5c405ddfe75f6cc02240daf126d68bf89a284e1e2f33e81fd9a4ffaf82b97",
+  "fingerprint": "f6a564063c351d7c29450313c0529e5c93c127e6a21abe98a2d07cf05131d9a2",
   "file_count": 1148,
-  "working_fingerprint": "33c5c405ddfe75f6cc02240daf126d68bf89a284e1e2f33e81fd9a4ffaf82b97",
-  "started_at_utc": "2026-11-05T01:47:06.530314+00:00"
+  "working_fingerprint": "0b7f0ff1889ade1826ecde7280a6774945f02fbc0835af5f6cdb2b7543cdef87",
+  "started_at_utc": "2026-11-05T04:00:35.842754+00:00"
 }

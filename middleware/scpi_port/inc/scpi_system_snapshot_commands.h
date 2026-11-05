@@ -222,6 +222,7 @@ scpi_result_t scpi_cmd_system_tdma_ring_geometry_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_arm_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_boot_plan_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_config_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_record_arm(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_record_status_q(scpi_t *context);
@@ -563,6 +564,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:GEOMetry?", .callback = scpi_cmd_system_tdma_ring_geometry_q}, \
     {.pattern = "SYSTem:TDMA:RING:ARM:STATus?", .callback = scpi_cmd_system_tdma_ring_arm_status_q}, \
     {.pattern = "SYSTem:TDMA:RING:STATus?", .callback = scpi_cmd_system_tdma_ring_status_q}, \
+    {.pattern = "SYSTem:TDMA:BOOT:PLAN?", .callback = scpi_cmd_system_tdma_boot_plan_q}, \
     {.pattern = "SYSTem:TDMA:RING:CONFig?", .callback = scpi_cmd_system_tdma_ring_config_q}, \
     {.pattern = "SYSTem:TDMA:RECord:ARM", .callback = scpi_cmd_system_tdma_record_arm}, \
     {.pattern = "SYSTem:TDMA:RECord:STATus?", .callback = scpi_cmd_system_tdma_record_status_q}, \

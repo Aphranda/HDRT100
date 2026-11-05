@@ -6,6 +6,7 @@
 
 #include "app_realtime_schedule.h"
 #include "tdma_boot_plan.h"
+#include "tdma_boot_profile.h"
 #include "tdma_boot_sequence.h"
 
 #define APP_REALTIME_SCHEDULE_VERSION 3u
@@ -88,13 +89,29 @@ bool app_is_ready(void);
  * Execution is a separate step; this accessor only exposes what was decided. */
 bool app_guide_boot_plan_get(tdma_boot_plan_t *out);
 size_t app_guide_boot_steps_get(tdma_boot_step_t *out, size_t capacity);
+/* Loaded guide profile (store or bench auto-form); false when the board booted
+ * with no profile. */
+bool app_guide_boot_profile_get(tdma_boot_profile_t *out);
 /* Execute the frozen guide boot steps once (core0, after the scheduler starts).
  * Returns false on the first failed step; the failing index is 1-based. */
 bool app_guide_boot_service(void);
 uint32_t app_guide_boot_fail_step(void);
-/* LISTEN is currently ARM-only: true means the board is armed but cannot yet
- * join as a follower until the adapter RX-join lands. */
+/* LISTEN = ARM (RX receives, TX not published) then start TX when the first
+ * frame is heard; the 5 s join window sets join_timeout instead of pretending
+ * the follower joined. */
 bool app_guide_boot_listen_pending(void);
+bool app_guide_boot_join_timeout(void);
+/* 0 = topology step not failed; 1 no profile, 2 refmem topology rejected,
+ * 3 adapter bring-up topology rejected. */
+uint32_t app_guide_boot_topology_fail(void);
+/* Apply-step precondition bitmask (see app.c): 1 snapshot, 2 enabled,
+ * 4 adapter_started, 8 config not applied, 16 staged disabled,
+ * 32 manager missing, 64 staged invalid, 128 level mismatch. */
+uint32_t app_guide_boot_apply_fail(void);
+/* True when the LISTEN join was frame-triggered (false = window expiry). */
+bool app_guide_boot_join_frame_seen(void);
+/* True when the completeness watch saw no down direction and stopped TX. */
+bool app_guide_boot_half_ring(void);
 void app_tdma_record_service(void);
 bool app_tdma_record_copy(uint32_t offset, uint8_t *data, uint32_t size);
 bool app_is_control_plane_ready(void);

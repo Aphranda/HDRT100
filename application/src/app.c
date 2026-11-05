@@ -38,8 +38,10 @@
 #include "trigger_t2_runtime.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_boot_plan.h"
+#include "tdma_boot_profile.h"
 #include "tdma_boot_profile_store.h"
 #include "tdma_boot_sequence.h"
+#include "tdma_operating_profile.h"
 #include "tdma_service.h"
 #include "tdma_service_timing.h"
 #include "sync_io.h"
@@ -69,6 +71,48 @@ static bool s_boot_profile_loaded;
 static bool s_boot_guide_done;
 static uint32_t s_boot_fail_step;
 static bool s_boot_listen_pending;
+static uint32_t s_boot_listen_rx_base;
+static uint64_t s_boot_listen_deadline_ms;
+static bool s_boot_join_timeout;
+static bool s_boot_join_frame_seen;
+static bool s_boot_ring_watch_active;
+static uint64_t s_boot_ring_watch_at_ms;
+static bool s_boot_half_ring;
+static uint32_t s_boot_topology_fail;
+static uint32_t s_boot_apply_fail;
+static bool s_boot_attempted;
+static uint64_t s_boot_deadline_ms;
+static size_t s_boot_next_step;
+
+#if defined(PROJECT_TDMA_GUIDE_AUTOFORM) && PROJECT_TDMA_GUIDE_AUTOFORM
+/* Bench-only: build the guide profile from the board number (NO.1 -> slot 0)
+ * so power-up self-forming can be exercised before a provisioning command owns
+ * the durable store. The topology identity is a fixed bench tag shared by all
+ * boards; an empty store still means "no profile" in product images. */
+static bool app_guide_synth_profile(tdma_boot_profile_t *out)
+{
+    static const char k_bench_topology[] = "guide-bench";
+    const uint32_t no = board_identity_get_no();
+    if (no < 1u || no > (uint32_t)PROJECT_TDMA_GUIDE_NODES) {
+        return false;
+    }
+    tdma_boot_profile_t profile = {
+        .version = TDMA_BOOT_PROFILE_VERSION,
+        .profile_level = (uint32_t)PROJECT_TDMA_GUIDE_LEVEL,
+        .node_count = (uint32_t)PROJECT_TDMA_GUIDE_NODES,
+        .local_slot = no - 1u,
+        .flags = TDMA_BOOT_PROFILE_FLAG_BRINGUP_NO_CAL,
+        .topology_crc32 = tdma_boot_profile_crc32(
+            (const uint8_t *)k_bench_topology, sizeof(k_bench_topology) - 1u),
+        .generation = 1u,
+    };
+    if (!tdma_boot_profile_valid(&profile)) {
+        return false;
+    }
+    *out = profile;
+    return true;
+}
+#endif
 
 #define APP_ANALYZER_STORAGE_SEGMENT_RECORDS 128u
 #define APP_ANALYZER_STORAGE_MAGIC 0x59414C53u /* SLAY */
@@ -439,7 +483,13 @@ bool app_init(void)
      * plan stays NONE (multi-port bring-up). */
     (void)tdma_boot_profile_store_init();
     tdma_boot_profile_t boot_profile;
-    if (tdma_boot_profile_store_get(&boot_profile)) {
+    bool have_boot_profile = tdma_boot_profile_store_get(&boot_profile);
+#if defined(PROJECT_TDMA_GUIDE_AUTOFORM) && PROJECT_TDMA_GUIDE_AUTOFORM
+    if (!have_boot_profile) {
+        have_boot_profile = app_guide_synth_profile(&boot_profile);
+    }
+#endif
+    if (have_boot_profile) {
         s_boot_profile = boot_profile;
         s_boot_profile_loaded = true;
         tdma_boot_plan_decide(true, &boot_profile, boot_profile.node_count,
@@ -530,6 +580,43 @@ size_t app_guide_boot_steps_get(tdma_boot_step_t *out, size_t capacity)
     return s_boot_step_count;
 }
 
+static uint32_t app_guide_apply_fail_mask(void)
+{
+    uint32_t mask = 0u;
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring)) {
+        mask |= 1u;
+    } else {
+        if (ring.enabled != 0u) {
+            mask |= 2u;
+        }
+        if (ring.adapter_started != 0u) {
+            mask |= 4u;
+        }
+        if (ring.config_seq != ring.applied_config_seq) {
+            mask |= 8u;
+        }
+    }
+    tdma_service_ring_runtime_config_t config;
+    if (!tdma_runtime_owner_get_staged_ring_config(&config) ||
+        config.enabled == 0u) {
+        mask |= 16u;
+    }
+    tdma_operating_profile_manager_t manager;
+    if (!tdma_runtime_owner_get_operating_profile(&manager)) {
+        mask |= 32u;
+    } else {
+        tdma_operating_profile_result_t result;
+        if (!tdma_operating_profile_validate(&manager.staged, &result)) {
+            mask |= 64u;
+        }
+        if (manager.staged.level != s_boot_profile.profile_level) {
+            mask |= 128u;
+        }
+    }
+    return mask;
+}
+
 static bool app_guide_run_step(tdma_boot_step_t step)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
@@ -539,31 +626,95 @@ static bool app_guide_run_step(tdma_boot_step_t step)
                tdma_runtime_owner_stage_operating_profile(
                    s_boot_profile.profile_level);
     case TDMA_BOOT_STEP_APPLY_PROFILE:
-        return tdma_runtime_owner_apply_operating_profile();
+        if (tdma_runtime_owner_apply_operating_profile()) {
+            return true;
+        }
+        s_boot_apply_fail = app_guide_apply_fail_mask();
+        return false;
     case TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY:
         /* The staged ring config is built against the applied profile; the
          * adapter link map is the bring-up topology the flight engine reads. */
-        return s_boot_profile_loaded &&
-               distributed_refmem_set_tdma_ring_topology(
-                   s_boot_profile.local_slot, 0u, s_boot_profile.node_count) &&
-               tdma_runtime_owner_set_bringup_topology(
-                   s_boot_profile.node_count, 0u);
+        if (!s_boot_profile_loaded) {
+            s_boot_topology_fail = 1u;
+            return false;
+        }
+        /* Mirrors the SCPI RING:TOPology path: the setter reports "changed",
+         * not "ok", and the ring/VDC/RefMem trio can still be settling right
+         * after boot. Retry inside the step and accept an already-matching
+         * snapshot instead of latching the first refusal. */
+        {
+            bool topology_ok = false;
+            for (uint32_t attempt = 0u; attempt < 50u; attempt++) {
+                if (distributed_refmem_set_tdma_ring_topology(
+                        s_boot_profile.local_slot, 0u,
+                        s_boot_profile.node_count)) {
+                    topology_ok = true;
+                    break;
+                }
+                tdma_ring_runtime_snapshot_t ring;
+                if (tdma_runtime_owner_get_ring_snapshot(&ring) &&
+                    ring.node_count == s_boot_profile.node_count &&
+                    ring.local_slot_id == s_boot_profile.local_slot) {
+                    topology_ok = true;
+                    break;
+                }
+                sleep_ms(20u);
+            }
+            if (!topology_ok) {
+                s_boot_topology_fail = 2u;
+                return false;
+            }
+        }
+        if (!tdma_runtime_owner_set_bringup_topology(
+                s_boot_profile.node_count, 0u)) {
+            s_boot_topology_fail = 3u;
+            return false;
+        }
+        return true;
     case TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL:
         return tdma_runtime_owner_set_bringup_no_cal(true);
     case TDMA_BOOT_STEP_RING_ARM:
-        return owner != NULL && tdma_service_ring_arm(owner);
+        /* Use the same entry the SCPI RING:ARM uses: it configures the default
+         * flight map from the staged node count before arming. Calling
+         * tdma_service_ring_arm directly skips that map and the physical layer
+         * rejects the ARM with OWNER_FLIGHT_MAP. */
+        return distributed_refmem_tdma_ring_arm();
     case TDMA_BOOT_STEP_RING_START:
         return owner != NULL && tdma_service_ring_start(owner);
-    case TDMA_BOOT_STEP_RING_LISTEN:
-        /* RX-join is not implemented yet: arm only and record the gap so a
-         * missing follower cannot be mistaken for a joined one. */
-        if (owner == NULL || !tdma_service_ring_arm(owner)) {
+    case TDMA_BOOT_STEP_RING_LISTEN: {
+        /* ARM only arms the hardware capture; the software data plane (and
+         * therefore rx_count/up_running) only runs after START sets
+         * data_enabled. A follower that waits for a frame before STARTing can
+         * never hear one, so LISTEN starts immediately and keeps a bounded
+         * watchdog only to record whether frames actually arrived. */
+        tdma_ring_runtime_snapshot_t ring;
+        if (!tdma_runtime_owner_get_ring_snapshot(&ring) ||
+            ring.adapter_started == 0u) {
+            return false;
+        }
+        s_boot_listen_rx_base = ring.adapter_rx_count;
+        s_boot_listen_deadline_ms = to_ms_since_boot(get_absolute_time()) + 5000u;
+        if (owner == NULL || !tdma_service_ring_start(owner)) {
             return false;
         }
         s_boot_listen_pending = true;
         return true;
-    case TDMA_BOOT_STEP_STOP:
-        return owner != NULL && tdma_service_ring_stop(owner);
+    }
+    case TDMA_BOOT_STEP_STOP: {
+        /* A board that boots with a persisted/staged config may already be
+         * enabled; STOP is the recipe's first step. When the ring is already
+         * disabled, do not issue another stop: each stop bumps config_seq and
+         * would keep the later apply from ever seeing an applied config. */
+        tdma_ring_runtime_snapshot_t ring;
+        const bool have_ring = tdma_runtime_owner_get_ring_snapshot(&ring);
+        if (have_ring && ring.enabled == 0u && ring.adapter_started == 0u) {
+            return true;
+        }
+        if (owner != NULL && tdma_service_ring_stop(owner)) {
+            return true;
+        }
+        return have_ring && ring.enabled == 0u && ring.adapter_started == 0u;
+    }
     case TDMA_BOOT_STEP_NONE:
     default:
         return true;
@@ -575,16 +726,81 @@ bool app_guide_boot_service(void)
     if (s_boot_guide_done) {
         return s_boot_fail_step == 0u;
     }
-    s_boot_guide_done = true;
     if (s_boot_plan.action == TDMA_BOOT_ACTION_NONE) {
+        s_boot_guide_done = true;
         return true;
     }
-    for (size_t i = 0u; i < s_boot_step_count; i++) {
-        if (!app_guide_run_step(s_boot_steps[i])) {
-            s_boot_fail_step = (uint32_t)(i + 1u);
+    /* Ring/profile services only accept work once their first core0 cycles have
+     * run; start after a short warm-up and retry for a bounded window instead
+     * of latching the first (too-early) failure. */
+    const uint64_t now_ms = to_ms_since_boot(get_absolute_time());
+    if (!s_boot_attempted) {
+        if (now_ms < 3000u) {
             return false;
         }
+        s_boot_attempted = true;
+        s_boot_deadline_ms = now_ms + 30000u;
     }
+    if (now_ms > s_boot_deadline_ms) {
+        s_boot_guide_done = true;
+        return false;
+    }
+    for (size_t i = s_boot_next_step; i < s_boot_step_count; i++) {
+        if (!app_guide_run_step(s_boot_steps[i])) {
+            s_boot_fail_step = (uint32_t)(i + 1u);
+            if (s_boot_steps[i] == TDMA_BOOT_STEP_RING_ARM) {
+                /* A failed adapter start leaves the ring half-armed; replay
+                 * from STOP instead of hammering ARM on a stuck state. */
+                s_boot_next_step = 1u;
+            }
+            return false;
+        }
+        s_boot_next_step = i + 1u;
+    }
+    s_boot_guide_done = true;
+    s_boot_fail_step = 0u;
+    /* Completeness watch: a four-node ring run by fewer boards still reaches
+     * up_running on the survivors; the down direction only runs when a peer
+     * answers, so a silent down path after the grace window is a half ring. */
+    s_boot_ring_watch_active = true;
+    s_boot_ring_watch_at_ms = to_ms_since_boot(get_absolute_time()) + 20000u;
+    return true;
+}
+
+static void app_guide_ring_watch_service(void)
+{
+    if (!s_boot_ring_watch_active) {
+        return;
+    }
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring)) {
+        return;
+    }
+    /* Peers boot and join at different times: poll the down direction for the
+     * whole window instead of sampling once. */
+    if (ring.down_running != 0u) {
+        s_boot_ring_watch_active = false;
+        return;
+    }
+    if (to_ms_since_boot(get_absolute_time()) < s_boot_ring_watch_at_ms) {
+        return;
+    }
+    s_boot_ring_watch_active = false;
+    /* Reject the half ring: stop TX so a partial ring cannot masquerade as a
+     * complete one. */
+    s_boot_half_ring = true;
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    if (owner != NULL) {
+        (void)tdma_service_ring_stop(owner);
+    }
+}
+
+bool app_guide_boot_profile_get(tdma_boot_profile_t *out)
+{
+    if (out == NULL || !s_boot_profile_loaded) {
+        return false;
+    }
+    *out = s_boot_profile;
     return true;
 }
 
@@ -596,6 +812,53 @@ uint32_t app_guide_boot_fail_step(void)
 bool app_guide_boot_listen_pending(void)
 {
     return s_boot_listen_pending;
+}
+
+bool app_guide_boot_join_timeout(void)
+{
+    return s_boot_join_timeout;
+}
+
+uint32_t app_guide_boot_topology_fail(void)
+{
+    return s_boot_topology_fail;
+}
+
+uint32_t app_guide_boot_apply_fail(void)
+{
+    return s_boot_apply_fail;
+}
+
+bool app_guide_boot_join_frame_seen(void)
+{
+    return s_boot_join_frame_seen;
+}
+
+bool app_guide_boot_half_ring(void)
+{
+    return s_boot_half_ring;
+}
+
+static void app_guide_listen_service(void)
+{
+    if (!s_boot_listen_pending) {
+        return;
+    }
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring)) {
+        return;
+    }
+    if (ring.adapter_rx_count != s_boot_listen_rx_base) {
+        s_boot_join_frame_seen = true;
+        s_boot_listen_pending = false;
+        return;
+    }
+    if (to_ms_since_boot(get_absolute_time()) > s_boot_listen_deadline_ms) {
+        /* Ring is started; no frame was decoded inside the window. Keep the
+         * timeout purely as evidence, never as a reason to fake a join. */
+        s_boot_join_timeout = true;
+        s_boot_listen_pending = false;
+    }
 }
 
 bool app_is_control_plane_ready(void)
@@ -663,6 +926,8 @@ void app_ota_service(void)
 void app_diag_service(void)
 {
     (void)app_guide_boot_service();
+    app_guide_listen_service();
+    app_guide_ring_watch_service();
     vdc_dpll_manager_core0_service();
     app_analyzer_storage_service();
     diagnostics_housekeeping_service();

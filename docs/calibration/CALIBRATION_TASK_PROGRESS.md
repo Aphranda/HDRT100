@@ -10,6 +10,51 @@ Last updated: 2026-11-05
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261105-042 - M0 上电自组成功（四板 10 kHz，无主机命令）
+
+- **build**：`20261105031331`（v2 候选 + `PROJECT_TDMA_GUIDE_AUTOFORM=ON`，slot=NO-1、nodes=4、level=23）。
+- **做法**：四板 picotool 刷同一 factory 镜像 → 各自上电启动，无任何起环 SCPI。
+- **结果**（`SYST:TDMA:RING:STATus?`）：
+
+| 板 | slot | up | down | adapter_started | service | tx | rx |
+|---|---|---|---|---|---|---|---|
+| NO.1 | 0 | 1 | 1 | 1 | 97952 | 315 | 18 |
+| NO.2 | 1 | 1 | 1 | 1 | 6878 | 20 | 20 |
+| NO.3 | 2 | 1 | 1 | 1 | 69740 | 22 | 22 |
+| NO.4 | 3 | 1 | 1 | 1 | 42753 | 23 | 23 |
+
+  `BOOT:PLAN?`：NO.1 = START_REF，其余 = LISTEN；四板 `fail_step=0`、`profile=1`；
+  NO.2 `join_frame_seen=1`（听到协调板帧后入环）。
+- **修复的两个真因**：
+  1. `LISTEN` 自锁：ARM 只开硬件抓取，软件数据面由 `data_enabled`（START）门控 →
+     改为 LISTEN 立即 START，5 s 窗口只写 `join_frame_seen/join_timeout` 证据；
+  2. `ARM` 缺 flight map：直连 `tdma_service_ring_arm` 会跳过默认 map，物理层报
+     `OWNER_FLIGHT_MAP(17)` → 改用 SCPI 同款 `distributed_refmem_tdma_ring_arm()`。
+- **仍未闭环（不得写成已完成）**：
+  - ~~半环/缺槽未判~~ → **本轮已补**（见下）；
+  - **无 join-TX 抑制门**：从板 START 即参与发送；
+  - 从板 `reason=5 PAYLOAD_STARVATION` 在空载低速率下出现，需文档说明；
+  - 串口 OTA 在 factory 迁移后 `erase failed: state=9`，凭证路径未通（picotool 可用）。
+- **半环拒绝（本轮实测，build `20261105032420`）**：boot 完成后启动 20 s 完整性窗口，
+  `down_running` 为 0 即判半环：置 `half_ring=1` 并 `RING:STOP`。
+  - 四板齐全：四板 `up=1 down=1 tx/rx>0`，`half_ring=0`（无误杀）；
+  - 停掉 NO.2 后重启其余三块：三块均 `half_ring=1`、`up=0/down=0/started=0`（拒绝成功）；
+  - 恢复四板：回到 `up=1 down=1`、`half_ring=0`。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed；固件待 P3/凭证。
+
+## CAL-TASK-20261105-041 - M0-③ LISTEN/RX-join v1（ARM 收、首个帧后启 TX）
+
+- **实现**：`app_guide_run_step(RING_LISTEN)` 仍先 ARM（此时 adapter 接收、`data_enabled=0` 不发布 TX），
+  记录 `adapter_rx_count` 基线并开 5 s join 窗口；`app_diag_service` 每轮调用
+  `app_guide_listen_service()`：一旦 `adapter_rx_count` 变化或 `up_running` 置位，就
+  `tdma_service_ring_start()` 启 TX 并清 pending；窗口超时置 `app_guide_boot_join_timeout()`，
+  保持 ARM、**不假装已加入**。
+- **语义边界**：这是"ARM 收 → 首帧 → START"的 v1 近似，不新增 adapter 状态机；缺槽仍由协调板
+  bitmap 判定（N1=B 的后续项）。v1 地图无引导档 → 整段不执行。
+- **构建**：v1 增量 161/161、v2 增量 164/164，`flash_link_contract=OK`（app A/B/boot/recovery）。
+- **未上板**：LISTEN 路径需要 v2 地图 + 引导档 provisioning 才能实跑；P3 进行中。
+- **门禁**：docs_check 256 OK、doc_regression OK、pytest 80 passed。
+
 ## CAL-TASK-20261105-040 - WP-1 START_REF 执行接线（日间目标 M0-②）
 
 - **顺序修正**：`tdma_boot_sequence` 的 `START_REF`/`LISTEN` 改为

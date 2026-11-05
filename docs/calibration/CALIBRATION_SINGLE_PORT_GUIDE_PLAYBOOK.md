@@ -681,7 +681,7 @@ v2 分支的引导档子区与 boot 载入。
 | 引导档存储 | `tdma_boot_profile_store.*` | ✅ v2 双扇区 NVS、轮换、写后重扫；v1 返回 UNSUPPORTED；host 通过 |
 | 自组决策 | `tdma_boot_plan.*` | ✅ N1=B 四动作/四原因；host 通过 |
 | 自组步骤 | `tdma_boot_sequence.*` | ✅ START_REF/LISTEN/REJECT/NONE；容量不足不截断 |
-| boot 载入 + 执行 | `application/src/app.c` + `app.h` 访问器 | ✅ 载入并冻结计划/步骤；`app_guide_boot_service()` 由 `app_diag_service` 首轮执行（stage/apply→topology→bringup→ARM→START；v1 空转）；`RING_LISTEN` 仅 ARM，RX-join 未做 |
+| boot 载入 + 执行 | `application/src/app.c` + `app.h` 访问器 | ✅ 载入并冻结计划/步骤；`app_guide_boot_service()` 由 `app_diag_service` 首轮执行（stage/apply→topology→bringup→ARM→START；v1 空转）；`RING_LISTEN` = ARM 收 + 首帧后 START（5 s 窗口，超时 `join_timeout`，不假装加入） |
 | v2 子区 | `config/flash_deployment_map.h` | ✅ offset 4×erase / 2 扇区 + static assert；v1 `HAS=0` |
 | R2b 派生 | `calibration_stage_derive.*` | ✅ pio/base/phase 三纯函数；golden 对齐；LINK v2 未接 |
 | 构建 | `CMakeLists.txt` + flash 白名单 | ✅ v1 157/157、v2 164/164，`flash_link_contract=OK` |
@@ -694,6 +694,36 @@ store 写者（provisioning 命令面）、M2–M5 的 C/T/R 编排、mirror typ
 **提交状态**：本目标的 32 个文件已暂存、门禁全绿（`check-staged` build 20261105002955、
 host 112 passed），但整索引里另有 20 条既有 staged 批次（`archive/bootstrap_spi_v1`），
 pathspec 提交会被 hook 判"未暂存差异"、整索引提交会带上该批次；等待归属处置。
+
+### 9.17 M0 实测（2026-11-05，v2 单口引导期）
+
+**自组**（build `20261105032420`，`PROJECT_TDMA_GUIDE_AUTOFORM=ON`，四板同 build，无任何起环命令）：
+
+| 板 | slot | up | down | tx | rx | half_ring |
+|---|---|---|---|---|---|---|
+| NO.1 | 0 | 1 | 1 | 57 | 41 | 0 |
+| NO.2 | 1 | 1 | 1 | 45 | 45 | 0 |
+| NO.3 | 2 | 1 | 1 | 48 | 48 | 0 |
+| NO.4 | 3 | 1 | 1 | 50 | 50 | 0 |
+
+- `SYSTem:TDMA:BOOT:PLAN?` 四板 `fail_step=0`；NO.1 = `START_REF`，其余 `LISTEN`；
+  NO.2/3/4 `join_frame_seen=1`。
+- **半环拒绝**：停掉 NO.2 后重启其余三块 → 三块 `half_ring=1` 且 `up=0/down=0/started=0`；
+  恢复四板后回到 `up=1/down=1`、`half_ring=0`（20 s 窗口内轮询 `down_running`，不误杀）。
+
+**关键实现事实**（写给下一位）：
+
+- LISTEN 必须 **立即 START**：ARM 只开硬件抓取，`data_enabled`（START）才让
+  `tdma_ring_runtime` 调 adapter service；"听到再 START"会死锁（`RX_NEEDS_START`）。
+- ARM 必须走 `distributed_refmem_tdma_ring_arm()`：它先按 staged node_count 配默认 flight map，
+  直连 `tdma_service_ring_arm` 会被物理层以 `OWNER_FLIGHT_MAP(17)` 拒绝。
+- 无 join-TX 抑制门：从板 START 即参与发送；`join_frame_seen` 只是证据，不是门控。
+
+**v2 factory 迁移的 OTA 坑**：factory UF2 声明 `full_erase_required: true`，但
+`picotool load` 不擦 OTA_JOURNAL；残留 journal 跨启动被 FlashTransaction 重放，导致后续串口 OTA
+在第一步擦除就报 `erase failed: state=9`。处置：按工件契约整片擦除后再 load；整片擦除会抹掉
+持久化板号（NO.0），需逐板重写 `SYSTem:BOARD:NO`。清 journal 后 P3（build `20261105035001`）
+恢复 `PASS_WITH_WARNINGS`。
 
 
 

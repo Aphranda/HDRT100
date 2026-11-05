@@ -1241,3 +1241,35 @@ scpi_result_t scpi_cmd_system_tdma_long_frame_rx_q(scpi_t *context)
     SCPI_ResultUInt32(context, segment_mask);
     return SCPI_RES_OK;
 }
+
+scpi_result_t scpi_cmd_system_tdma_boot_plan_q(scpi_t *context)
+{
+    tdma_boot_plan_t plan;
+    if (!app_guide_boot_plan_get(&plan)) {
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PLAN");
+        return SCPI_RES_ERR;
+    }
+    tdma_boot_profile_t profile;
+    const bool have_profile = app_guide_boot_profile_get(&profile);
+    tdma_boot_step_t steps[TDMA_BOOT_SEQUENCE_MAX];
+    const size_t step_count =
+        app_guide_boot_steps_get(steps, TDMA_BOOT_SEQUENCE_MAX);
+    SCPI_ResultUInt32(context, (uint32_t)plan.action);
+    SCPI_ResultUInt32(context, (uint32_t)plan.reason);
+    SCPI_ResultUInt32(context, (uint32_t)step_count);
+    SCPI_ResultUInt32(context, app_guide_boot_fail_step());
+    SCPI_ResultUInt32(context, app_guide_boot_listen_pending() ? 1u : 0u);
+    SCPI_ResultUInt32(context, app_guide_boot_join_timeout() ? 1u : 0u);
+    SCPI_ResultUInt32(context, have_profile ? 1u : 0u);
+    SCPI_ResultUInt32(context, have_profile ? profile.local_slot : 0u);
+    SCPI_ResultUInt32(context, have_profile ? profile.node_count : 0u);
+    SCPI_ResultUInt32(context, have_profile ? profile.profile_level : 0u);
+    SCPI_ResultUInt32(context, have_profile ? profile.flags : 0u);
+    SCPI_ResultUInt32(context, have_profile ? profile.generation : 0u);
+    SCPI_ResultUInt32(context, have_profile ? profile.topology_crc32 : 0u);
+    SCPI_ResultUInt32(context, app_guide_boot_topology_fail());
+    SCPI_ResultUInt32(context, app_guide_boot_apply_fail());
+    SCPI_ResultUInt32(context, app_guide_boot_join_frame_seen() ? 1u : 0u);
+    SCPI_ResultUInt32(context, app_guide_boot_half_ring() ? 1u : 0u);
+    return SCPI_RES_OK;
+}

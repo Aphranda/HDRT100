@@ -65,6 +65,15 @@ set(PROJECT_TDMA_SPI_BAUD_HZ 10000000 CACHE STRING "Product TDMA PIO-SPI bit rat
 # sequence bridge below supplies the local TX latch evidence; keeping it in the
 # normal build preserves the proven process-follower wire timing.
 option(PROJECT_TDMA_EVENT_OBSERVER "Follower paired PIO event observer" ON)
+# Bench-only: when the durable TDMA boot profile store is empty (v2 map), build
+# the single-port guide profile from the board NO. (NO.1 -> slot 0) instead of
+# "no profile". This exists to exercise power-up self-forming on the bench
+# before a provisioning command owns the store; never enable it in a product
+# image, where an empty store must stay "no profile".
+option(PROJECT_TDMA_GUIDE_AUTOFORM
+    "Bench: synthesize the guide boot profile from the board NO. when empty" OFF)
+set(PROJECT_TDMA_GUIDE_NODES 4 CACHE STRING "Bench guide ring node count")
+set(PROJECT_TDMA_GUIDE_LEVEL 23 CACHE STRING "Bench guide ring profile level")
 file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/config/project_node_capacity.h"
     PROJECT_NODE_CAPACITY_DEFAULT_LINE REGEX "^#define PROJECT_NODE_CAPACITY_DEFAULT [0-9]+$")
 if(NOT PROJECT_NODE_CAPACITY_DEFAULT_LINE MATCHES "^#define PROJECT_NODE_CAPACITY_DEFAULT ([0-9]+)$")
@@ -235,9 +244,29 @@ if(PROJECT_FLASH_DEPLOYMENT_V2 AND
     message(FATAL_ERROR
             "v2 factory builds require a non-zero signed debug security counter and key ID")
 endif()
-if(PROJECT_FLASH_DEPLOYMENT_V2 AND NOT EXISTS "${PROJECT_OTA_DEBUG_PRIVATE_KEY}")
+if(PROJECT_FLASH_DEPLOYMENT_V2 AND NOT EXISTS "${PROJECT_OTA_DEBUG_PRIVATE_KEY}" AND
+   NOT PROJECT_OTA_KEY_PROFILE STREQUAL "v2_debug")
     message(FATAL_ERROR
             "v2 factory builds require PROJECT_OTA_DEBUG_PRIVATE_KEY=${PROJECT_OTA_DEBUG_PRIVATE_KEY}")
+endif()
+if(PROJECT_FLASH_DEPLOYMENT_V2 AND PROJECT_OTA_KEY_PROFILE STREQUAL "v2_debug")
+    set(PROJECT_OTA_EFFECTIVE_KEY_CONFIG
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/ota_public_keys.debug.json)
+    execute_process(
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_LIST_DIR}/tools/ota_keys/ensure_debug_key.py
+                --private-key ${PROJECT_OTA_DEBUG_PRIVATE_KEY}
+                --source-config ${PROJECT_OTA_KEY_CONFIG}
+                --output-config ${PROJECT_OTA_EFFECTIVE_KEY_CONFIG}
+                --key-id ${PROJECT_OTA_SIGNING_KEY_ID}
+                --profile ${PROJECT_OTA_KEY_PROFILE}
+                --role dev
+        RESULT_VARIABLE PROJECT_OTA_DEBUG_KEY_RESULT
+    )
+    if(NOT PROJECT_OTA_DEBUG_KEY_RESULT EQUAL 0)
+        message(FATAL_ERROR "failed to prepare local debug OTA key/config")
+    endif()
+    set(PROJECT_OTA_KEY_CONFIG ${PROJECT_OTA_EFFECTIVE_KEY_CONFIG})
 endif()
 if(PROJECT_OTA_SIGNATURE_FILE AND
    (PROJECT_OTA_SECURITY_COUNTER EQUAL 0 OR PROJECT_OTA_SIGNING_KEY_ID EQUAL 0))
@@ -931,6 +960,9 @@ pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/syn
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_LOG_UART_OUTPUT=$<BOOL:${PROJECT_ENABLE_LOG_UART_OUTPUT}>
         PROJECT_OTA_TDMA_V2_BRIDGE=$<BOOL:${PROJECT_OTA_TDMA_V2_BRIDGE}>
+        PROJECT_TDMA_GUIDE_AUTOFORM=$<BOOL:${PROJECT_TDMA_GUIDE_AUTOFORM}>
+        PROJECT_TDMA_GUIDE_NODES=${PROJECT_TDMA_GUIDE_NODES}
+        PROJECT_TDMA_GUIDE_LEVEL=${PROJECT_TDMA_GUIDE_LEVEL}
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         PROJECT_ENABLE_WATCHDOG_TEST=$<BOOL:${PROJECT_ENABLE_WATCHDOG_TEST}>
         PROJECT_ENABLE_FLASH_VALIDATION=$<BOOL:${PROJECT_ENABLE_FLASH_VALIDATION}>

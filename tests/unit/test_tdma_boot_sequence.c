@@ -24,24 +24,24 @@ int main(void)
     /* Coordinator: bring-up config, profile, ARM, then start TX. */
     tdma_boot_plan_t ref = plan_for(TDMA_BOOT_ACTION_START_REF);
     size_t count = tdma_boot_sequence_build(&ref, steps, TDMA_BOOT_SEQUENCE_MAX);
-    assert(count == 6u);
-    /* Profile before topology: the ring staged config is built against the
-     * applied profile, then the bring-up flag is set, then ARM. */
-    assert(steps[0] == TDMA_BOOT_STEP_STAGE_PROFILE);
-    assert(steps[1] == TDMA_BOOT_STEP_APPLY_PROFILE);
-    assert(steps[2] == TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY);
-    assert(steps[3] == TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL);
-    assert(steps[4] == TDMA_BOOT_STEP_RING_ARM);
-    assert(steps[5] == TDMA_BOOT_STEP_RING_START);
-    assert(strcmp(tdma_boot_step_name(steps[5]), "RING_START") == 0);
+    assert(count == 7u);
+    /* Mirrors the ring-start recipe: STOP, stage/apply, topology, bring-up. */
+    assert(steps[0] == TDMA_BOOT_STEP_STOP);
+    assert(steps[1] == TDMA_BOOT_STEP_STAGE_PROFILE);
+    assert(steps[2] == TDMA_BOOT_STEP_APPLY_PROFILE);
+    assert(steps[3] == TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY);
+    assert(steps[4] == TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL);
+    assert(steps[5] == TDMA_BOOT_STEP_RING_ARM);
+    assert(steps[6] == TDMA_BOOT_STEP_RING_START);
+    assert(strcmp(tdma_boot_step_name(steps[6]), "RING_START") == 0);
 
     /* Follower: same configuration, but ARM then RX listen, no TX. */
     tdma_boot_plan_t follower = plan_for(TDMA_BOOT_ACTION_LISTEN);
     count = tdma_boot_sequence_build(&follower, steps, TDMA_BOOT_SEQUENCE_MAX);
-    assert(count == 6u);
-    assert(steps[4] == TDMA_BOOT_STEP_RING_ARM);
-    assert(steps[5] == TDMA_BOOT_STEP_RING_LISTEN);
-    assert(strcmp(tdma_boot_step_name(steps[5]), "RING_LISTEN") == 0);
+    assert(count == 7u);
+    assert(steps[5] == TDMA_BOOT_STEP_RING_ARM);
+    assert(steps[6] == TDMA_BOOT_STEP_RING_LISTEN);
+    assert(strcmp(tdma_boot_step_name(steps[6]), "RING_LISTEN") == 0);
 
     /* Reject: stop and leave the reason to the caller. */
     tdma_boot_plan_t reject = plan_for(TDMA_BOOT_ACTION_REJECT);
@@ -49,7 +49,7 @@ int main(void)
     assert(count == 1u && steps[0] == TDMA_BOOT_STEP_STOP);
 
     /* The sequence never truncates silently into a partial start. */
-    assert(tdma_boot_sequence_build(&ref, steps, 5u) == 0u);
+    assert(tdma_boot_sequence_build(&ref, steps, 6u) == 0u);
     assert(tdma_boot_sequence_build(&ref, NULL, TDMA_BOOT_SEQUENCE_MAX) == 0u);
     assert(tdma_boot_sequence_build(NULL, steps, TDMA_BOOT_SEQUENCE_MAX) == 0u);
 

@@ -3,18 +3,23 @@
 #include <stddef.h>
 
 static const tdma_boot_step_t k_start_ref[] = {
+    /* Cold boot has no schedule base CRC until the topology is staged, and the
+     * topology leaves the ring enabled, so: TOPOLOGY -> STOP -> profile ->
+     * bring-up flag -> ARM -> START. */
+    TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY,
+    TDMA_BOOT_STEP_STOP,
     TDMA_BOOT_STEP_STAGE_PROFILE,
     TDMA_BOOT_STEP_APPLY_PROFILE,
-    TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY,
     TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL,
     TDMA_BOOT_STEP_RING_ARM,
     TDMA_BOOT_STEP_RING_START,
 };
 
 static const tdma_boot_step_t k_listen[] = {
+    TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY,
+    TDMA_BOOT_STEP_STOP,
     TDMA_BOOT_STEP_STAGE_PROFILE,
     TDMA_BOOT_STEP_APPLY_PROFILE,
-    TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY,
     TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL,
     TDMA_BOOT_STEP_RING_ARM,
     TDMA_BOOT_STEP_RING_LISTEN,
