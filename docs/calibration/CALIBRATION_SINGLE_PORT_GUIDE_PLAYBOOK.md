@@ -885,6 +885,33 @@ up=1 down=1`、tx/rx ≈ 1e4，**无主机起环命令**。
 （`loaded` 在 restore 之后才置位，不能当前置条件），跨拓扑/跨 profile 的陈旧记录目前靠 ARM 门与
 restore 上下文拒绝——**开机前 CRC 预校验仍是待办**，否则陈旧记录可能选错 level。
 
+### 9.22 剩余两项的实现方案（③ 与 M2–M4）
+
+**③-a join-TX 抑制门**（现状：LISTEN 立即 START，从板在听到参考帧之前就会发送）：
+
+| 项 | 方案 |
+|---|---|
+| 语义 | `BOOT_LISTEN` 期间只允许 RX；首次解出合法帧（`adapter_rx_count` 从 0 变正）后才允许 TX |
+| 落点 | `tdma_pio_spi_ring_adapter_tx.c` 的分发/信标发射入口加 `join_tx_gate` 判据；adapter 新增 `join_tx_gate` 字段 + setter；`rx_count` 已存在，无需新计数 |
+| 状态机 | `ARM` 后 `gate=1` → `START` → 收到首帧 → `gate=0`（一次性，不做滞回；超窗仍停在 LISTEN 并留 `join_timeout`） |
+| 判据 | 从板 `tx_count=0` 直到 `rx_count>0`；四板仍能成环；负测：只有参考板在发时不误判半环 |
+| 风险 | 分发路径同时服务 RX，闸门必须只挡"发射准备"、不挡收包与完成回调 |
+
+**③-b 缺槽 bitmap**（现状：只有本板 `down_running`，看不到"我听到了谁"）：
+
+| 项 | 方案 |
+|---|---|
+| 语义 | 按帧头的 `origin_slot_id` 统计本板被接受的 RX 计数 → `rx_slot_mask/rx_slot_count[8]`，只读出口 `SYSTem:TDMA:RING:RXSLOT?` |
+| 用途 | 正确环序下每板应只点亮**一个** bit（前驱）；矩阵/环序推断、缺板定位都直接读它 |
+| 单口聚合 | 需要跨板汇总时走既有维护流/过程映像（C/Q 段），不在本项内；本项只保证"每板可观测" |
+| 判据 | 四板各一个 bit 且并集=四条有向边；停一块后其继任者 mask 清零 |
+
+**M2–M4（TRN-00/01/02 板端串行）**：复用已跑通的暗窗原语（`app_guide_scan_trial_step` 的
+STOP→配置→等 `applied`→ARM(带屏障)→START→采样→STOP），把"候选 × 重复"固定阶梯写成板端表，
+板端只做 ARM/INJECT/接受判定（这些判定本来就已在 `calibration_training_{marker,sck,data}` 里），
+host 只在复环后聚合。B7 已裁定 R2b，紧凑 stage 由 `calibration_stage_derive` 派生，LINK schema v2
+待接。
+
 **S 段实板测试步骤（待 matrix 就绪后执行）**：
 
 1. 完整验收链产出 `trn03-matrix.json`（`workflow_steps.py run` 的 21 步）；
