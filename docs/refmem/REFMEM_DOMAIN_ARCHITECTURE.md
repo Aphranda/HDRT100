@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
-Last updated: 2026-10-29
+Last updated: 2026-11-05
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面，并以统一控制面把系统级命令意图路由到显式目标插槽、聚合 ACK/NACK/fence，使接入点不再决定系统操作语义。
 
@@ -1404,6 +1404,12 @@ RefMem 命令/事件要落到 AO/FB，需要统一的动作分发契约：
 - handler 必须非阻塞；耗时动作返回 BUSY，由 owner service tick 推进。
 - `action_id` 来自 Event Plane 的静态 EventMapTable；`command_type` 来自 RefMem 命令目录；Event Plane 只提供映射，不执行。
 - 契约状态：pending，代码锚点 `distributed_refmem.h`；需 host 分发用例 + 单板 HIL。
+- **实现状态（2026-11-05）：已被统一控制面取代。** 命令分发已由 `refmem_domain_config`
+  （`command_type → handler`，32 项上限、词数校验、fail-closed）实现，并由 `refmem_command_catalog`
+  与 `app_refmem_domain_config` 注册；`refmem_action_registry` 是第二套 `id → handler` 表，
+  生产路径**零调用**（链接器 GC 丢弃其段），其 `action_id`（Event Plane）路径也未实现。
+  结论：不再作为待接线路由，代码留档、不接入 RUN；将来若确需异步分发，应基于
+  `refmem_domain_config` 扩展，而不是复活第二张表。
 
 ### REFMEM-LOCAL-01：单板控制保留
 

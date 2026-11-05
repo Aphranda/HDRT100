@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-11-04
+Last updated: 2026-11-05
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -813,7 +813,11 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] `ActionRegistry/ActionDispatcher`：`refmem_action_registry.h/.c`，action_id/command_type 查找、有界队列、QUEUE_FULL、UNHANDLED、required handler gate。
 - [x] 本地/统一面路由：`refmem_control_route.h/.c`，local-only 不走 `REFMEM_CMD`；统一面不可用拒绝远端/全目标。
 - [x] host 测试：5 个新 runner + `run_refmem_all_host_tests.ps1`（设置 sync_trigger include 后跑全部 RefMem host tests）。
-- [ ] 接入 CMake/固件主流程（M2 前不做；避免当前分支 WIP 冲突）。
+- [x] CMake 源列表：`refmem_action_registry.c` 已编译（2026-11-05 核对）。
+- [x] 命令分发（实际路径）：`refmem_domain_config`（`command_type → handler`、词数校验、fail-closed）
+  + `refmem_command_catalog` + `app_refmem_domain_config` 注册，已覆盖统一控制面的分发需求。
+- [ ] （已取消）`ActionDispatcher`/`ActionRegistry` 生产接线：与 `refmem_domain_config` 重复，
+  不接入 RUN；`refmem_action_registry` 生产零调用、链接器丢弃，代码留档（2026-11-05 定案）。
 - [ ] 板端/HIL（不在 host M1）。
 
 ## 后续实现（不在本目标）
