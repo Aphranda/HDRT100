@@ -1700,6 +1700,7 @@ bool app_guide_scan_get_pair(uint32_t index,
 #define APP_CTRQS_P2_REF_DELAY_MS 1500u
 #define APP_CTRQS_ACTION_P3 3u
 #define APP_CTRQS_P3_STEP_MS 6000u
+#define APP_CTRQS_P3_STOP_MS 5000u
 #define APP_CTRQS_P3_REF_DELAY_MS 300u
 #define APP_CTRQS_P3_MAX_REPEATS 4u
 
@@ -1718,6 +1719,7 @@ typedef enum {
     APP_CTRQS_P2_CODED_STOP,
     APP_CTRQS_P3_PREP,
     APP_CTRQS_P3_RUN,
+    APP_CTRQS_P3_STOP,
     APP_CTRQS_RESTORE_WAIT,
     APP_CTRQS_REBUILD,
     APP_CTRQS_Q,
@@ -1775,6 +1777,7 @@ typedef struct {
     uint32_t p3_trial;
     uint64_t p3_trial_t0_ms;
     bool p3_started;
+    bool p3_trial_passed;
     uint32_t hard_fail_reason;
     uint64_t stop_try_ms;
     guide_action_progress_t progress;
@@ -2235,6 +2238,10 @@ static void app_ctrqs_p3_step(uint64_t now)
     if (now >= s_ctrqs.deadline_ms) {
         if (s_ctrqs.p3_started) {
             calibration_manager_stop_p3();
+            s_ctrqs.p3_trial_passed = false;
+            s_ctrqs.state = APP_CTRQS_P3_STOP;
+            s_ctrqs.deadline_ms = now + APP_CTRQS_P3_STOP_MS;
+            return;
         }
         app_ctrqs_p3_advance(false, now);
         return;
@@ -2269,9 +2276,10 @@ static void app_ctrqs_p3_step(uint64_t now)
     }
     if (snap.raw.state == TDMA_PIO_SPI_P3_COMPLETE ||
         snap.raw.state == TDMA_PIO_SPI_P3_ERROR) {
-        const bool passed = app_ctrqs_p3_evaluate(&snap);
+        s_ctrqs.p3_trial_passed = app_ctrqs_p3_evaluate(&snap);
         calibration_manager_stop_p3();
-        app_ctrqs_p3_advance(passed, now);
+        s_ctrqs.state = APP_CTRQS_P3_STOP;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_P3_STOP_MS;
     }
 }
 
@@ -2618,6 +2626,26 @@ static void app_ctrqs_service(void)
     case APP_CTRQS_P3_RUN:
         app_ctrqs_p3_step(now);
         return;
+    case APP_CTRQS_P3_STOP: {
+        /* The P3 program must be fully released before the window close tries
+         * to arm the ring again: the p3 restore machine unloads its pio2
+         * programs asynchronously, so wait for both the idle state and the
+         * NORMAL persona (a stopped-but-still-loaded persona makes the rebuild
+         * ARM fail with PROGRAM_LOAD). */
+        calibration_manager_p3_snapshot_t snap;
+        tdma_pio_spi_phys_snapshot_t phys;
+        const bool idle = calibration_manager_get_p3_snapshot(&snap) &&
+                          snap.raw.state == TDMA_PIO_SPI_P3_IDLE;
+        const bool persona_clean =
+            tdma_runtime_owner_get_phys_snapshot(&phys) &&
+            phys.program_persona == TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL;
+        if ((!idle || !persona_clean) && now < s_ctrqs.deadline_ms) {
+            return;
+        }
+        app_ctrqs_p3_advance(idle && persona_clean && s_ctrqs.p3_trial_passed,
+                             now);
+        return;
+    }
     case APP_CTRQS_RESTORE_WAIT:
         if (s_boot_guide_done && s_boot_fail_step == 0u) {
             if (app_ctrqs_restore_formed()) {
