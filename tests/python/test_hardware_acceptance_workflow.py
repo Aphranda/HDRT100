@@ -45,7 +45,9 @@ def test_every_state_producer_actually_puts_its_key():
 def test_run_and_resume_plans_keep_the_monolithic_order():
     run_plan = p3.acceptance_step_plan(SimpleNamespace(command="run"))
     resume_plan = p3.acceptance_step_plan(SimpleNamespace(command="resume"))
-    assert run_plan == [0, 1, 2, 3, 4, 5, *range(7, 37)]
+    # step 6 (online build readback) is in BOTH plans: the recorded OTA summary
+    # keeps the pre-OTA build id, so the live override must always be collected.
+    assert run_plan == [0, 1, 2, 3, 4, 5, 6, *range(7, 37)]
     assert resume_plan == [0, 1, 3, 5, 6, *range(7, 37)]
 
 
@@ -416,3 +418,36 @@ def test_tdma_rerun_discards_the_previous_recorder(tmp_path, fingerprint, monkey
     run.execute(24)
     assert "--cancel-unsaved-record" not in commands[0]
     assert "--cancel-unsaved-record" in commands[1]
+
+def test_p0t_timeout_is_independent_one_second(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run_step(command, root, log):
+        captured["command"] = list(command)
+        raise RuntimeError("captured")
+
+    monkeypatch.setattr(p3, "_run_step", fake_run_step)
+    run = SimpleNamespace(
+        root=tmp_path,
+        out_dir=tmp_path / "out",
+        config={
+            "topology_anchor_board_id": "anchor",
+            "topology_profile_level": 7,
+            "topology_probe_cycles": 64,
+            "topology_pair_wait_s": 0.5,
+        },
+        timing={
+            "serial_timeout_s": 3.0,
+            "input_settle_s": 0.05,
+            "action_timeout_s": 0.05,
+            "output_handoff_s": 0.1,
+        },
+        common_boards=["--board-id", "anchor"],
+        board_ids=["anchor"],
+        state={},
+        get=lambda key: {"build_id": "20261105011617"}.get(key),
+    )
+    with pytest.raises(RuntimeError):
+        p3.phase_topology(run)
+    command = captured["command"]
+    assert command[command.index("--timeout") + 1] == "1.0"
