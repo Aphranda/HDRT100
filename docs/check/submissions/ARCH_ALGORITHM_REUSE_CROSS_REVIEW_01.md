@@ -37,7 +37,7 @@ C11 独立只读审查（子代理 `e2550c12`，2026-11-05）：**APPROVE_WITH_C
 |---|---|---|---|---|
 | F1 | BLOCKER（流程） | 已 staged 的 `host_acceptance_receipt.json` 是失败运行（`passed:false`，2 failed/32 errors），且早于新测试 | 接受会话在 stage 全部 tests 后重跑 `host_acceptance.py run`；不得随固件提交携带 | OPEN（非本变更引入） |
 | F2 | MAJOR（门禁） | 忽略 3 个注记键虽无证据旁路，但 summary 副本与凭证字段无交叉校验，注记字段只写不读 | 删去 `workflow_steps.py` 的 summary 注入，恢复精确等值；资格元数据仍写凭证（`4736-4743`） | CLOSED（step 30/35/36 重跑 OK） |
-| F3 | MAJOR（文档） | "唯一实现"过度声明：`tdma_seat_mount_store.h`、`refmem_action_probe.h`、`distributed_config.c` 仍有 CRC-32 副本 | 三处改调 `algo_*`；§9.28 改为"已迁移站点的唯一实现"，并注明 third_party `pota_crc32` 是 `ota_crc32_*` 的底层内核 | CLOSED |
+| F3 | MAJOR（文档） | "唯一实现"过度声明：`tdma_seat_mount_store.h`、`refmem_action_probe.h`、`distributed_config.c` 仍有 CRC-32 副本 | 三处改调 `algo_*`；§9.29 改为"已迁移站点的唯一实现"，并注明 third_party `pota_crc32` 是 `ota_crc32_*` 的底层内核 | CLOSED |
 | F4 | MINOR | zero-field 函数在 `size==0` 时做 NULL+0 指针运算 | 两处加 `size==0 → 0` 早退（与旧实现一致） | CLOSED |
 | F5 | MINOR | `__not_in_flash_func` 包装调用普通 inline，-Og 下可能调进 flash | 给 FNV update 与 CCITT byte-step 加 `always_inline` | CLOSED |
 | F6 | MINOR | `test_vdc_command_owner.host_includes` 缺 `components/algo/inc` | 已补 | CLOSED |

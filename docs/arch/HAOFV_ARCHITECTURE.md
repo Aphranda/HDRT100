@@ -4,8 +4,8 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-11-03
-Version: 7
+Last updated: 2026-11-05
+Version: 8
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
@@ -713,6 +713,7 @@ application/
   app.c                         # 主循环和调度入口
 
 components/
+  algo/                         # 无状态校验原语（header-only；规则见 CALIBRATION playbook §9.29）
   board_identity/               # 板卡唯一身份与拓扑键
   calibration_manager/          # 校准策略与校准事实
   diagnostics/                  # 诊断、错误码、运行日志

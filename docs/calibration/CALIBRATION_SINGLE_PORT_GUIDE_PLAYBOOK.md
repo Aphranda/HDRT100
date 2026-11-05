@@ -1159,12 +1159,9 @@ REFMEM 参数池本来就是"调用方持有 region 的纯存储"，已经覆盖
 | REFMEM 命令面/信封/ACK | `components/distributed_refmem/src/refmem_command.c`、`refmem_cmd_*`、`distributed_refmem_*` | 自建第二套命令帧/第二 ACK |
 | 大载荷/参数存储 | `refmem_param_pool.[ch]`（3 slot×1024 B，含 `command_seq`/`epoch`/CRC 校验） | 自建 slot/ledger/环形缓冲 |
 | 触发会话生命周期（C/T/R） | `refmem_trigger_session.[ch]`（IDLE→CONFIGURED→ARMED→RUNNING→STOPPING…） | 自建 CTRQS 相位机（本次已撤回） |
-| CRC-32/ISO-HDLC（含 raw 寄存器变体） | `components/algo/inc/algo_checksum.h`：`algo_crc32_iso_hdlc_update/_compute`（zlib 语义）、`algo_crc32_raw_update`（原始寄存器，seed 与终结由调用点显式给出）；golden check value（算法定义常量，由 `tests/python/test_algo_checksum.py` 固定）：`"123456789"→0xCBF43926`，raw 从 0 起 → `0x2DFD2D88` | 自写第二份按位/查表 CRC-32；raw 与 zlib 两种约定混用而不注明 |
-| CRC-16/CCITT-FALSE | 同一头文件：`algo_crc16_ccitt_false_update/_compute`（inline，poly 0x1021 / init 0xFFFF）；golden check value `0x29B1`（同一测试固定） | 自写第二份 CCITT；改多项式或初值 |
-| FNV-1a 32 | 同一头文件：`algo_fnv1a32_update/_bytes/_str/_u32_le/_word`；golden check value `0xBB86B11C`（同一测试固定）。**注意**：`refmem_param_pool_crc`、`refmem_vector_fast_crc32` 是 FNV-1a，不是 CRC | 自写 FNV；继续用 `*_crc` 命名指代 FNV |
-| 协议专用 CRC | MODBUS `rs485_modbus_crc16`（0xA001/0xFFFF）、CRC-8 `calibration_clk_marker_crc8`（0x07/0x00）、BiSS `biss_crc_*`（配置化） | 把不同参数合并成一个入口；自造多项式 |
-| 字节序打包 | LE16/LE32 wire helper（现状各域各自实现，未收敛；审计快照见 `out/audit/ALGORITHM_REUSE_AUDIT_20261105.md`，非事实源。目标是单一 inline 头） | 新增第四份 `put_u32/get_u32` |
-| popcount / 饱和运算 | `vdc_domain_increment_saturating`、`sync_io_model_saturate_u64_to_u32` 暂为域内实现 | 新增第三份 popcount/饱和 |
+| 校验/哈希原语（CRC-32、CCITT、FNV） | `components/algo/inc/algo_checksum.h`；选择表、golden 与例外见 §9.29 | 自写第二份；raw 与 zlib 混用；用 `*_crc` 指代 FNV |
+| 协议专用 CRC（MODBUS、CRC-8、BiSS） | 保留各自参数的现有入口（见 §9.29） | 合并不同参数；自造多项式 |
+| 字节序 / popcount / 饱和运算 | 尚未收敛（§9.29 末尾），先查现有域内实现 | 新增第三份 |
 | 时间坐标换算 | `vdc_timer1_ticks_to_ns` / `vdc_timer1_ns_to_ticks`（`vdc_timer1_coordinate.h`） | 各域自写 ns/ticks 换算 |
 | flash 提交 | core0 `FlashTransactionAO`（`flash_transaction.h`）+ `calibration_training_store_commit` | 业务侧直接 raw flash / 自建 journal |
 | boot 计划与档位 | `tdma_boot_plan`、`tdma_boot_profile_store`、`tdma_boot_stage` | 另写一套开机决策 |
@@ -1174,7 +1171,7 @@ REFMEM 参数池本来就是"调用方持有 region 的纯存储"，已经覆盖
 
 新增登记格式：概念 | 新 canonical 路径 | 为什么现有实现不适用（必须写清，不能写"更方便"）。
 
-### 9.28 引导命令面：命令登记与"重复算法合并"约定
+### 9.28 引导命令面：命令登记与生成链
 
 **C/T 两段用哪两条命令**（已登记进 REFMEM 命令目录，编号 50/51）：
 
@@ -1188,24 +1185,46 @@ REFMEM 参数池本来就是"调用方持有 region 的纯存储"，已经覆盖
 → `components/distributed_refmem/inc/refmem_command_catalog.h` 与 `src/refmem_command_catalog_table.c`、`out/refmem/SCPI_REFMEM_CATALOG.csv`。
 `refmem_command_type_t` 枚举仍**手写**在 `refmem_command.h`，新增命令要两处同时改（枚举 + YAML）再生成。
 
-**重复算法合并（已落地）**：`components/algo/inc/algo_checksum.h` 是工程内已迁移校验站点的唯一实现
-（header-only：CRC-32/ISO-HDLC 含 raw 寄存器变体、CRC-16/CCITT-FALSE、FNV-1a 的 bytes/str/u32_le/word
-四种喂入）。golden 见 `tests/python/test_algo_checksum.py`。规则：
+**验收纪律（实测教训）**：改 `components/**`、`config/**` 或构建文件期间**不要跑硬件验收**——期间源码
+变化会让凭证指纹失效（`source changed while hardware acceptance was running`）。验收等两边改动都落地后
+**一次覆盖**。本轮另修正了 DPLL summary 的自检缺陷：资格元数据只写凭证、summary 只含原始证据，
+`validate_summary` 保持精确等值（`tools/hardware_acceptance/workflow_steps.py`）。
 
-1. `refmem_param_pool_crc` 已改为调用 `algo_fnv1a32_bytes`，不得恢复第二份；
-2. 计划身份测试（`tests/python/test_guide_action_plan.py`）继续保证"同字节同值、异内容异值"，值不变；
-3. 任何新代码不得自带 CRC/校验和/FNV 实现；数值必须与上述 golden 对齐；
-4. 迁移必须逐字节等价（值进 Flash、线上帧与会话身份）；raw 与 zlib 两种约定不得混用。
+### 9.29 校验原语：唯一实现、选择表与 golden
 
-**例外（保留但必须注释）**：`tdma_transport_crc32_update` 是 core1/DMA 窗口的 SRAM nibble 表性能特化，
-数值与 `algo_crc32_iso_hdlc_compute` 相同；不得再新增第二份性能特化。`third_party/portable_ota` 的
-`pota_crc32` 是 `ota_crc32_*` 适配器的底层内核（第三方库，不属工程重复实现）。
+**规则**：`components/algo/inc/algo_checksum.h`（header-only）是工程内**已迁移站点**的唯一实现。
+新代码不得自带 CRC/校验和/FNV；迁移必须逐字节等价（这些值进 Flash、线上帧与会话身份）。
 
-**并发纪律（实测教训）**：另一会话在改 `components/**`、`config/**` 或构建文件时**不要跑硬件验收**——
-验收期间源码变化会让指纹失效（`source changed while hardware acceptance was running`）。验收必须等
-两边改动都落地后**一次覆盖**（命令面扩展 + 算法合并）。本轮另暴露 `p3_dpll_short.validate_summary`
-对工作流注入字段做精确等值的自检缺陷，已在 `tools/hardware_acceptance/p3_dpll_short.py` 修复（只忽略
-工作流注记字段，任何证据字段被改仍拒绝），需随接受会话提交并复核。
+**选择表**
+
+| 我要… | 调用 | 注意 |
+|---|---|---|
+| 标准 CRC-32（zlib / ISO-HDLC） | `algo_crc32_iso_hdlc_update` / `_compute` | `update` 首参传 0 开始；续算传上次返回值 |
+| 原始寄存器 CRC-32（首尾不取反） | `algo_crc32_raw_update` | seed 与终结由调用点显式给出；持久化帧常从 0 起 |
+| CRC-16/CCITT-FALSE | `algo_crc16_ccitt_false_update` / `_compute` | poly 0x1021、init 0xFFFF，无反射/无 xorout |
+| FNV-1a 32：字节 / 文本 / LE32 / word | `algo_fnv1a32_{update,bytes,str,u32_le,word}` | `_u32_le` 与 `_word` 喂入不同，**不可互换** |
+| MODBUS / CRC-8 / BiSS | `rs485_modbus_crc16`、`calibration_clk_marker_crc8`、`biss_crc_*` | 参数不同，保留独立入口，只共用内核 |
+
+**golden**（算法定义常量，由 `tests/python/test_algo_checksum.py` 固定）
+
+| 算法 | `"123456789"` 的结果 | 口径 |
+|---|---|---|
+| CRC-32/ISO-HDLC | `0xCBF43926` | 与 `zlib.crc32` 一致 |
+| CRC-32 raw（从 0 起） | `0x2DFD2D88` | claim / frame payload 的持久化口径 |
+| CRC-16/CCITT-FALSE | `0x29B1` | — |
+| FNV-1a 32（字节） | `0xBB86B11C` | — |
+
+**命名陷阱**：`refmem_param_pool_crc`、`refmem_vector_fast_crc32` 是 **FNV-1a**，不是 CRC；不要再
+用 `*_crc` 指代 FNV。
+
+**例外（保留但必须注释）**
+
+- `tdma_transport_crc32_update`：core1/DMA 窗口的 SRAM nibble 表性能特化，数值与
+  `algo_crc32_iso_hdlc_compute` 相同；不得再新增第二份。
+- `third_party/portable_ota` 的 `pota_crc32`：`ota_crc32_*` 适配器的底层内核（第三方库，不算工程重复）。
+
+**未迁移（已登记目标，别新增第三份）**：LE16/LE32 wire helper、popcount、饱和运算仍分散在各域，
+目标是收敛为单一 inline 头。审计快照见 `out/audit/ALGORITHM_REUSE_AUDIT_20261105.md`（非事实源）。
 
 
 
