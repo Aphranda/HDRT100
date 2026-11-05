@@ -153,6 +153,18 @@ P3–T3 的 R 体尚未实现；其 C 段布局必须先按下列 canonical 工�
 `ARM → START 10 MHz`。在该表冻结前，P3–T3 的 `CONFig` 会被 `plan_valid` 拒绝（fail-closed），
 这是预期行为。
 
+**C 段布局草案 v1（待实现验证后转正；字段顺序即 `candidates[]`）**：
+
+| 动作 | candidates[0..4] | threshold_low | threshold_high | 说明 |
+|---|---|---|---|---|
+| P3 | source_slot, destination_slot, signal_group(0=CLK_DATA,1=CS_DATA,2=BOTH), pulse_count, capture_words | baud_hz | frequency tolerance（千分比） | `trials` = repeats；`window_ms` = 每 trial 上限 |
+| T0 | reference_node, origin_node, codebook, node_offset_samples, matrix_repeats | matrix_offset_value | max_best_distance | `profile_level` = level |
+| T1 | link_index, link_delay_ns, search_start, search_end, guard_samples | max_best_distance | min_margin | `trials` = repeats |
+| T2 | link_index, marker_to_data_samples, search_start, search_end, guard_samples | max_best_distance | min_margin | marker/data 方向由后续位或专用动作变体承载（待定） |
+| T3 | （无；stage 经环上来） | — | — | 仅 `ARM → START 10 MHz`，S 后置 boot 决策 |
+
+草案只用于下一步实现与联调；`plan_valid` 的最终校验必须按上表实现后才能放行对应 action。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
