@@ -1737,6 +1737,11 @@ typedef struct {
 } app_ctrqs_t;
 
 static app_ctrqs_t s_ctrqs;
+/* Seven-action ladder state (RAM only): 0 = P1 is the expected next action.
+ * It advances only when the expected action's Q reconciles COMPLETE, so a
+ * failed action keeps the ladder where it was and a repeated action never
+ * advances it. */
+static guide_action_ladder_t s_ctrqs_ladder;
 
 static uint64_t app_ctrqs_now_ms(void)
 {
@@ -1894,16 +1899,30 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         .passed_mask = 0u,
         .failed_mask = 0u,
     };
+    const uint32_t expected_action = s_ctrqs_ladder.action_index + 1u;
+    const bool repeat_last_action =
+        s_ctrqs_ladder.action_index != 0u &&
+        plan->action_id == s_ctrqs_ladder.action_index;
     if (plan->action_id != APP_CTRQS_ACTION_P1 ||
         plan->trial_count == 0u ||
         plan->trial_count > APP_CTRQS_MAX_TRIALS ||
         plan->window_ms == 0u || plan->candidate_count < 2u ||
         plan->candidate_count > GUIDE_ACTION_PLAN_MAX_CANDIDATES ||
-        epoch == 0u || nodes == 0u) {
+        epoch == 0u || nodes == 0u ||
+        (plan->action_id != expected_action && !repeat_last_action)) {
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
         s_ctrqs.progress.reason =
             (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
         app_ctrqs_publish();
+        /* Record the rejection as this round's Q result too: without it the
+         * single-port readback would keep showing the previous round's Q. */
+        guide_action_reconcile_result_t rejected;
+        memset(&rejected, 0, sizeof(rejected));
+        rejected.decision = GUIDE_ACTION_RECONCILE_FAILED;
+        rejected.reason = (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+        app_cal_guide_set_q_result(&s_ctrqs.progress, true, &rejected);
+        app_cal_guide_set_commit_result(0u, 0u, 0u);
+        app_cal_guide_set_ladder_result(s_ctrqs_ladder.action_index, 0u);
         s_ctrqs.state = APP_CTRQS_DONE;
         return;
     }
@@ -2226,6 +2245,17 @@ static void app_ctrqs_service(void)
                                s_ctrqs.plan.generation, &reconcile);
         app_cal_guide_set_q_result(&readback, have, &reconcile);
         app_ctrqs_commit(reconcile.decision);
+        uint32_t ladder_step = 0u;
+        if (reconcile.decision == GUIDE_ACTION_RECONCILE_COMPLETE &&
+            s_ctrqs.plan.action_id == s_ctrqs_ladder.action_index + 1u) {
+            guide_action_ladder_t next;
+            ladder_step = (uint32_t)guide_action_ladder_advance(
+                &s_ctrqs_ladder, &reconcile, &next);
+            s_ctrqs_ladder = next;
+        } else if (reconcile.decision == GUIDE_ACTION_RECONCILE_FAILED) {
+            ladder_step = (uint32_t)GUIDE_ACTION_LADDER_STOPPED;
+        }
+        app_cal_guide_set_ladder_result(s_ctrqs_ladder.action_index, ladder_step);
         s_ctrqs.state = APP_CTRQS_DONE;
         return;
     }

@@ -51,11 +51,16 @@ typedef struct {
     uint32_t commit_decision;
     uint32_t commit_applicable;
     uint32_t commit_ok;
+    /* Ladder: the action index the next round must use (0 = P1) and the last
+     * guide_action_ladder_advance() step (0 same, 1 next, 2 done, 3 stopped). */
+    uint32_t ladder_index;
+    uint32_t ladder_step;
 } app_cal_guide_snapshot_t;
 bool app_cal_guide_snapshot(app_cal_guide_snapshot_t *snapshot);
 
-/* Q/S result store: the executor records the readback, reconcile decision and
- * the S commit gate so the single-port readback can expose them. */
+/* Q/S result store: the executor records the readback, reconcile decision, the
+ * S commit gate and the ladder step so the single-port readback can expose
+ * them. */
 typedef struct {
     bool have_record;
     bool have_result;
@@ -64,12 +69,15 @@ typedef struct {
     uint32_t commit_decision;
     uint32_t commit_applicable;
     uint32_t commit_ok;
+    uint32_t ladder_index;
+    uint32_t ladder_step;
 } app_cal_guide_q_t;
 void app_cal_guide_set_q_result(const guide_action_progress_t *progress,
                                 bool have_record,
                                 const guide_action_reconcile_result_t *result);
 void app_cal_guide_set_commit_result(uint32_t decision, uint32_t applicable,
                                      uint32_t ok);
+void app_cal_guide_set_ladder_result(uint32_t action_index, uint32_t step);
 bool app_cal_guide_get_q_result(app_cal_guide_q_t *out);
 
 #ifdef __cplusplus

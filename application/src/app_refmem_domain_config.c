@@ -714,6 +714,12 @@ void app_cal_guide_set_commit_result(uint32_t decision, uint32_t applicable,
     s_cal_guide_q.commit_ok = ok;
 }
 
+void app_cal_guide_set_ladder_result(uint32_t action_index, uint32_t step)
+{
+    s_cal_guide_q.ladder_index = action_index;
+    s_cal_guide_q.ladder_step = step;
+}
+
 static bool cal_guide_config_handler(const uint32_t *params, uint32_t param_words,
                                      uint32_t *reason)
 {
@@ -835,6 +841,8 @@ bool app_cal_guide_snapshot(app_cal_guide_snapshot_t *snapshot)
     snapshot->commit_decision = s_cal_guide_q.commit_decision;
     snapshot->commit_applicable = s_cal_guide_q.commit_applicable;
     snapshot->commit_ok = s_cal_guide_q.commit_ok;
+    snapshot->ladder_index = s_cal_guide_q.ladder_index;
+    snapshot->ladder_step = s_cal_guide_q.ladder_step;
     return true;
 }
 bool app_refmem_domain_config_init(void)

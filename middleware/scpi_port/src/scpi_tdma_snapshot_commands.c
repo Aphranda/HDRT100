@@ -781,6 +781,9 @@ scpi_result_t scpi_cmd_system_tdma_guide_plan_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.commit_decision);
     SCPI_ResultUInt32(context, snapshot.commit_applicable);
     SCPI_ResultUInt32(context, snapshot.commit_ok);
+    /* Ladder: expected next action index (0 = P1) and the last advance step. */
+    SCPI_ResultUInt32(context, snapshot.ladder_index);
+    SCPI_ResultUInt32(context, snapshot.ladder_step);
     return SCPI_RES_OK;
 }
 scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context)
