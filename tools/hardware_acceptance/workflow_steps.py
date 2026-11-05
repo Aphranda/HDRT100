@@ -1048,15 +1048,34 @@ def _validate_evidence(root: Path, record: dict[str, Any], *,
                     not config_path.is_file() or sha256_file(config_path) != config_expected):
                 raise AcceptanceError("bench config evidence is missing or changed")
             bench = load_bench_config(config_path)
+            present = discovery.get("present")
+            qualification = record.get("dpll_qualification")
+            external_attempt = record.get("dpll_external_attempt") or {}
+            fallback = (summary.get("scope_enabled") is False and
+                        present is True and
+                        discovery.get("fallback_internal") is True and
+                        qualification == "INTERNAL_FALLBACK" and
+                        external_attempt.get("status") == "FAIL")
             if (discovery.get("schema") != "HAOFV_P3_SCOPE_DISCOVERY_V1" or
-                    not isinstance(discovery.get("present"), bool) or
-                    discovery.get("present") is not summary.get("scope_enabled") or
+                    not isinstance(present, bool) or
+                    (present is not summary.get("scope_enabled") and not fallback) or
                     discovery.get("resource") != bench.get("dpll_short_scope_resource") or
                     discovery.get("expected_serial") != bench.get("dpll_short_scope_serial") or
                     (summary.get("scope_enabled") is True and
                      (summary.get("scope_resource") != discovery.get("resource") or
                       summary.get("scope_serial") != discovery.get("expected_serial")))):
                 raise AcceptanceError("DPLL scope discovery differs from short observation")
+            if qualification == "SCOPE_PASS" and (
+                    summary.get("scope_enabled") is not True or present is not True):
+                raise AcceptanceError("SCOPE_PASS receipt lacks external scope evidence")
+            if qualification == "INTERNAL_FALLBACK":
+                unknown = discovery.get("unknown") is True
+                if summary.get("scope_enabled") is not False:
+                    raise AcceptanceError("INTERNAL_FALLBACK receipt claims external scope")
+                if not (fallback or unknown):
+                    raise AcceptanceError("INTERNAL_FALLBACK receipt lacks the external failure")
+            if qualification == "INTERNAL_ONLY" and summary.get("scope_enabled") is not False:
+                raise AcceptanceError("INTERNAL_ONLY receipt claims external scope")
     validate_topology_reuse_evidence(root, record)
     timing = record.get("timing_probe")
     if timing is not None:
@@ -2104,7 +2123,8 @@ def dpll_short_write_provisional(
         encoding="utf-8")
 
 
-def dpll_short_discover_scope(config: dict[str, Any], out_dir: Path) -> tuple[Path, bool]:
+def dpll_short_discover_scope(config: dict[str, Any], out_dir: Path,
+                              *, allow_unknown: bool = False) -> tuple[Path, bool]:
     resource = str(config["dpll_short_scope_resource"])
     serial = str(config["dpll_short_scope_serial"])
     if config.get("dpll_short_force_internal"):
@@ -2135,12 +2155,18 @@ def dpll_short_discover_scope(config: dict[str, Any], out_dir: Path) -> tuple[Pa
         time.sleep(1.5)
         discovery = discover_optional_scope(resource, serial)
     discovery_path = out_dir / "dpll-scope-discovery.json"
+    if discovery["present"] is None:
+        if not allow_unknown:
+            raise AcceptanceError(
+                "scope discovery failed; cannot distinguish absent hardware from VISA failure")
+        # Detection failure is not "absent": keep it explicit, then let the
+        # caller choose the internal fallback and record external_status UNKNOWN.
+        discovery["unknown"] = True
+        discovery["present"] = False
+        discovery["reason"] = discovery.get("reason") or "VISA_DISCOVERY_FAILED"
     discovery_path.write_text(
         json.dumps(discovery, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")
-    if discovery["present"] is None:
-        raise AcceptanceError(
-            "scope discovery failed; cannot distinguish absent hardware from VISA failure")
     return discovery_path, discovery["present"] is True
 
 
@@ -4295,8 +4321,12 @@ def phase_dpll_scope(run: AcceptanceRun) -> None:
         return
     if run.get("stopped_handoff_path") is None:
         raise AcceptanceError("four-board DPLL short observation requires stopped TDMA evidence")
-    discovery_path, scope_enabled = dpll_short_discover_scope(run.config, run.out_dir)
-    run.put(dpll_scope_discovery_path=discovery_path, dpll_scope_enabled=scope_enabled)
+    discovery_path, scope_enabled = dpll_short_discover_scope(
+        run.config, run.out_dir, allow_unknown=True)
+    discovery = json.loads(discovery_path.read_text(encoding="utf-8"))
+    run.put(dpll_scope_discovery_path=discovery_path, dpll_scope_enabled=scope_enabled,
+            dpll_scope_present=discovery.get("present"),
+            dpll_scope_unknown=bool(discovery.get("unknown")))
     # Arm each follower's exact-match layer over plain SCPI while every board is
     # stopped and no run-output request exists. Sent from inside the capture the
     # same command travels as a TDMA control frame, which never completes while
@@ -4327,6 +4357,31 @@ def phase_dpll_provisional(run: AcceptanceRun) -> None:
     run.put(provisional_receipt_written=True)
 
 
+def dpll_latest_capture_dir(out_dir: Path) -> Path | None:
+    """Newest joint-capture directory, for preserving failed external evidence."""
+    candidates = sorted(out_dir.glob("dpll-four-board-short*"),
+                        key=lambda path: path.stat().st_mtime)
+    return candidates[-1] if candidates else None
+
+
+def mark_dpll_scope_fallback(run: AcceptanceRun, status: str, error: str) -> None:
+    """Keep the physical scope discovery truthful while recording the fallback."""
+    path = run.get("dpll_scope_discovery_path")
+    if path is None:
+        return
+    discovery_path = Path(path)
+    try:
+        discovery = json.loads(discovery_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    discovery["fallback_internal"] = True
+    discovery["external_attempt"] = status
+    discovery["external_failure"] = error[:500]
+    discovery_path.write_text(
+        json.dumps(discovery, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+
+
 @acceptance_step(29, "DPLL 60 s 联合采集（vdc_priority_joint_capture）")
 def phase_dpll_capture(run: AcceptanceRun) -> None:
     if run.tdma_only:
@@ -4345,10 +4400,71 @@ def phase_dpll_capture(run: AcceptanceRun) -> None:
             return {"error": f"{type(exc).__name__}: {exc}"}
 
     run.put(dpll_realtime_before=context())
-    joint_dir = dpll_short_run_capture(
-        run.root, run.config, run.out_dir, scope_enabled=run.get("dpll_scope_enabled"))
-    run.put(dpll_joint_dir=joint_dir)
-    run.put(dpll_realtime_after=context())
+    monitor = str(getattr(getattr(run, "args", None), "monitor", "auto") or "auto")
+    scope_enabled = bool(run.get("dpll_scope_enabled"))
+    external_attempt: dict[str, Any] = {"status": "NOT_ATTEMPTED"}
+    qualification = "INTERNAL_ONLY"
+
+    if scope_enabled and monitor != "internal":
+        # Detection-first: only an attached scope is attempted here. If it
+        # passes we never run the internal path; if it fails (scope/VISA/
+        # trigger/window/evidence) the internal fallback follows.
+        try:
+            joint_dir = dpll_short_run_capture(
+                run.root, run.config, run.out_dir, scope_enabled=True)
+        except AcceptanceError as exc:
+            external_error = str(exc)
+            failed_dir = dpll_latest_capture_dir(run.out_dir)
+            external_attempt = {
+                "status": "FAIL",
+                "error": external_error,
+                "attempt_dir": str(failed_dir) if failed_dir is not None else None,
+            }
+            qualification = "INTERNAL_FALLBACK"
+            mark_dpll_scope_fallback(run, "FAIL", external_error)
+            run.put(dpll_external_attempt=external_attempt,
+                    dpll_external_failure=external_error,
+                    dpll_scope_fallback=True,
+                    dpll_scope_enabled=False)
+            print(f"Hardware acceptance: external scope failed ({external_error}); "
+                  "falling back to internal DPLL evidence", flush=True)
+        else:
+            run.put(dpll_joint_dir=joint_dir,
+                    dpll_realtime_after=context(),
+                    dpll_qualification="SCOPE_PASS",
+                    dpll_external_attempt={"status": "PASS"})
+            return
+
+    if qualification == "INTERNAL_FALLBACK":
+        external_attempt = run.state.get("dpll_external_attempt") or external_attempt
+    elif run.state.get("dpll_external_failure"):
+        qualification = "INTERNAL_FALLBACK"
+        external_attempt = run.state.get("dpll_external_attempt") or {"status": "FAIL"}
+    elif run.get("dpll_scope_unknown"):
+        qualification = "INTERNAL_FALLBACK"
+        external_attempt = {"status": "UNKNOWN"}
+        run.put(dpll_scope_fallback=True)
+    elif monitor == "internal":
+        qualification = "INTERNAL_ONLY"
+        external_attempt = {"status": "NOT_ATTEMPTED"}
+    else:
+        qualification = "INTERNAL_ONLY"
+        external_attempt = {"status": "ABSENT"}
+
+    run.config["dpll_short_force_internal"] = True
+    try:
+        joint_dir = dpll_short_run_capture(
+            run.root, run.config, run.out_dir, scope_enabled=False)
+    except AcceptanceError as exc:
+        external_error = external_attempt.get("error")
+        message = (f"external scope failed: {external_error}; internal fallback failed: {exc}"
+                   if external_error else f"internal DPLL capture failed: {exc}")
+        raise AcceptanceError(message) from exc
+    run.put(dpll_joint_dir=joint_dir,
+            dpll_realtime_after=context(),
+            dpll_qualification=qualification,
+            dpll_external_attempt=external_attempt,
+            dpll_scope_enabled=False)
 
 
 @acceptance_step(30, "DPLL 摘要门限（summarize_joint / validate_summary）")
@@ -4360,6 +4476,13 @@ def phase_dpll_gate(run: AcceptanceRun) -> None:
         scope_enabled=run.get("dpll_scope_enabled"),
         source_fingerprint=run.get("fingerprint_before"),
         build_id=run.get("build_id"), board_ids=run.board_ids)
+    dpll_summary["dpll_qualification"] = run.state.get("dpll_qualification")
+    dpll_summary["dpll_external_attempt"] = run.state.get("dpll_external_attempt")
+    if run.state.get("dpll_scope_fallback"):
+        dpll_summary["dpll_scope_fallback"] = True
+    dpll_summary_path.write_text(
+        json.dumps(dpll_summary, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
     run.alarm_stage("DPLL", dpll_summary)
     run.put(dpll_summary_path=dpll_summary_path)
 
@@ -4598,6 +4721,14 @@ def phase_receipt(run: AcceptanceRun) -> None:
         if dpll_scope_discovery_path is not None:
             value["dpll_scope_discovery"] = evidence_entry(
                 root, dpll_scope_discovery_path)
+        qualification = run.state.get("dpll_qualification")
+        if qualification is not None:
+            value["dpll_qualification"] = qualification
+        external_attempt = run.state.get("dpll_external_attempt")
+        if external_attempt is not None:
+            value["dpll_external_attempt"] = external_attempt
+        if run.state.get("dpll_scope_fallback"):
+            value["dpll_scope_fallback"] = True
         if topology_reuse_source is not None:
             value["topology_reuse_source"] = topology_reuse_source
         if stopped_handoff_path is not None:

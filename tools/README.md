@@ -85,7 +85,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-OTA-BOARD-VALIDATE | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_board_validate/ota_board_validate.py` |
 | TOOL-OTA-BOOT-COMMIT | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_boot_commit/ota_boot_commit.py` |
 | TOOL-OTA-HAOFV-GATE | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_haofv_gate/ota_haofv_gate.py` |
-| TOOL-OTA-KEYS | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_keys/gen_ota_key_registry.py`<br>`tools/ota/ota_keys/generate_ota_key.py`<br>`tools/ota/ota_keys/sign_ota_signature.py`<br>`tools/ota/ota_keys/verify_ota_signature.py` |
+| TOOL-OTA-KEYS | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_keys/gen_ota_key_registry.py`<br>`tools/ota/ota_keys/generate_ota_key.py`<br>`tools/ota/ota_keys/ensure_debug_key.py`<br>`tools/ota/ota_keys/sign_ota_signature.py`<br>`tools/ota/ota_keys/verify_ota_signature.py` |
 | TOOL-OTA-MULTI-UPDATE | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_multi_update/ota_multi_update.py`<br>`tools/ota/OTA_workflow.py` |
 | TOOL-OTA-PACKAGER | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_packager/ota_packager.py` |
 | TOOL-OTA-SEND | OTA / OTA tool maintenance | UNASSESSED | `tools/ota/ota_send/ota_send.py` |

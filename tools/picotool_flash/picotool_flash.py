@@ -27,6 +27,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--address", type=int, help="explicit USB address selector")
     parser.add_argument("--settle", type=float, default=1.0)
     parser.add_argument(
+        "--bootsel-timeout",
+        type=float,
+        default=10.0,
+        help="seconds to wait for the selected board to appear in BOOTSEL",
+    )
+    parser.add_argument(
         "--command-timeout", type=float, default=180.0,
         help="seconds before a picotool subprocess is treated as stalled",
     )
@@ -77,14 +83,21 @@ def _scpi_bootsel(serial_number: str) -> bool:
     return False
 
 
-def wait_bootsel(picotool: Path, timeout_s: float = 10.0) -> str | None:
-    """Poll picotool until a BOOTSEL device is visible; return its info text."""
+def wait_bootsel(picotool: Path, selection: list[str], timeout_s: float = 10.0,
+                 command_timeout: float = 60.0) -> str | None:
+    """Poll the selected picotool target until it is visible in BOOTSEL.
+
+    The selection is mandatory in the multi-board path: a bare ``picotool info``
+    can see a *different* board already in BOOTSEL and make the workflow load
+    into the wrong target.
+    """
     import time as _time
 
+    probe_args = ["info", "-a", *selection]
     deadline = _time.monotonic() + timeout_s
     while _time.monotonic() < deadline:
-        probe = run(picotool, ["info"], 60.0)
-        if "Program Information" in probe.stdout or "Device Information" in probe.stdout:
+        probe = run(picotool, probe_args, command_timeout)
+        if bootsel_device_visible(probe.stdout):
             return probe.stdout
         _time.sleep(0.2)
     return None
@@ -200,11 +213,12 @@ def main() -> int:
                     records.append("application asked to enter BOOTSEL via SCPI\n")
                     break
                 time.sleep(1.0)
-            scpi_text = wait_bootsel(picotool)
+            scpi_text = wait_bootsel(picotool, selection, args.bootsel_timeout,
+                                     args.command_timeout)
             if scpi_text is not None:
-                records.append(f"$ picotool info after SCPI BOOTSEL\n{scpi_text}")
+                records.append(f"$ picotool info -a after SCPI BOOTSEL\n{scpi_text}")
                 bootsel_probe = subprocess.CompletedProcess(
-                    [str(picotool), "info"], 0, scpi_text, "")
+                    [str(picotool), "info", "-a", *selection], 0, scpi_text, "")
     app_fallback = selected_application_device_visible(
         bootsel_probe.stdout, args.serial_number
     )

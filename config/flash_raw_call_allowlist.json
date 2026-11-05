@@ -317,7 +317,8 @@
     {
       "file": "CMakeLists.txt",
       "expected": [
-        "PROJECT_FLASH_DEPLOYMENT_MAP v1_compat",
+        "PROJECT_FLASH_DEPLOYMENT_MAP v2_candidate",
+        "PROJECT_V1_RECOVERY_BUILD",
         "PROJECT_FACTORY_MIGRATION_BUILD",
         "PROJECT_ACTIVE_BOOTLOADER_XIP",
         "PROJECT_ACTIVE_APP_A_XIP",

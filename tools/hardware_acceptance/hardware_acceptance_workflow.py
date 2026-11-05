@@ -177,6 +177,10 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
             launch[key] = True
     if getattr(ns, "monitor", None):
         launch["monitor"] = ns.monitor
+    monitor = str(launch.get("monitor") or "auto")
+    if monitor not in ("auto", "scope", "internal"):
+        raise SystemExit(f"unknown monitor mode: {monitor}")
+    launch["monitor"] = monitor
     for key in ("package", "ota_summary", "build_dir", "reuse_topology", "preset"):
         if getattr(ns, key, None) is not None:
             launch[key] = str(getattr(ns, key))
@@ -184,11 +188,13 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
         launch["flash_method"] = ns.method
     resume = bool(launch.get("package") and launch.get("ota_summary"))
     full = bool(launch.get("full"))
-    internal = bool(launch.get("monitor") == "internal")
+    internal = monitor == "internal"
     config_path = FULL_CONFIG if full else p3.DEFAULT_CONFIG
     if internal:
         config_path = write_internal_config(config_path)
-    elif launch.get("monitor") == "scope":
+    else:
+        # auto/scope both detect first; the forced-internal bench flag must not
+        # short-circuit an attached scope.
         config_path = write_scope_config(config_path)
 
     def path(key):
@@ -199,6 +205,7 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
         receipt=p3.DEFAULT_RECEIPT, command="resume" if resume else "run",
         full=full, tdma_only=bool(launch.get("tdma_only")),
         diagnostic_continue=bool(launch.get("diagnostic_continue")),
+        monitor=monitor,
         out_dir=out_dir, reuse_topology=path("reuse_topology"),
         build_dir=path("build_dir"), package=path("package"), preset=launch.get("preset"),
         ota_summary=path("ota_summary"), flash_method=launch.get("flash_method", "ota"),
@@ -739,11 +746,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reuse-topology", type=Path, default=None)
     parser.add_argument("--full-bench", dest="full_config", action="store_true",
                         help="use config/hardware_acceptance/p3_bench.json (FULL profile)")
-    parser.add_argument("--monitor", choices=("scope", "internal"), default=None,
-                        help="DPLL qualification source: 'scope' (default) needs a "
-                             "working oscilloscope; 'internal' qualifies on "
-                             "board-internal evidence only and records "
-                             "external_status=SKIPPED")
+    parser.add_argument("--monitor", choices=("auto", "scope", "internal"), default="auto",
+                        help="DPLL qualification source: 'auto' (default) uses an "
+                             "attached oscilloscope when detected, otherwise internal; "
+                             "if the external attempt fails it falls back to internal. "
+                             "'scope' is the same detection-first policy; 'internal' "
+                             "forces board-internal evidence only")
     parser.add_argument("--tdma-only", action="store_true")
     parser.add_argument("--diagnostic-continue", action="store_true")
     parser.add_argument("--time-budget", default=None,

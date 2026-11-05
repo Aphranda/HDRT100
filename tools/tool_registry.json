@@ -2254,6 +2254,7 @@
       "entrypoints": [
         "tools/ota/ota_keys/gen_ota_key_registry.py",
         "tools/ota/ota_keys/generate_ota_key.py",
+        "tools/ota/ota_keys/ensure_debug_key.py",
         "tools/ota/ota_keys/sign_ota_signature.py",
         "tools/ota/ota_keys/verify_ota_signature.py"
       ],
@@ -2264,6 +2265,10 @@
         },
         {
           "path": "tools/ota/ota_keys/generate_ota_key.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota/ota_keys/ensure_debug_key.py",
           "role": "entrypoint"
         },
         {

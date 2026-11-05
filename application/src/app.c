@@ -41,6 +41,9 @@
 #include "tdma_boot_profile.h"
 #include "tdma_boot_profile_store.h"
 #include "tdma_boot_sequence.h"
+#include "tdma_guide_scan.h"
+#include "tdma_boot_stage.h"
+#include "calibration_training_store.h"
 #include "tdma_operating_profile.h"
 #include "tdma_service.h"
 #include "tdma_service_timing.h"
@@ -83,6 +86,147 @@ static uint32_t s_boot_apply_fail;
 static bool s_boot_attempted;
 static uint64_t s_boot_deadline_ms;
 static size_t s_boot_next_step;
+/* First moment this board saw the guide ring carry traffic (START success on
+ * the coordinator, first decoded frame on a follower). The P0T scan anchors
+ * its trial grid on it so all four boards share one wall-clock schedule. */
+static uint64_t s_boot_ring_up_ms;
+
+/* M1 P0T pair scan. The schedule is anchored on the local ring-formation
+ * moment, so the four boards keep the same trial slots without a cross-board
+ * command: every board derives (driver, receiver, idle) from its own slot. */
+#if defined(PROJECT_TDMA_GUIDE_SCAN) && PROJECT_TDMA_GUIDE_SCAN
+#define APP_GUIDE_SCAN_TRIAL_MS 5000u
+/* Fixed post-reset start of the first trial slot (all boards reset together). */
+#define APP_GUIDE_SCAN_EPOCH_MS 12500u
+#define APP_GUIDE_SCAN_SETTLE_MS 4000u
+#define APP_GUIDE_SCAN_WAIT_MS 45000u
+#define APP_GUIDE_SCAN_PROBE_PHASE_CYCLES 10u
+#define APP_GUIDE_SCAN_PROBE_LEVEL 7u
+#define APP_GUIDE_SCAN_TRAIN_CYCLES 512u
+
+#define APP_GUIDE_PHASE_STOP 0u
+#define APP_GUIDE_PHASE_TOPOLOGY 1u
+#define APP_GUIDE_PHASE_PROBE 2u
+#define APP_GUIDE_PHASE_ARM 3u
+#define APP_GUIDE_PHASE_ARM_WAIT 4u
+#define APP_GUIDE_PHASE_TRAIN 5u
+#define APP_GUIDE_PHASE_START 6u
+#define APP_GUIDE_PHASE_SAMPLE 7u
+#define APP_GUIDE_PHASE_FINISH 11u
+#define APP_GUIDE_PHASE_APPLY 9u
+#define APP_GUIDE_PHASE_SETTLE 10u
+/* The phase walker advances while phase <= LAST, so FINISH must stay the
+ * largest phase id; the time order lives in k_guide_phase_ms, not in the ids. */
+#define APP_GUIDE_PHASE_LAST APP_GUIDE_PHASE_FINISH
+
+/* Phase offsets inside one trial slot (milliseconds). A STOP of a running ring
+ * takes over a second to retire and the topology write stages another stop, so
+ * the settle phase waits for applied_config_seq to catch up before ARM; the
+ * transmit/sampling window is wide and polled on every service call. */
+static const uint32_t k_guide_phase_ms[] = {
+    [APP_GUIDE_PHASE_STOP] = 0u,
+    [APP_GUIDE_PHASE_TOPOLOGY] = 900u,
+    [APP_GUIDE_PHASE_SETTLE] = 2100u,
+    [APP_GUIDE_PHASE_PROBE] = 2100u,
+    [APP_GUIDE_PHASE_ARM] = 2300u,
+    [APP_GUIDE_PHASE_ARM_WAIT] = 2400u,
+    [APP_GUIDE_PHASE_TRAIN] = 3300u,
+    [APP_GUIDE_PHASE_START] = 3400u,
+    [APP_GUIDE_PHASE_SAMPLE] = 3400u,
+    [APP_GUIDE_PHASE_FINISH] = 4700u,
+};
+
+#define APP_GUIDE_SCAN_SETTLE_DEADLINE_MS 2300u
+#define APP_GUIDE_SCAN_DRIVER_START_MS 3700u
+#define APP_GUIDE_SCAN_ARM_DEADLINE_MS 3200u
+#define APP_GUIDE_SCAN_SAMPLE_DEADLINE_MS 4700u
+/* fail_phase values outside the per-trial phase range. */
+#define APP_GUIDE_SCAN_FAIL_WAIT_RING 100u
+#define APP_GUIDE_SCAN_FAIL_RESTORE 101u
+#define APP_GUIDE_SCAN_FAIL_PRELUDE 102u
+#define APP_GUIDE_SCAN_FAIL_PRELUDE_STAGE 103u
+#define APP_GUIDE_SCAN_FAIL_PRELUDE_APPLY 104u
+
+static struct {
+    uint32_t state;
+    tdma_guide_scan_table_t table;
+    uint64_t epoch_ms;
+    uint64_t wait_deadline_ms;
+    uint64_t trial_start_ms;
+    uint64_t arm_deadline_ms;
+    uint64_t prelude_deadline_ms;
+    uint64_t sample_deadline_ms;
+    uint32_t index;
+    uint32_t phase;
+    uint32_t role;
+    uint32_t rx_base;
+    uint32_t words_base;
+    uint32_t edges_base;
+    uint32_t skipped;
+    uint32_t failures;
+    uint32_t fail_phase;
+    uint32_t arm_result;
+    uint32_t arm_attempts;
+    uint32_t arm_gap;
+    uint32_t staged_enabled;
+    uint32_t trials_started;
+    uint32_t trials_armed;
+    uint32_t max_late_ms;
+    uint32_t stall_ms;
+    uint32_t frames_delta;
+    uint32_t words_delta;
+    uint32_t tx_delta;
+    uint32_t sample_started;
+    uint32_t tx_base;
+    /* Per-pair evidence: role, local counter deltas, the pair snapshot taken at
+     * the sample point, and when the window actually started relative to the
+     * shared epoch (proves the four boards ran the same slot at the same time). */
+    uint8_t pair_role[TDMA_GUIDE_SCAN_PAIR_MAX];
+    uint32_t pair_frames[TDMA_GUIDE_SCAN_PAIR_MAX];
+    uint32_t pair_words[TDMA_GUIDE_SCAN_PAIR_MAX];
+    uint32_t pair_tx[TDMA_GUIDE_SCAN_PAIR_MAX];
+    uint32_t pair_state[TDMA_GUIDE_SCAN_PAIR_MAX];
+    uint32_t pair_start_offset[TDMA_GUIDE_SCAN_PAIR_MAX];
+    uint32_t pair_service[TDMA_GUIDE_SCAN_PAIR_MAX];
+    uint32_t pair_error[TDMA_GUIDE_SCAN_PAIR_MAX];
+    uint32_t service_base;
+    uint64_t last_call_ms;
+    uint64_t arm_next_try_ms;
+    bool trial_active;
+} s_guide_scan;
+#endif /* PROJECT_TDMA_GUIDE_SCAN */
+
+#if defined(PROJECT_TDMA_GUIDE_STAGE_BOOT) && PROJECT_TDMA_GUIDE_STAGE_BOOT
+/* S 段（bench）：有已提交的 TRN-03 stage 时，用它被测时的 profile level 起环，
+ * 而不是引导档的 10 kHz。stage 只带 profile_crc32，因此先在目录里把 CRC 映射回
+ * level；映射不到就保持引导档（fail-closed，不猜）。 */
+static void app_guide_stage_boot_override(void)
+{
+    tdma_ring_calibration_stage_t stage;
+    if (!calibration_training_store_get_stage(&stage)) {
+        return;
+    }
+    tdma_boot_stage_level_t levels[32];
+    size_t level_count = 0u;
+    for (uint32_t level = 0u; level < 32u; level++) {
+        tdma_operating_profile_t profile;
+        if (!tdma_operating_profile_get(level, &profile)) {
+            continue;
+        }
+        levels[level_count].level = level;
+        levels[level_count].profile_crc32 = profile.profile_crc32;
+        level_count++;
+    }
+    tdma_boot_stage_plan_t plan;
+    tdma_boot_stage_decide(true, stage.profile_crc32, levels, level_count,
+                           &plan);
+    if (plan.action != TDMA_BOOT_STAGE_ACTION_STAGE) {
+        return;
+    }
+    s_boot_profile.profile_level = plan.level;
+    s_boot_profile.flags &= ~TDMA_BOOT_PROFILE_FLAG_BRINGUP_NO_CAL;
+}
+#endif
 
 #if defined(PROJECT_TDMA_GUIDE_AUTOFORM) && PROJECT_TDMA_GUIDE_AUTOFORM
 /* Bench-only: build the guide profile from the board number (NO.1 -> slot 0)
@@ -492,8 +636,11 @@ bool app_init(void)
     if (have_boot_profile) {
         s_boot_profile = boot_profile;
         s_boot_profile_loaded = true;
-        tdma_boot_plan_decide(true, &boot_profile, boot_profile.node_count,
-                              boot_profile.local_slot, &s_boot_plan);
+#if defined(PROJECT_TDMA_GUIDE_STAGE_BOOT) && PROJECT_TDMA_GUIDE_STAGE_BOOT
+        app_guide_stage_boot_override();
+#endif
+        tdma_boot_plan_decide(true, &s_boot_profile, s_boot_profile.node_count,
+                              s_boot_profile.local_slot, &s_boot_plan);
     } else {
         tdma_boot_plan_decide(false, NULL, 0u, 0u, &s_boot_plan);
     }
@@ -679,8 +826,13 @@ static bool app_guide_run_step(tdma_boot_step_t step)
          * tdma_service_ring_arm directly skips that map and the physical layer
          * rejects the ARM with OWNER_FLIGHT_MAP. */
         return distributed_refmem_tdma_ring_arm();
-    case TDMA_BOOT_STEP_RING_START:
-        return owner != NULL && tdma_service_ring_start(owner);
+    case TDMA_BOOT_STEP_RING_START: {
+        const bool started = owner != NULL && tdma_service_ring_start(owner);
+        if (started) {
+            s_boot_ring_up_ms = to_ms_since_boot(get_absolute_time());
+        }
+        return started;
+    }
     case TDMA_BOOT_STEP_RING_LISTEN: {
         /* ARM only arms the hardware capture; the software data plane (and
          * therefore rx_count/up_running) only runs after START sets
@@ -697,6 +849,7 @@ static bool app_guide_run_step(tdma_boot_step_t step)
         if (owner == NULL || !tdma_service_ring_start(owner)) {
             return false;
         }
+        s_boot_ring_up_ms = to_ms_since_boot(get_absolute_time());
         s_boot_listen_pending = true;
         return true;
     }
@@ -839,6 +992,54 @@ bool app_guide_boot_half_ring(void)
     return s_boot_half_ring;
 }
 
+bool app_guide_topology_accepted(uint32_t *reason)
+{
+    if (reason != NULL) {
+        *reason = 0u;
+    }
+    if (!s_boot_guide_done || s_boot_fail_step != 0u ||
+        !s_boot_profile_loaded) {
+        if (reason != NULL) {
+            *reason = 6u;
+        }
+        return false;
+    }
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring)) {
+        if (reason != NULL) {
+            *reason = 1u;
+        }
+        return false;
+    }
+    if (s_boot_half_ring) {
+        if (reason != NULL) {
+            *reason = 2u;
+        }
+        return false;
+    }
+    if (ring.enabled == 0u || ring.node_count != s_boot_profile.node_count) {
+        if (reason != NULL) {
+            *reason = 3u;
+        }
+        return false;
+    }
+    /* Every member of a correct ring hears exactly one predecessor. A board
+     * without its down direction is either the missing slot itself or the
+     * neighbour of a missing slot; the completeness watch already turns that
+     * into half_ring, so this is the second, independent check. */
+    if (ring.down_running == 0u) {
+        if (reason != NULL) {
+            *reason = 4u;
+        }
+        return false;
+    }
+    /* A follower that joins later than its 5 s listen window still forms the
+     * ring (measured 2026-11-05: join_timeout=1 together with down_running=1
+     * on a healthy four-board ring), so the join flag is evidence only and must
+     * not veto acceptance. The down direction is the real liveness proof. */
+    return true;
+}
+
 static void app_guide_listen_service(void)
 {
     if (!s_boot_listen_pending) {
@@ -850,6 +1051,9 @@ static void app_guide_listen_service(void)
     }
     if (ring.adapter_rx_count != s_boot_listen_rx_base) {
         s_boot_join_frame_seen = true;
+        if (s_boot_ring_up_ms == 0u) {
+            s_boot_ring_up_ms = to_ms_since_boot(get_absolute_time());
+        }
         s_boot_listen_pending = false;
         return;
     }
@@ -860,6 +1064,587 @@ static void app_guide_listen_service(void)
         s_boot_listen_pending = false;
     }
 }
+
+#if defined(PROJECT_TDMA_GUIDE_SCAN) && PROJECT_TDMA_GUIDE_SCAN
+static uint64_t app_guide_scan_now_ms(void)
+{
+    return to_ms_since_boot(get_absolute_time());
+}
+
+static bool app_guide_scan_enabled(void)
+{
+#if defined(PROJECT_TDMA_GUIDE_SCAN) && PROJECT_TDMA_GUIDE_SCAN
+    return true;
+#else
+    return false;
+#endif
+}
+
+static void app_guide_scan_fail(uint32_t phase)
+{
+    s_guide_scan.failures++;
+    s_guide_scan.fail_phase = phase;
+}
+
+static bool app_guide_scan_set_topology(uint32_t slot, uint32_t nodes)
+{
+    for (uint32_t attempt = 0u; attempt < 25u; attempt++) {
+        /* Always drive the setter: a snapshot that merely matches the target
+         * tuple does not prove the staged config was re-applied after the
+         * previous pair's STOP, and the first pair is the only one that ever
+         * produced a receiver burst when this short-circuited. */
+        if (distributed_refmem_set_tdma_ring_topology(slot, 0u, nodes)) {
+            /* The boot step pairs the refmem topology with the adapter
+             * bring-up topology: the up/down groups and the flight map come
+             * from the latter, and without it the ring service cannot arm. */
+            return tdma_runtime_owner_set_bringup_topology(nodes, 0u);
+        }
+        sleep_ms(20u);
+    }
+    return false;
+}
+
+static bool app_guide_scan_ring_armed(void)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return tdma_runtime_owner_get_ring_snapshot(&ring) &&
+           ring.node_count == 2u && ring.enabled != 0u &&
+           ring.adapter_started != 0u &&
+           ring.config_seq == ring.applied_config_seq;
+}
+
+static void app_guide_scan_capture_baseline(void)
+{
+    s_guide_scan.rx_base = 0u;
+    s_guide_scan.words_base = 0u;
+    s_guide_scan.edges_base = 0u;
+    s_guide_scan.tx_base = 0u;
+    s_guide_scan.service_base = 0u;
+    tdma_ring_runtime_snapshot_t ring;
+    if (tdma_runtime_owner_get_ring_snapshot(&ring)) {
+        s_guide_scan.rx_base = ring.adapter_rx_count;
+        s_guide_scan.tx_base = ring.adapter_tx_count;
+        s_guide_scan.service_base = ring.adapter_service_count;
+    }
+    tdma_pio_spi_phys_snapshot_t phys;
+    if (tdma_runtime_owner_get_phys_snapshot(&phys)) {
+        s_guide_scan.words_base = phys.rx_dma_produced_words;
+        s_guide_scan.edges_base = phys.rx_edge_count;
+    }
+}
+
+static bool app_guide_scan_activity_seen(void)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    tdma_pio_spi_phys_snapshot_t phys;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring) ||
+        !tdma_runtime_owner_get_phys_snapshot(&phys)) {
+        return false;
+    }
+    /* The host P0T tool accepts a pair on >=10 decoded frames or >=8 DMA
+     * words. Using "any counter moved" instead turns one stray frame or a
+     * neighbouring slot's tail into a false adjacency. */
+    s_guide_scan.frames_delta = ring.adapter_rx_count - s_guide_scan.rx_base;
+    s_guide_scan.words_delta =
+        phys.rx_dma_produced_words - s_guide_scan.words_base;
+    s_guide_scan.tx_delta = ring.adapter_tx_count - s_guide_scan.tx_base;
+    s_guide_scan.sample_started = ring.adapter_started;
+    return s_guide_scan.frames_delta >= 10u ||
+           s_guide_scan.words_delta >= 8u;
+}
+
+static void app_guide_scan_leave_window(uint64_t now_ms)
+{
+    /* Close the dark window the same way the host tool does: stop first (the
+     * probe setter only accepts a fully stopped ring), clear probe mode, then
+     * re-run the frozen boot steps so the full ring comes back. */
+    (void)distributed_refmem_tdma_ring_stop();
+    (void)calibration_manager_set_topology_probe_mode(false, 0u);
+    s_boot_guide_done = false;
+    s_boot_attempted = true;
+    s_boot_next_step = 0u;
+    s_boot_deadline_ms = now_ms + 30000u;
+    s_guide_scan.state = APP_GUIDE_SCAN_STATE_RESTORE;
+}
+
+static void app_guide_scan_trial_step(uint64_t now_ms)
+{
+    const uint64_t slot_start = s_guide_scan.trial_start_ms;
+    while (s_guide_scan.phase <= APP_GUIDE_PHASE_LAST &&
+           now_ms >= slot_start + k_guide_phase_ms[s_guide_scan.phase]) {
+        switch (s_guide_scan.phase) {
+        case APP_GUIDE_PHASE_STOP:
+            (void)distributed_refmem_tdma_ring_stop();
+            s_guide_scan.arm_attempts = 0u;
+            s_guide_scan.arm_result = 0u;
+            s_guide_scan.arm_next_try_ms = 0u;
+            s_guide_scan.trials_started++;
+            if (now_ms > slot_start) {
+                const uint64_t late = now_ms - slot_start;
+                if (late > s_guide_scan.max_late_ms) {
+                    s_guide_scan.max_late_ms = (uint32_t)late;
+                }
+            }
+            s_guide_scan.role = (uint32_t)tdma_guide_scan_role(
+                &s_guide_scan.table, s_guide_scan.index,
+                s_boot_profile.local_slot);
+            s_guide_scan.phase = APP_GUIDE_PHASE_TOPOLOGY;
+            break;
+        case APP_GUIDE_PHASE_TOPOLOGY:
+            if (s_guide_scan.role == TDMA_GUIDE_SCAN_ROLE_IDLE) {
+                s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+                break;
+            }
+            {
+                uint32_t pair_slot = 0u;
+                if (!tdma_guide_scan_pair_slot(
+                        (tdma_guide_scan_role_t)s_guide_scan.role,
+                        &pair_slot) ||
+                    !app_guide_scan_set_topology(pair_slot, 2u)) {
+                    app_guide_scan_fail(APP_GUIDE_PHASE_TOPOLOGY);
+                    s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+                    break;
+                }
+            }
+            s_guide_scan.phase = APP_GUIDE_PHASE_SETTLE;
+            break;
+        case APP_GUIDE_PHASE_SETTLE: {
+            /* The topology write retires the stop and stages a fresh disable;
+             * ARM rejects until the runtime has applied that config. Poll
+             * instead of assuming a fixed delay. */
+            tdma_ring_runtime_snapshot_t ring;
+            if (tdma_runtime_owner_get_ring_snapshot(&ring) &&
+                ring.applied_config_seq == ring.config_seq &&
+                ring.enabled == 0u && ring.adapter_started == 0u) {
+                s_guide_scan.phase = APP_GUIDE_PHASE_PROBE;
+                break;
+            }
+            if (now_ms >= slot_start + APP_GUIDE_SCAN_SETTLE_DEADLINE_MS) {
+                app_guide_scan_fail(APP_GUIDE_PHASE_SETTLE);
+                s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+            }
+            return; /* keep polling */
+        }
+        case APP_GUIDE_PHASE_PROBE:
+            /* The probe persona is only installed when the ring config does
+             * NOT carry BRINGUP_NO_CAL (tdma_pio_spi_ring_adapter_tx.c:351),
+             * and each topology write re-applies the foundation profile that
+             * carries it. Clear it here, after the settle barrier (the setter
+             * refuses while config_seq != applied), before arming. */
+            if (!tdma_runtime_owner_set_bringup_no_cal(false) ||
+                !calibration_manager_set_topology_probe_mode(
+                    true, APP_GUIDE_SCAN_PROBE_PHASE_CYCLES)) {
+                app_guide_scan_fail(APP_GUIDE_PHASE_PROBE);
+                s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+                break;
+            }
+            s_guide_scan.phase = APP_GUIDE_PHASE_ARM;
+            break;
+        case APP_GUIDE_PHASE_ARM: {
+            /* The host tool never arms blind: each attempt first proves the
+             * ring is quiescent (stopped, applied) and re-stages the disable
+             * when it is not. A result-8 refusal is a settled-state hint, not a
+             * reason to hammer ARM. */
+            if (now_ms < s_guide_scan.arm_next_try_ms) {
+                return;
+            }
+            s_guide_scan.arm_next_try_ms = now_ms + 150u;
+            tdma_ring_runtime_snapshot_t ring;
+            const bool have_ring = tdma_runtime_owner_get_ring_snapshot(&ring);
+            s_guide_scan.arm_gap =
+                (have_ring && ring.applied_config_seq == ring.config_seq) ? 0u : 1u;
+            tdma_service_ring_runtime_config_t staged;
+            s_guide_scan.staged_enabled =
+                (tdma_runtime_owner_get_staged_ring_config(&staged) &&
+                 staged.enabled != 0u) ? 1u : 0u;
+            if (!have_ring || ring.enabled != 0u ||
+                ring.adapter_started != 0u || s_guide_scan.arm_gap != 0u) {
+                (void)distributed_refmem_tdma_ring_stop();
+                if (now_ms + 250u >=
+                    slot_start + APP_GUIDE_SCAN_ARM_DEADLINE_MS) {
+                    app_guide_scan_fail(APP_GUIDE_PHASE_ARM);
+                    s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+                }
+                return;
+            }
+            s_guide_scan.arm_attempts++;
+            (void)distributed_refmem_tdma_ring_arm();
+            s_guide_scan.arm_result =
+                (uint32_t)distributed_refmem_tdma_ring_arm_last_result();
+            if (s_guide_scan.arm_result !=
+                (uint32_t)DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
+                (void)distributed_refmem_tdma_ring_stop();
+                if (now_ms + 250u >=
+                    slot_start + APP_GUIDE_SCAN_ARM_DEADLINE_MS) {
+                    app_guide_scan_fail(APP_GUIDE_PHASE_ARM);
+                    s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+                }
+                return;
+            }
+            s_guide_scan.arm_deadline_ms =
+                slot_start + APP_GUIDE_SCAN_ARM_DEADLINE_MS;
+            s_guide_scan.trials_armed++;
+            s_guide_scan.phase = APP_GUIDE_PHASE_ARM_WAIT;
+            break;
+        }
+        case APP_GUIDE_PHASE_ARM_WAIT:
+            if (app_guide_scan_ring_armed()) {
+                s_guide_scan.phase = APP_GUIDE_PHASE_TRAIN;
+                break;
+            }
+            if (now_ms >= s_guide_scan.arm_deadline_ms) {
+                app_guide_scan_fail(APP_GUIDE_PHASE_ARM_WAIT);
+                s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+            }
+            return; /* poll without advancing the phase clock */
+        case APP_GUIDE_PHASE_TRAIN:
+            /* Deliberately no RING:TRAIN here. Training swaps the PIO persona
+             * to CLOCK_COARSE, unloads FLIGHT_ORIGIN and only restores it via a
+             * forced POST-TRAIN stop + re-ARM; issuing START right after leaves
+             * a half-swapped PIO that emits beacons instead of the probe burst.
+             * The host reference run skips training under --adjacency-only
+             * (calibration_ring_topology.py:309-313), which is the case this
+             * scan mirrors. */
+            s_guide_scan.phase = APP_GUIDE_PHASE_START;
+            break;
+        case APP_GUIDE_PHASE_START:
+            /* Mirror the host order: the receiver must be started before the
+             * driver, otherwise the probe burst is emitted into a receiver
+             * that is not yet decoding (ring_topology.py arms/starts slot 1
+             * first for exactly this reason). */
+            if (s_guide_scan.role == TDMA_GUIDE_SCAN_ROLE_DRIVER &&
+                now_ms < slot_start + APP_GUIDE_SCAN_DRIVER_START_MS) {
+                return;
+            }
+            app_guide_scan_capture_baseline();
+            /* START is required even on the receiver: ARM alone opens the
+             * hardware capture but produces no RX DMA counts at all (measured
+             * 2026-11-05: receiver without START = 0 words on every pair). */
+            if (!distributed_refmem_tdma_ring_start()) {
+                app_guide_scan_fail(APP_GUIDE_PHASE_START);
+                s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+                break;
+            }
+            s_guide_scan.sample_deadline_ms =
+                slot_start + APP_GUIDE_SCAN_SAMPLE_DEADLINE_MS;
+            s_guide_scan.phase = APP_GUIDE_PHASE_SAMPLE;
+            break;
+        case APP_GUIDE_PHASE_SAMPLE: {
+            /* Sample every active role: the driver's TX delta is the only
+             * evidence that the probe burst was actually emitted, and a
+             * receiver-only sample cannot tell "driver silent" from "receiver
+             * deaf". */
+            const bool active =
+                s_guide_scan.role != TDMA_GUIDE_SCAN_ROLE_IDLE;
+            const bool detected = active && app_guide_scan_activity_seen();
+            if (active && s_guide_scan.index < TDMA_GUIDE_SCAN_PAIR_MAX) {
+                tdma_ring_runtime_snapshot_t sample;
+                const bool have_sample =
+                    tdma_runtime_owner_get_ring_snapshot(&sample);
+                s_guide_scan.pair_role[s_guide_scan.index] =
+                    (uint8_t)s_guide_scan.role;
+                s_guide_scan.pair_frames[s_guide_scan.index] =
+                    s_guide_scan.frames_delta;
+                s_guide_scan.pair_words[s_guide_scan.index] =
+                    s_guide_scan.words_delta;
+                s_guide_scan.pair_tx[s_guide_scan.index] =
+                    s_guide_scan.tx_delta;
+                s_guide_scan.pair_state[s_guide_scan.index] = have_sample
+                    ? ((sample.node_count & 0xffu) |
+                       ((sample.local_slot_id & 0xffu) << 8u) |
+                       ((sample.reference_slot_id & 0xffu) << 16u) |
+                       ((sample.enabled != 0u ? 1u : 0u) << 24u) |
+                       ((sample.adapter_started != 0u ? 1u : 0u) << 25u) |
+                       ((sample.applied_config_seq == sample.config_seq
+                             ? 0u : 1u) << 26u))
+                    : 0xffffffffu;
+                s_guide_scan.pair_start_offset[s_guide_scan.index] =
+                    (uint32_t)(slot_start - s_guide_scan.epoch_ms);
+                s_guide_scan.pair_service[s_guide_scan.index] = have_sample
+                    ? (sample.adapter_service_count - s_guide_scan.service_base)
+                    : 0xffffffffu;
+                s_guide_scan.pair_error[s_guide_scan.index] =
+                    have_sample ? sample.adapter_last_error : 0xffffffffu;
+            }
+            if (detected &&
+                s_guide_scan.role == TDMA_GUIDE_SCAN_ROLE_RECEIVER) {
+                (void)tdma_guide_scan_record(&s_guide_scan.table,
+                                             s_guide_scan.index, true);
+                s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+                break;
+            }
+            if (now_ms < s_guide_scan.sample_deadline_ms) {
+                return; /* keep polling the same window */
+            }
+            s_guide_scan.phase = APP_GUIDE_PHASE_FINISH;
+            break;
+        }
+        case APP_GUIDE_PHASE_FINISH:
+            if (now_ms < slot_start + APP_GUIDE_SCAN_SAMPLE_DEADLINE_MS) {
+                return;
+            }
+            (void)distributed_refmem_tdma_ring_stop();
+            s_guide_scan.index++;
+            s_guide_scan.phase = APP_GUIDE_PHASE_STOP;
+            if (s_guide_scan.index >= s_guide_scan.table.pair_count) {
+                app_guide_scan_leave_window(now_ms);
+                return;
+            }
+            /* Every phase offset below is relative to the slot start, so the
+             * next slot must move the anchor forward; without this the whole
+             * phase table collapses into one call with no settle/ARM budget. */
+            s_guide_scan.trial_start_ms =
+                s_guide_scan.epoch_ms +
+                (uint64_t)s_guide_scan.index * APP_GUIDE_SCAN_TRIAL_MS;
+            return;
+        default:
+            return;
+        }
+    }
+}
+
+void app_guide_scan_service(void)
+{
+    if (!app_guide_scan_enabled()) {
+        return;
+    }
+    const uint64_t now_ms = app_guide_scan_now_ms();
+    if (s_guide_scan.last_call_ms != 0u) {
+        const uint64_t delta = now_ms - s_guide_scan.last_call_ms;
+        if (delta > s_guide_scan.stall_ms) {
+            s_guide_scan.stall_ms = (uint32_t)delta;
+        }
+    }
+    s_guide_scan.last_call_ms = now_ms;
+    switch (s_guide_scan.state) {
+    case APP_GUIDE_SCAN_STATE_OFF:
+        if (!s_boot_guide_done || s_boot_fail_step != 0u ||
+            !s_boot_profile_loaded ||
+            s_boot_plan.action == TDMA_BOOT_ACTION_NONE ||
+            s_boot_plan.action == TDMA_BOOT_ACTION_REJECT) {
+            return;
+        }
+        if (!tdma_guide_scan_init(&s_guide_scan.table,
+                                  s_boot_profile.node_count)) {
+            s_guide_scan.state = APP_GUIDE_SCAN_STATE_ABORTED;
+            app_guide_scan_fail(APP_GUIDE_PHASE_STOP);
+            return;
+        }
+        s_guide_scan.state = APP_GUIDE_SCAN_STATE_WAIT_RING;
+        s_guide_scan.wait_deadline_ms = now_ms + APP_GUIDE_SCAN_WAIT_MS;
+        /* The dark window below is intentional; do not let the completeness
+         * watch read it as a half ring and latch half_ring=1. */
+        s_boot_ring_watch_active = false;
+        return;
+    case APP_GUIDE_SCAN_STATE_WAIT_RING: {
+        if (now_ms > s_guide_scan.wait_deadline_ms) {
+            s_guide_scan.state = APP_GUIDE_SCAN_STATE_ABORTED;
+            app_guide_scan_fail(APP_GUIDE_SCAN_FAIL_WAIT_RING);
+            return;
+        }
+        tdma_ring_runtime_snapshot_t ring;
+        if (!tdma_runtime_owner_get_ring_snapshot(&ring) ||
+            ring.down_running == 0u) {
+            return;
+        }
+        /* Anchor the trial grid on a fixed point after reset: the four boards
+         * are power-cycled/rebooted together, so boot time agrees within the
+         * reboot spread (~0.1 s), while the first-frame instant differs by a
+         * ring cycle or more between the coordinator and a follower. */
+        uint64_t epoch = APP_GUIDE_SCAN_EPOCH_MS;
+        const uint64_t earliest = now_ms + 1500u;
+        if (epoch < earliest) {
+            epoch = earliest;
+        }
+        s_guide_scan.epoch_ms = epoch;
+        /* The prelude needs the ring quiescent: stage/apply only accept a
+         * stopped ring whose last config was applied. Poll that barrier here
+         * instead of assuming the STOP above has already retired. */
+        (void)distributed_refmem_tdma_ring_stop();
+        s_guide_scan.prelude_deadline_ms = now_ms + 8000u;
+        s_guide_scan.state = APP_GUIDE_SCAN_STATE_PRELUDE;
+        return;
+    }
+    case APP_GUIDE_SCAN_STATE_PRELUDE: {
+        /* One-time host-equivalent prelude. The P0T probe runs on the
+         * calibration operating profile (10 MHz / 1 ms, level 7), not on the
+         * 10 kHz guide profile: the host tool's --level default is 7 and that
+         * is what produces the multi-thousand-word burst per pair. Stage and
+         * apply it once, exactly like the host's apply_profile(); the frozen
+         * boot steps re-stage the guide level when the window closes. */
+        tdma_ring_runtime_snapshot_t ring;
+        if (!tdma_runtime_owner_get_ring_snapshot(&ring) ||
+            ring.enabled != 0u || ring.adapter_started != 0u ||
+            ring.applied_config_seq != ring.config_seq) {
+            if (now_ms > s_guide_scan.prelude_deadline_ms) {
+                s_guide_scan.state = APP_GUIDE_SCAN_STATE_ABORTED;
+                app_guide_scan_fail(APP_GUIDE_SCAN_FAIL_PRELUDE);
+            }
+            return;
+        }
+        if (!tdma_runtime_owner_stage_operating_profile(
+                APP_GUIDE_SCAN_PROBE_LEVEL)) {
+            s_guide_scan.state = APP_GUIDE_SCAN_STATE_ABORTED;
+            app_guide_scan_fail(APP_GUIDE_SCAN_FAIL_PRELUDE_STAGE);
+            return;
+        }
+        if (!tdma_runtime_owner_apply_operating_profile()) {
+            s_guide_scan.state = APP_GUIDE_SCAN_STATE_ABORTED;
+            app_guide_scan_fail(APP_GUIDE_SCAN_FAIL_PRELUDE_APPLY);
+            return;
+        }
+        /* The probe arm branch is only taken with no calibration stage staged;
+         * clear any persisted/bench stage once so the pair probe cannot be
+         * rejected by the calibration gate. */
+        (void)calibration_manager_clear_training_stage();
+        s_guide_scan.index = 0u;
+        s_guide_scan.phase = APP_GUIDE_PHASE_STOP;
+        s_guide_scan.trial_active = false;
+        s_guide_scan.trial_start_ms = s_guide_scan.epoch_ms;
+        s_guide_scan.state = APP_GUIDE_SCAN_STATE_TRIAL;
+        return;
+    }
+    case APP_GUIDE_SCAN_STATE_TRIAL: {
+        if (s_guide_scan.index >= s_guide_scan.table.pair_count) {
+            app_guide_scan_leave_window(now_ms);
+            return;
+        }
+        if (now_ms < s_guide_scan.trial_start_ms) {
+            return;
+        }
+        /* Stay on the shared slot grid: if this board fell behind, drop the
+         * missed pairs instead of shifting every later slot. */
+        const uint32_t expected =
+            (uint32_t)((now_ms - s_guide_scan.epoch_ms) /
+                       APP_GUIDE_SCAN_TRIAL_MS);
+        if (expected > s_guide_scan.index) {
+            s_guide_scan.skipped += expected - s_guide_scan.index;
+            s_guide_scan.index = expected;
+            if (s_guide_scan.index >= s_guide_scan.table.pair_count) {
+                app_guide_scan_leave_window(now_ms);
+                return;
+            }
+            s_guide_scan.trial_start_ms =
+                s_guide_scan.epoch_ms +
+                (uint64_t)s_guide_scan.index * APP_GUIDE_SCAN_TRIAL_MS;
+            s_guide_scan.phase = APP_GUIDE_PHASE_STOP;
+        }
+        app_guide_scan_trial_step(now_ms);
+        return;
+    }
+    case APP_GUIDE_SCAN_STATE_RESTORE:
+        if (!s_boot_guide_done) {
+            return;
+        }
+        if (s_boot_fail_step != 0u) {
+            s_guide_scan.state = APP_GUIDE_SCAN_STATE_ABORTED;
+            app_guide_scan_fail(APP_GUIDE_SCAN_FAIL_RESTORE);
+            return;
+        }
+        s_guide_scan.state = APP_GUIDE_SCAN_STATE_DONE;
+        return;
+    case APP_GUIDE_SCAN_STATE_DONE:
+    case APP_GUIDE_SCAN_STATE_ABORTED:
+    default:
+        return;
+    }
+}
+
+bool app_guide_scan_get_pair(uint32_t index,
+                             uint32_t *role,
+                             uint32_t *frames_delta,
+                             uint32_t *words_delta,
+                             uint32_t *tx_delta,
+                             uint32_t *packed_state,
+                             uint32_t *start_offset_ms,
+                             uint32_t *service_delta,
+                             uint32_t *last_error)
+{
+    if (index >= s_guide_scan.table.pair_count ||
+        index >= TDMA_GUIDE_SCAN_PAIR_MAX ||
+        role == NULL || frames_delta == NULL || words_delta == NULL ||
+        tx_delta == NULL || packed_state == NULL ||
+        start_offset_ms == NULL || service_delta == NULL ||
+        last_error == NULL) {
+        return false;
+    }
+    *role = s_guide_scan.pair_role[index];
+    *frames_delta = s_guide_scan.pair_frames[index];
+    *words_delta = s_guide_scan.pair_words[index];
+    *tx_delta = s_guide_scan.pair_tx[index];
+    *packed_state = s_guide_scan.pair_state[index];
+    *start_offset_ms = s_guide_scan.pair_start_offset[index];
+    *service_delta = s_guide_scan.pair_service[index];
+    *last_error = s_guide_scan.pair_error[index];
+    return true;
+}
+
+void app_guide_scan_get_status(app_guide_scan_status_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    out->state = s_guide_scan.state;
+    out->pair_index = s_guide_scan.index;
+    out->pair_count = s_guide_scan.table.pair_count;
+    out->role = s_guide_scan.role;
+    out->node_count = s_guide_scan.table.node_count;
+    out->local_slot = s_boot_profile.local_slot;
+    out->observed_low = (uint32_t)(s_guide_scan.table.activity_mask & 0xffffffffu);
+    out->observed_high = (uint32_t)(s_guide_scan.table.activity_mask >> 32u);
+    out->observed_count =
+        tdma_guide_scan_observed_count(&s_guide_scan.table);
+    out->skipped = s_guide_scan.skipped;
+    out->failures = s_guide_scan.failures;
+    out->fail_phase = s_guide_scan.fail_phase;
+    out->arm_result = s_guide_scan.arm_result;
+    out->arm_attempts = s_guide_scan.arm_attempts;
+    out->arm_gap = s_guide_scan.arm_gap;
+    out->staged_enabled = s_guide_scan.staged_enabled;
+    out->trials_started = s_guide_scan.trials_started;
+    out->trials_armed = s_guide_scan.trials_armed;
+    out->max_late_ms = s_guide_scan.max_late_ms;
+    out->stall_ms = s_guide_scan.stall_ms;
+    out->frames_delta = s_guide_scan.frames_delta;
+    out->words_delta = s_guide_scan.words_delta;
+    out->tx_delta = s_guide_scan.tx_delta;
+    out->sample_started = s_guide_scan.sample_started;
+}
+#else /* !PROJECT_TDMA_GUIDE_SCAN */
+void app_guide_scan_service(void)
+{
+}
+
+void app_guide_scan_get_status(app_guide_scan_status_t *out)
+{
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+    }
+}
+
+bool app_guide_scan_get_pair(uint32_t index,
+                             uint32_t *role,
+                             uint32_t *frames_delta,
+                             uint32_t *words_delta,
+                             uint32_t *tx_delta,
+                             uint32_t *packed_state,
+                             uint32_t *start_offset_ms,
+                             uint32_t *service_delta,
+                             uint32_t *last_error)
+{
+    (void)index;
+    (void)role;
+    (void)frames_delta;
+    (void)words_delta;
+    (void)tx_delta;
+    (void)packed_state;
+    (void)start_offset_ms;
+    (void)service_delta;
+    (void)last_error;
+    return false;
+}
+#endif /* PROJECT_TDMA_GUIDE_SCAN */
 
 bool app_is_control_plane_ready(void)
 {
@@ -928,6 +1713,7 @@ void app_diag_service(void)
     (void)app_guide_boot_service();
     app_guide_listen_service();
     app_guide_ring_watch_service();
+    app_guide_scan_service();
     vdc_dpll_manager_core0_service();
     app_analyzer_storage_service();
     diagnostics_housekeeping_service();

@@ -41,17 +41,19 @@ set(PROJECT_ENABLE_FLASH_VALIDATION OFF CACHE BOOL "Enable validation-only Scrat
 set(PROJECT_OTA_MAX_DATA_BLOCK_SIZE 4096 CACHE STRING
     "Maximum negotiated OTA DATA block size (256/512/1024/2048/4096 bytes)")
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
-set(PROJECT_FLASH_DEPLOYMENT_MAP v1_compat CACHE STRING "Explicit live Flash map: v1_compat until factory v2 migration")
-set(PROJECT_FACTORY_MIGRATION_BUILD OFF CACHE BOOL "Build an explicit non-release v2 factory migration candidate")
+set(PROJECT_FLASH_DEPLOYMENT_MAP v2_candidate CACHE STRING "Explicit live Flash map; V1 is archived and requires PROJECT_V1_RECOVERY_BUILD=ON")
+set(PROJECT_FACTORY_MIGRATION_BUILD ON CACHE BOOL "Build the default V2 debug/factory candidate")
+set(PROJECT_V1_RECOVERY_BUILD OFF CACHE BOOL
+    "Explicit audited recovery-only V1 build; V1 is archived and never a default build")
 set(PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY OFF CACHE BOOL
     "Debug-only: allow an erased v2 slot-manifest region to boot factory metadata")
-set(PROJECT_OTA_SECURITY_COUNTER 0 CACHE STRING "Externally assigned monotonic counter for a signed v2 update")
-set(PROJECT_OTA_SIGNING_KEY_ID 0 CACHE STRING "Registered public key ID for a signed v2 update")
+set(PROJECT_OTA_SECURITY_COUNTER 1 CACHE STRING "Externally assigned monotonic counter for a signed v2 update")
+set(PROJECT_OTA_SIGNING_KEY_ID 3506438145 CACHE STRING "Registered public key ID for a signed v2 update")
 set(PROJECT_OTA_SIGNATURE_FILE "" CACHE FILEPATH "External raw P-256 signature file for a v2 update")
 set(PROJECT_OTA_KEY_CONFIG
     "${CMAKE_CURRENT_LIST_DIR}/config/ota_public_keys.json" CACHE FILEPATH
     "Public-only OTA key registry configuration")
-set(PROJECT_OTA_KEY_PROFILE "" CACHE STRING
+set(PROJECT_OTA_KEY_PROFILE v2_debug CACHE STRING
     "OTA key profile; v2 debug builds use the dedicated debug profile")
 set(PROJECT_OTA_DEBUG_PRIVATE_KEY
     "${CMAKE_CURRENT_LIST_DIR}/out/keys/dhrt100_v2_debug.pem" CACHE FILEPATH
@@ -72,6 +74,16 @@ option(PROJECT_TDMA_EVENT_OBSERVER "Follower paired PIO event observer" ON)
 # image, where an empty store must stay "no profile".
 option(PROJECT_TDMA_GUIDE_AUTOFORM
     "Bench: synthesize the guide boot profile from the board NO. when empty" OFF)
+# Bench-only M1 scan: after the guide ring self-forms, run the P0T directed pair
+# scan locally (no host commands) and publish the per-board activity mask. It
+# needs AUTOFORM; a product image keeps the plain bring-up behaviour.
+option(PROJECT_TDMA_GUIDE_SCAN
+    "Bench: run the P0T pair scan after the guide ring self-forms" OFF)
+# Bench-only S 段: when a committed TRN-03 stage exists, boot on the profile
+# level that stage was measured against instead of the 10 kHz guide profile.
+# Needs a real stage in CALIBRATION_NVS; the flag keeps product boot unchanged.
+option(PROJECT_TDMA_GUIDE_STAGE_BOOT
+    "Bench: boot from a committed TRN-03 stage when one is present" OFF)
 set(PROJECT_TDMA_GUIDE_NODES 4 CACHE STRING "Bench guide ring node count")
 set(PROJECT_TDMA_GUIDE_LEVEL 23 CACHE STRING "Bench guide ring profile level")
 file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/config/project_node_capacity.h"
@@ -167,10 +179,17 @@ add_custom_target(project_source_length_check
 include(${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.cmake)
 if(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v1_compat")
+    if(NOT PROJECT_V1_RECOVERY_BUILD)
+        message(FATAL_ERROR
+            "v1_compat is archived and cannot be enabled by a normal build; "
+            "set PROJECT_V1_RECOVERY_BUILD=ON only for an audited recovery build")
+    endif()
     if(NOT FLASH_COMPAT_MAP_DEPLOYMENT_STATE STREQUAL "deployed_compatibility")
         message(FATAL_ERROR "v1_compat must remain the deployed compatibility map")
     endif()
     set(PROJECT_FLASH_DEPLOYMENT_V2 OFF)
+    set(PROJECT_OTA_SECURITY_COUNTER 0)
+    set(PROJECT_OTA_SIGNING_KEY_ID 0)
     set(PROJECT_ACTIVE_MAP_MANIFEST
         ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json)
     set(PROJECT_ACTIVE_BOOTLOADER_XIP ${FLASH_COMPAT_MAP_BOOTLOADER_XIP_ADDRESS})
@@ -254,7 +273,7 @@ if(PROJECT_FLASH_DEPLOYMENT_V2 AND PROJECT_OTA_KEY_PROFILE STREQUAL "v2_debug")
         ${CMAKE_CURRENT_BINARY_DIR}/generated/ota_public_keys.debug.json)
     execute_process(
         COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_LIST_DIR}/tools/ota_keys/ensure_debug_key.py
+                ${CMAKE_CURRENT_LIST_DIR}/tools/ota/ota_keys/ensure_debug_key.py
                 --private-key ${PROJECT_OTA_DEBUG_PRIVATE_KEY}
                 --source-config ${PROJECT_OTA_KEY_CONFIG}
                 --output-config ${PROJECT_OTA_EFFECTIVE_KEY_CONFIG}
@@ -708,6 +727,8 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_boot_profile_store.c
         components/tdma/src/tdma_boot_plan.c
         components/tdma/src/tdma_boot_sequence.c
+        components/tdma/src/tdma_guide_scan.c
+        components/tdma/src/tdma_boot_stage.c
         components/tdma/src/tdma_runtime_owner.c
         components/tdma/src/tdma_runtime_origin.c
         components/tdma/src/tdma_transport_frame.c
@@ -961,6 +982,8 @@ pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/syn
         PROJECT_ENABLE_LOG_UART_OUTPUT=$<BOOL:${PROJECT_ENABLE_LOG_UART_OUTPUT}>
         PROJECT_OTA_TDMA_V2_BRIDGE=$<BOOL:${PROJECT_OTA_TDMA_V2_BRIDGE}>
         PROJECT_TDMA_GUIDE_AUTOFORM=$<BOOL:${PROJECT_TDMA_GUIDE_AUTOFORM}>
+        PROJECT_TDMA_GUIDE_SCAN=$<BOOL:${PROJECT_TDMA_GUIDE_SCAN}>
+        PROJECT_TDMA_GUIDE_STAGE_BOOT=$<BOOL:${PROJECT_TDMA_GUIDE_STAGE_BOOT}>
         PROJECT_TDMA_GUIDE_NODES=${PROJECT_TDMA_GUIDE_NODES}
         PROJECT_TDMA_GUIDE_LEVEL=${PROJECT_TDMA_GUIDE_LEVEL}
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>

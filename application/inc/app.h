@@ -112,6 +112,72 @@ uint32_t app_guide_boot_apply_fail(void);
 bool app_guide_boot_join_frame_seen(void);
 /* True when the completeness watch saw no down direction and stopped TX. */
 bool app_guide_boot_half_ring(void);
+
+/* M1 topology acceptance from the 10 kHz self-formation (decision 2026-11-05:
+ * the P0T adjacency matrix is provisioning-only; the guide ring itself proves
+ * the topology). Accepted means: the frozen boot steps finished, the local
+ * ring is enabled at the profile node count, the down direction is running
+ * (this board hears its predecessor), no half-ring latch fired, and a follower
+ * actually decoded the reference frame. reason codes: 1 no snapshot, 2 half
+ * ring latched, 3 ring not enabled, 4 no down direction, 5 follower never
+ * joined, 6 boot steps not finished. */
+bool app_guide_topology_accepted(uint32_t *reason);
+
+/* M1 P0T pair scan (bench build: PROJECT_TDMA_GUIDE_SCAN + AUTOFORM).
+ *
+ * After the guide ring self-forms, the board walks the N*(N-1) directed pairs
+ * locally: STOP -> pair topology -> probe mode -> ARM -> START -> sample ->
+ * STOP, then restores the full ring through the boot step list. Every board
+ * derives its own role from its persisted slot, so no cross-board command is
+ * needed. Each board publishes only the pairs where it was the receiver. */
+#define APP_GUIDE_SCAN_STATE_OFF 0u
+#define APP_GUIDE_SCAN_STATE_WAIT_RING 1u
+#define APP_GUIDE_SCAN_STATE_TRIAL 2u
+#define APP_GUIDE_SCAN_STATE_RESTORE 3u
+#define APP_GUIDE_SCAN_STATE_DONE 4u
+#define APP_GUIDE_SCAN_STATE_ABORTED 5u
+#define APP_GUIDE_SCAN_STATE_PRELUDE 6u
+
+typedef struct {
+    uint32_t state;      /* APP_GUIDE_SCAN_STATE_* */
+    uint32_t pair_index; /* current/next pair */
+    uint32_t pair_count; /* node_count * (node_count - 1) */
+    uint32_t role;       /* tdma_guide_scan_role_t for pair_index */
+    uint32_t node_count;
+    uint32_t local_slot;
+    uint32_t observed_low;  /* activity mask bits 0..31 (this board) */
+    uint32_t observed_high; /* activity mask bits 32..55 */
+    uint32_t observed_count;
+    uint32_t skipped;    /* pairs dropped to keep the schedule aligned */
+    uint32_t failures;   /* local trial steps that could not be completed */
+    uint32_t fail_phase; /* phase index of the last local failure */
+    uint32_t arm_result; /* distributed_refmem_tdma_arm_result_t of the last ARM */
+    uint32_t arm_attempts;   /* ARM attempts in the current trial */
+    uint32_t arm_gap;        /* applied_config_seq - config_seq at ARM (0 = settled) */
+    uint32_t staged_enabled; /* staged ring config enabled flag at ARM */
+    uint32_t trials_started; /* trials that reached the STOP phase */
+    uint32_t trials_armed;   /* trials whose ARM was accepted */
+    uint32_t max_late_ms;    /* worst lateness of a trial start vs its slot */
+    uint32_t stall_ms;       /* worst gap between two scan service calls */
+    uint32_t frames_delta;   /* receiver frame delta seen in the best window */
+    uint32_t words_delta;    /* receiver DMA word delta in the same window */
+    uint32_t tx_delta;       /* local adapter TX delta during the same window */
+    uint32_t sample_started; /* adapter_started at the sample point (receiver) */
+} app_guide_scan_status_t;
+void app_guide_scan_service(void);
+void app_guide_scan_get_status(app_guide_scan_status_t *out);
+/* Per-pair evidence for the M1 scan: what this board did in pair `index` and
+ * what its own counters did during that pair's window. Returns false when the
+ * index is outside the table. */
+bool app_guide_scan_get_pair(uint32_t index,
+                             uint32_t *role,
+                             uint32_t *frames_delta,
+                             uint32_t *words_delta,
+                             uint32_t *tx_delta,
+                             uint32_t *packed_state,
+                             uint32_t *start_offset_ms,
+                             uint32_t *service_delta,
+                             uint32_t *last_error);
 void app_tdma_record_service(void);
 bool app_tdma_record_copy(uint32_t offset, uint8_t *data, uint32_t size);
 bool app_is_control_plane_ready(void);

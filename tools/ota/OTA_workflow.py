@@ -55,6 +55,14 @@ LOG_DIR = ROOT / "out" / "HardwareAcceptance"
 DEFAULT_BUILD_DIR = ROOT / "out" / "build" / "dpll60-latest"
 HTML_VIEW = ROOT / "docs" / "ota" / "OTA_FLOW.html"
 
+# The picotool helper bounds each picotool subprocess and its BOOTSEL probe.
+# The workflow adds a wall-clock bound as a last resort so one board stuck in
+# the application/BOOTSEL transition cannot hang the whole four-board step.
+PICOTOOL_COMMAND_TIMEOUT_S = 60.0
+PICOTOOL_BOOTSEL_TIMEOUT_S = 10.0
+PICOTOOL_FLASH_RETRIES = 2
+PICOTOOL_FLASH_WALL_TIMEOUT_S = 240.0
+
 # Fallback bench order (NO.1..NO.4) when the bench config does not name the boards.
 BENCH_BOARDS = ("0010071E65B5CB38", "FB276192BEF9CCE1",
                 "2BD5090FE009FA2A", "A1E549202D18ED6A")
@@ -346,14 +354,38 @@ def step_4_flash(ctx):
     for uid in ctx.board_ids:
         transcript = flash_dir / f"{uid}.txt"
         started = time.perf_counter()
-        completed = subprocess.run([sys.executable, str(helper), str(ctx.uf2),
-                                    "--serial-number", uid, "--retries", "3",
-                                    "--settle", "2.0", "--out", str(transcript)],
-                                   cwd=str(ROOT), text=True, capture_output=True)
+        command = [sys.executable, str(helper), str(ctx.uf2),
+                   "--serial-number", uid,
+                   "--retries", str(PICOTOOL_FLASH_RETRIES),
+                   "--settle", "1.5",
+                   "--command-timeout", str(PICOTOOL_COMMAND_TIMEOUT_S),
+                   "--bootsel-timeout", str(PICOTOOL_BOOTSEL_TIMEOUT_S),
+                   "--out", str(transcript)]
+        error = ""
+        try:
+            completed = subprocess.run(command, cwd=str(ROOT), text=True,
+                                       capture_output=True,
+                                       timeout=PICOTOOL_FLASH_WALL_TIMEOUT_S)
+            returncode = completed.returncode
+            output = (completed.stdout or "") + (completed.stderr or "")
+        except subprocess.TimeoutExpired as exc:
+            returncode = 124
+            raw = (exc.stdout or "") + (exc.stderr or "")
+            output = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+            error = (f"picotool helper timed out after "
+                     f"{PICOTOOL_FLASH_WALL_TIMEOUT_S:.0f}s")
+            (flash_dir / f"{uid}.timeout.txt").write_text(
+                output or f"{error}\n", encoding="utf-8")
         elapsed = round(time.perf_counter() - started, 1)
-        rows.append({"serial_number": uid, "returncode": completed.returncode,
-                     "elapsed_s": elapsed})
-        ctx.log(f"  picotool {uid} rc {completed.returncode} {elapsed:.1f}s")
+        row = {"serial_number": uid, "returncode": returncode,
+               "elapsed_s": elapsed}
+        if error:
+            row["error"] = error
+        if output and not transcript.exists():
+            transcript.write_text(output, encoding="utf-8")
+        rows.append(row)
+        ctx.log(f"  picotool {uid} rc {returncode} {elapsed:.1f}s"
+                + (f" ({error})" if error else ""))
     ctx.flash_summary = {"schema": "HAOFV_PICOTOOL_FLASH_EVIDENCE_V1", "boards": rows,
                          "failed_count": sum(1 for row in rows if row["returncode"] != 0)}
     (flash_dir / "summary.json").write_text(

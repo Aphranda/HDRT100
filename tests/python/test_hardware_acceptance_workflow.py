@@ -185,7 +185,8 @@ def test_firmware_profile_requires_a_calibration_source():
         workflow.main(["--profile", "firmware"])
 
 
-def test_acceptance_args_select_resume_only_with_package_and_ota_summary(tmp_path):
+def test_acceptance_args_select_resume_only_with_package_and_ota_summary(tmp_path, monkeypatch):
+    monkeypatch.setattr(workflow, "SCOPE_CONFIG", tmp_path / "p3_bench_scope.json")
     ns = SimpleNamespace(full=False, tdma_only=False, diagnostic_continue=False,
                          package=tmp_path / "p.pkg", ota_summary=None, build_dir=None,
                          reuse_topology=None, method=None)
@@ -198,7 +199,7 @@ def test_acceptance_args_select_resume_only_with_package_and_ota_summary(tmp_pat
                         ota_summary=None, build_dir=None, reuse_topology=None, method=None),
         launch={"full": True, "flash_method": "picotool"})
     assert continued.full is True and continued.flash_method == "picotool"
-    assert continued.config == workflow.FULL_CONFIG
+    assert continued.config == workflow.SCOPE_CONFIG
 
 
 def test_previous_receipt_snapshot_never_takes_a_provisional(tmp_path, fingerprint, monkeypatch):
@@ -378,11 +379,105 @@ def test_scope_monitor_disables_forced_internal(tmp_path, monkeypatch):
     assert data["dpll_short_force_internal"] is False
 
 
-def test_profile_full_sets_full_flag():
+def test_profile_full_sets_full_flag(tmp_path, monkeypatch):
+    monkeypatch.setattr(workflow, "SCOPE_CONFIG", tmp_path / "p3_bench_scope.json")
     ns = SimpleNamespace(profile="full", full=False, tdma_only=False,
                          diagnostic_continue=False, monitor=None)
     args = workflow.acceptance_args(ns, launch={})
     assert args.full is True
+
+
+def test_monitor_internal_forces_internal_config(tmp_path, monkeypatch):
+    base = tmp_path / "bench.json"
+    base.write_text(json.dumps({"dpll_short_force_internal": False}), encoding="utf-8")
+    monkeypatch.setattr(p3, "DEFAULT_CONFIG", base)
+    monkeypatch.setattr(workflow, "INTERNAL_CONFIG", tmp_path / "p3_bench_internal.json")
+    ns = SimpleNamespace(full=False, tdma_only=False, diagnostic_continue=False,
+                         monitor="internal")
+    args = workflow.acceptance_args(ns)
+    data = json.loads(args.config.read_text(encoding="utf-8"))
+    assert args.monitor == "internal"
+    assert data["dpll_short_force_internal"] is True
+
+
+def test_scope_discovery_unknown_can_fall_back(tmp_path, monkeypatch):
+    monkeypatch.setattr(p3, "discover_optional_scope", lambda resource, serial: {
+        "schema": "HAOFV_P3_SCOPE_DISCOVERY_V1",
+        "resource": resource,
+        "expected_serial": serial,
+        "present": None,
+        "resources": [],
+        "reason": "VISA_TEST_FAILURE",
+    })
+    config = {"dpll_short_scope_resource": "USB0::TEST::INSTR",
+              "dpll_short_scope_serial": "TEST",
+              "dpll_short_scope_discovery_retries": 1}
+    monkeypatch.setattr(p3.time, "sleep", lambda _seconds: None)
+    path, enabled = p3.dpll_short_discover_scope(
+        config, tmp_path, allow_unknown=True)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert enabled is False
+    assert data["present"] is False and data["unknown"] is True
+    with pytest.raises(p3.AcceptanceError):
+        p3.dpll_short_discover_scope(
+            config, tmp_path, allow_unknown=False)
+
+
+def test_dpll_capture_falls_back_after_external_failure(tmp_path, monkeypatch):
+    calls = []
+
+    def capture(root, config, out_dir, *, scope_enabled):
+        calls.append(scope_enabled)
+        if scope_enabled:
+            raise p3.AcceptanceError("scope window missed")
+        path = out_dir / "internal"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    monkeypatch.setattr(p3, "dpll_short_run_capture", capture)
+    monkeypatch.setattr(p3, "read_realtime_context", lambda *args, **kwargs: {})
+    discovery = tmp_path / "dpll-scope-discovery.json"
+    discovery.write_text(json.dumps({
+        "schema": "HAOFV_P3_SCOPE_DISCOVERY_V1",
+        "resource": "USB0::TEST::INSTR",
+        "expected_serial": "TEST",
+        "present": True,
+    }), encoding="utf-8")
+    run = p3.AcceptanceRun.create(make_args(tmp_path))
+    run.args.monitor = "auto"
+    run.put(build_id=None, dpll_scope_enabled=True, dpll_scope_discovery_path=discovery)
+    p3.phase_dpll_capture(run)
+    assert calls == [True, False]
+    assert run.get("dpll_qualification") == "INTERNAL_FALLBACK"
+    assert run.get("dpll_external_attempt")["status"] == "FAIL"
+    assert run.get("dpll_scope_enabled") is False
+    assert json.loads(discovery.read_text(encoding="utf-8"))["fallback_internal"] is True
+
+
+def test_dpll_capture_does_not_run_internal_after_external_pass(tmp_path, monkeypatch):
+    calls = []
+
+    def capture(root, config, out_dir, *, scope_enabled):
+        calls.append(scope_enabled)
+        path = out_dir / "external"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    monkeypatch.setattr(p3, "dpll_short_run_capture", capture)
+    monkeypatch.setattr(p3, "read_realtime_context", lambda *args, **kwargs: {})
+    discovery = tmp_path / "dpll-scope-discovery.json"
+    discovery.write_text(json.dumps({
+        "schema": "HAOFV_P3_SCOPE_DISCOVERY_V1",
+        "resource": "USB0::TEST::INSTR",
+        "expected_serial": "TEST",
+        "present": True,
+    }), encoding="utf-8")
+    run = p3.AcceptanceRun.create(make_args(tmp_path))
+    run.args.monitor = "auto"
+    run.put(build_id=None, dpll_scope_enabled=True, dpll_scope_discovery_path=discovery)
+    p3.phase_dpll_capture(run)
+    assert calls == [True]
+    assert run.get("dpll_qualification") == "SCOPE_PASS"
 
 
 def test_serial_gap_has_100ms_floor():

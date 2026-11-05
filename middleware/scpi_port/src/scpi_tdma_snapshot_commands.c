@@ -1273,3 +1273,73 @@ scpi_result_t scpi_cmd_system_tdma_boot_plan_q(scpi_t *context)
     SCPI_ResultUInt32(context, app_guide_boot_half_ring() ? 1u : 0u);
     return SCPI_RES_OK;
 }
+
+scpi_result_t scpi_cmd_system_tdma_guide_pair_q(scpi_t *context)
+{
+    uint32_t index = 0u;
+    if (!scpi_port_read_u32(context, &index)) {
+        return SCPI_RES_ERR;
+    }
+    uint32_t role = 0u;
+    uint32_t frames = 0u;
+    uint32_t words = 0u;
+    uint32_t tx = 0u;
+    uint32_t state = 0u;
+    uint32_t offset = 0u;
+    uint32_t service = 0u;
+    uint32_t error = 0u;
+    if (!app_guide_scan_get_pair(index, &role, &frames, &words, &tx,
+                                 &state, &offset, &service, &error)) {
+        scpi_port_push_exec_error(context, "TDMA_GUIDE_PAIR");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, role);
+    SCPI_ResultUInt32(context, frames);
+    SCPI_ResultUInt32(context, words);
+    SCPI_ResultUInt32(context, tx);
+    SCPI_ResultUInt32(context, state);
+    SCPI_ResultUInt32(context, offset);
+    SCPI_ResultUInt32(context, service);
+    SCPI_ResultUInt32(context, error);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_boot_topology_q(scpi_t *context)
+{
+    uint32_t reason = 0u;
+    const bool accepted = app_guide_topology_accepted(&reason);
+    SCPI_ResultUInt32(context, accepted ? 1u : 0u);
+    SCPI_ResultUInt32(context, reason);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_guide_scan_q(scpi_t *context)
+{
+    app_guide_scan_status_t status;
+    app_guide_scan_get_status(&status);
+    SCPI_ResultUInt32(context, status.state);
+    SCPI_ResultUInt32(context, status.pair_index);
+    SCPI_ResultUInt32(context, status.pair_count);
+    SCPI_ResultUInt32(context, status.role);
+    SCPI_ResultUInt32(context, status.node_count);
+    SCPI_ResultUInt32(context, status.local_slot);
+    SCPI_ResultUInt32(context, status.observed_low);
+    SCPI_ResultUInt32(context, status.observed_high);
+    SCPI_ResultUInt32(context, status.observed_count);
+    SCPI_ResultUInt32(context, status.skipped);
+    SCPI_ResultUInt32(context, status.failures);
+    SCPI_ResultUInt32(context, status.fail_phase);
+    SCPI_ResultUInt32(context, status.arm_result);
+    SCPI_ResultUInt32(context, status.arm_attempts);
+    SCPI_ResultUInt32(context, status.arm_gap);
+    SCPI_ResultUInt32(context, status.staged_enabled);
+    SCPI_ResultUInt32(context, status.trials_started);
+    SCPI_ResultUInt32(context, status.trials_armed);
+    SCPI_ResultUInt32(context, status.max_late_ms);
+    SCPI_ResultUInt32(context, status.stall_ms);
+    SCPI_ResultUInt32(context, status.frames_delta);
+    SCPI_ResultUInt32(context, status.words_delta);
+    SCPI_ResultUInt32(context, status.tx_delta);
+    SCPI_ResultUInt32(context, status.sample_started);
+    return SCPI_RES_OK;
+}

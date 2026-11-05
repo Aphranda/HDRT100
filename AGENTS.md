@@ -1,6 +1,6 @@
 # Agent 常设命令（Codex / Claude / DSH）
 
-Last updated: 2026-11-04
+Last updated: 2026-11-05
 
 本仓库用「文档自回归体系」治理文档：**任何 AI 助手动手前先读 §0**，违反约束由 git pre-commit 拦截。
 
@@ -51,6 +51,15 @@ Last updated: 2026-11-04
     超 40 立即冻结新增改动，先跑 `hardware_acceptance_workflow.py --profile full`（等价
     `workflow_steps.py run`，scope FULL）；未通过不得叠加，通过后按 §2.7 单批提交。豁免见
     `docs/check/WAIVERS.json`（机检到期，过期即 FAIL）。
+12. **归档资料不可启用（最高优先级）**：`docs/legacy/`、`out/archive/`、任何 `*/archive/` 目录，
+    以及标记为 `Status: Frozen`/`Archived` 的代码、脚本、配置、凭证和构建输入，只允许读取、
+    审计和引用说明，不得作为默认/普通构建、preset、CMake include、工具自动发现/执行、release
+    或验收输入、运行时配置启用。
+    - 不得通过复制回 active 路径、修改 include/preset、解除 Frozen/Archived 标记来“启用”；
+      需要恢复时必须先提恢复提案，经 C11 独立审核，新建 active 副本，归档原件原样保留。
+    - 归档资料不得作为 P3/host 凭证、基线或默认 V1/V2 构建输入；显式 recovery 使用必须记录
+      runbook、命令和用户授权，且不得改变默认构建路径。
+    - 归档文档本身可读；禁止把其中旧代码、旧 offset、旧配置或旧凭证当作当前 active 事实源。
 
 **文档格式范围**：语料为 `docs/**`；`.agents/skills/**` 的 SKILL.md/说明/评审文本只用 skill 格式，
 不适用第 1/3/5 项，但仍受 Git 与独立评审治理。该例外只涉文本格式，不豁免安全/授权/契约/验收义务；
