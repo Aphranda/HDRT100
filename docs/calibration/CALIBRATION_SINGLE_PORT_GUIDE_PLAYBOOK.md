@@ -1110,6 +1110,30 @@ C→T→R→Q→S**；环在动作之间保持 10 kHz，只有 R 段进暗窗，
 3. 引导执行器的 R/Q 两段改成"写槽位 / 对账"，而不是"直接返回本地结构体"；
 4. 单口读回增加一个对账出口（进度 + 问题 + 身份）。
 
+**落点：沿用既有 REFMEM 控制面，不新建组件（2026-11-05 用户要求）**。上述四件事全部由
+`refmem_param_pool`（`components/distributed_refmem/{inc,src}/refmem_param_pool.[ch]`）承担——
+它本来就是"调用方持有 region 的纯存储池"，**不需要链路**，天然满足"停环也能写"：
+
+| 段 | 复用的 REFMEM 面 | 调用 | 关键约束 |
+|---|---|---|---|
+| C | 参数池 slot | `refmem_param_pool_write(slot, plan_seq, epoch, plan, size)` | 目标端按 `command_seq` 校验 |
+| T | 命令帧 | `REFMEM_CMD` trigger + `command_seq`/`epoch` | 该序号即后续读回键 |
+| R | 同一 slot 回写进度 | 板端同 `plan_seq` 写 progress 记录（state=VALID） | 纯存储写；池有 3 slot × 1024 B |
+| Q | 参数池读 | `refmem_param_pool_read(slot, plan_seq, …)` + CRC | seq/CRC 不符 ⇒ STALE，不采信 |
+| S | flash | `calibration_training_store_commit` | 仅 Q 通过 |
+
+**progress 记录格式**（紧凑，≤ 992 B，属于数据不是新组件）：
+
+```
+header: { action_id, plan_crc32, generation, trials_done, deepest_trial, reason, status }
+rows[]: { trial_index, verdict_code, measured_u32 }        // 每 trial 一行
+```
+
+`reason` 就是"为什么停"（例如 `TRIGGER_MISSED`/`ARM_TIMEOUT`/`LINK_LOSS`），
+`deepest_trial` 让下一轮从断点继续；`plan_crc32`/`generation` 与 C 段一致才被 Q 采信，
+否则整动作重跑（不混用旧槽位）。
+
+
 
 
 **执行器形状**：一个通用 `guide_action_runner`，输入 `(action_id, plan_ref, epoch)`，
