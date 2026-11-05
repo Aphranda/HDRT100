@@ -33,6 +33,12 @@ def test_profile_catalog_is_exact_and_preserves_phase_boundaries(tmp_path):
     exe = tmp_path / ("profile.exe" if os.name == "nt" else "profile")
     subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
         "-I"+str(ROOT/"application/inc"), "-I"+str(ROOT/"config"),
+        # app.h pulls the boot-plan and training-store headers, so the host case
+        # needs the same include roots the firmware build uses.
+        "-I"+str(ROOT/"components/tdma/inc"),
+        "-I"+str(ROOT/"components/calibration_manager/inc"),
+        "-I"+str(ROOT/"components/board_identity/inc"),
+        "-I"+str(ROOT/"components/distributed_refmem/inc"),
         str(ROOT/"application/src/app_realtime_profile.c"),
         str(ROOT/"tests/unit/test_app_realtime_profile.c"), "-o", str(exe)],
         check=True, capture_output=True, text=True, timeout=60)

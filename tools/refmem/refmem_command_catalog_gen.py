@@ -66,6 +66,10 @@ COMMAND_TYPES = {
     "TRIGGER_SEQUENCE_ACTIVE": 47,
     "TRIGGER_SEQUENCE_PLAN": 48,
     "TRIGGER_ANGLE_SPEED": 49,
+    # Guide ladder (P1..T3): each action runs one C/T/R/Q/S round on the
+    # low-speed ring, so the plan (slot ref) and the trigger travel as commands.
+    "CAL_GUIDE_CONFIG": 50,
+    "CAL_GUIDE_TRIGGER": 51,
 }
 
 OWNERS = {

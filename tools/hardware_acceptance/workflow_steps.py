@@ -4488,10 +4488,9 @@ def phase_dpll_gate(run: AcceptanceRun) -> None:
         scope_enabled=run.get("dpll_scope_enabled"),
         source_fingerprint=run.get("fingerprint_before"),
         build_id=run.get("build_id"), board_ids=run.board_ids)
-    dpll_summary["dpll_qualification"] = run.state.get("dpll_qualification")
-    dpll_summary["dpll_external_attempt"] = run.state.get("dpll_external_attempt")
-    if run.state.get("dpll_scope_fallback"):
-        dpll_summary["dpll_scope_fallback"] = True
+    # The summary must stay exactly reproducible from raw capture evidence.
+    # Qualification metadata lives in the receipt (written at step 35), not here;
+    # injecting it would make validate_summary()'s exact-equality check fail.
     dpll_summary_path.write_text(
         json.dumps(dpll_summary, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")

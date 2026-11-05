@@ -48,7 +48,7 @@ def host_compiler():
 
 def host_includes():
     includes = [ROOT / f"components/{component}/inc" for component in (
-        "tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem",
+        "algo", "tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem",
             "calibration_manager", "ota_manager", "sync_io", "sync_trigger")]
     includes.append(ROOT / "components/vdc_dpll_manager/src")
     includes.append(ROOT / "boards/rp2350_trig/inc")
