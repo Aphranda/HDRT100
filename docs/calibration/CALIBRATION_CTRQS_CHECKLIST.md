@@ -183,6 +183,18 @@ P3–T3 的 R 体尚未实现；其 C 段布局必须先按下列 canonical 工�
 `threshold_low=baud_hz`、`threshold_high=frequency tolerance`；`window_ms` 覆盖全部链路。
 Q 仅在全部链路 × 重复都通过时 COMPLETE（`passed_mask` 按链路×重复置位）。
 
+**P3 实板结论（2026-11-06，`54208304`）**：P1→P2→P3 全链四板通过；P3 四板
+`PLAN?` = `1,3,305419898,9,7,4000,4,0,132,0,1,1,4,3,0,1,0,2,1,0,3,1`（COMPLETE、4 trials、
+reconcile COMPLETE、ladder_index=3）。关键修复：P3 停止后必须等 `p3 state=IDLE` 且
+`phys persona=NORMAL` 才关窗，否则 rebuild ARM 报 267=PROGRAM_LOAD。
+
+**T0 布局 v2 草案（待实现验证）**：T0 是 marker/residence 训练，身份字段（epoch/sequence/
+marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候选改为
+`origin_node, codebook, link_base_delay_ns, offset_sample_count, repeats`；
+`threshold_low/threshold_high` 暂保留（marker 的接受判据由驱动快照 state=ACCEPTED 给出，
+不依赖距离阈值）。T0 的每 trial 仍是“全板 prepare → origin inject → 全板等 ACCEPTED/REJECTED”，
+不需要逐链路 role；`repeats` 决定重复次数。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
