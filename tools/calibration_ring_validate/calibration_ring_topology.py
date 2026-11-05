@@ -522,6 +522,15 @@ def main() -> int:
                  if boards[address].build != args.expected_build}
         if wrong:
             raise SystemExit(f"build mismatch: {wrong}")
+    # Uniform-build gate: a mixed bench cannot form the ring and every pair
+    # probe then burns a full STOP/ARM/START cycle for nothing (measured
+    # 2026-11-05: one board still ran the product image, so it had no guide
+    # profile and the other three latched half_ring). Fail fast with the map.
+    observed_builds = {address: boards[address].build for address in board_ids}
+    if len(set(observed_builds.values())) > 1:
+        raise SystemExit(
+            "build mismatch across boards (flash them with the same image): "
+            f"{observed_builds}")
 
     profile_apply: list[dict[str, object]] = []
     pair_results: list[dict[str, object]] = []
