@@ -781,8 +781,12 @@ python tools/hardware_acceptance/workflow_steps.py run `
 ```
 
 `--reuse-topology` 只接受**做过 NO 分配**的 summary（`--no-assign` 会被判
-`known topology committed node map differs`）。根治方向：P0T 的 START 超时后应像 ARM 一样用
-`RING:STATus?` 复核意图，而不是直接判失败。
+`known topology committed node map differs`）。
+
+**根治方向（已试过一次，勿再走这条）**：曾在 P0T 里给 START 超时加"用 `RING:STATus?` 复核意图"的
+旁路，`tests/python/test_calibration_topology_start.py` 立刻 8 条失败——该测试把"未知 ACK 必须
+按失败处理、要求 STOP 后重新 ARM 并重取基线"冻结为契约，**不允许**从超时推断成功。因此正确做法
+是传输层：workflow 的 P0T 改用 `--short-open`（或 START 前重连），而不是放松 ACK 判据。
 
 ### 9.19 M1 P0T 板端对表扫描（实现 + 实板状态）
 

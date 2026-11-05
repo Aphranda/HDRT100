@@ -280,6 +280,16 @@ Last updated: 2026-11-05
   四板实测 `mask=1`、`count[0]≈5.3–5.5k`（cut-through 保留发起者，语义见 §9.22）。
 - 待办：P0T 的 START 超时后应像 ARM 一样用 `RING:STATus?` 复核意图，而不是直接失败。
 
+**续（第 17 轮，2026-11-05 20:05）——"放宽 START 判据"这条路被契约测试否掉**：
+
+- 曾按"超时就查 `RING:STATus?` 复核"改 P0T，`tests/python/test_calibration_topology_start.py`
+  立刻 **8 条失败**：该文件把"未知 ACK 一律按失败、要求 STOP 后重 ARM 并重取基线"冻结为契约。
+  改动已完全撤回（工作区干净），结论改写为：**正确修法在传输层**（workflow 的 P0T 用
+  `--short-open`，或 START 前重连），不是在 ACK 判据上放宽。
+- 另：`test_calibration_topology_start.py` 里有 2 条 cleanup 用例当前失败（`main()` 返回 0 而非 1），
+  与本轮改动无关（该文件最后一次改动是 `579b1fdb`），记为既有问题。
+- 本轮 P0T 又以 persistent CDC 跑了一次：4/4 通过（未触发新路径），说明失败是间歇性的传输问题。
+
 ## CAL-TASK-20261105-043 - 交接：日间 M0 收口，新会话入口
 
 **已完成并入库**（提交 `4458cff3`、`0777e5b6`、`44631607`、`5d4105dd`）：
