@@ -1057,6 +1057,39 @@ C→T→R→Q→S**；环在动作之间保持 10 kHz，只有 R 段进暗窗，
 - 固化失败（写校验不过）⇒ 该动作 FAIL，generation 不前进，staging 保持上一份；
 - 只有 T3 的 S 在固化后额外允许 `ARM → START 10 MHz`。
 
+### 9.26 统一控制面：全流程走 REFMEM，停环期间本地落盘、复环回收
+
+**2026-11-05 用户裁定**：不再保留"host SCPI 编排 + 环只做承载"的双轨，**全部改成 REFMEM 统一控制面**；
+**停环（R 暗窗）期间，训练/校准的参数与进度也写进 REFMEM 的本地槽位**，启环（Q）之后由协调者读回，
+据此**回收问题与进度**。
+
+| 段 | 与 REFMEM 的关系 | 停环期间 |
+|---|---|---|
+| **C** | 计划/候选表/阈值 = REFMEM 命令帧（`CAL_GUIDE_CONFIG`），落本地 param pool | 不适用（环在跑） |
+| **T** | trigger word = REFMEM 命令帧（`CAL_GUIDE_TRIGGER`）+ epoch | 不适用（环在跑） |
+| **R** | 每 trial 的输入参数、中间量、判定结果、失败原因**写本板 REFMEM 槽位**（本地写，不依赖链路），并置 `pending` 脏位 | ✅ 正是这条：停机不等于丢参数 |
+| **Q** | 复环后 REFMEM 会话 resume，协调者按槽位读回并**对账**：进度（哪些 trial 完成）、问题（失败 reason/现场量） | 读回发生在启环后 |
+| **S** | 对账通过 → `calibration_training_store_commit` 固化（见上） | 不适用 |
+
+**回收语义（关键）**：
+
+1. 本地槽位带 `(action_id, trial_index, plan_crc32, generation)` 身份 + `pending/flushed` 状态；
+2. 复环后先做**对账**再进下一动作：槽位 `pending` 多 ⇒ 说明上一轮被打断，按其 `trial_index` 从断点继续；
+3. 失败 reason 也进槽位，所以"为什么停"在启环后可读（不是只看最后一帧）；
+4. 状态冲突（`plan_crc32` 变化、generation 回退）⇒ 判 `STALE_PLAN`，整动作重跑，不混用旧槽位。
+
+**契约影响（需登记/复核）**：`REFMEM-CTRL-01` 现有前提写的是"TDMA 不停机"；本裁定把它改成
+"**除 R 暗窗外不停机；R 期间 REFMEM 本地写、复环对账**"，属契约变更，需按 C11 独立复核并在
+`DOCS_REGISTRY.md` 登记新条款。
+
+**实现增量**：
+
+1. REFMEM 槽位在**链路未建立**时也必须可写（本地 mailbox + 脏位），不能依赖 `distributed_refmem` 的连接态；
+2. 复环对账 API（按 action/trial 读 pending 槽位并汇总进度/问题）；
+3. 引导执行器的 R/Q 两段改成"写槽位 / 对账"，而不是"直接返回本地结构体"；
+4. 单口读回增加一个对账出口（进度 + 问题 + 身份）。
+
+
 
 **执行器形状**：一个通用 `guide_action_runner`，输入 `(action_id, plan_ref, epoch)`，
 按 `C→T→R→Q→S` 五个阶段推进，每阶段有**完成条件 + 超时 + reason**；动作表是数据
