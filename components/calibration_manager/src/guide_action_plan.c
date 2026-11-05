@@ -148,3 +148,92 @@ guide_action_plan_result_t guide_action_plan_decode(const uint8_t *payload,
     *out = plan;
     return GUIDE_ACTION_PLAN_OK;
 }
+
+/* ----------------------------------------------------------- progress ----- */
+
+static bool progress_masks_ok(const guide_action_progress_t *progress)
+{
+    const uint32_t limit =
+        GUIDE_ACTION_PROGRESS_MAX_TRIALS >= 32u
+            ? 0xFFFFFFFFu
+            : ((uint32_t)1u << GUIDE_ACTION_PROGRESS_MAX_TRIALS) - 1u;
+    return progress != NULL && (progress->passed_mask & ~limit) == 0u &&
+           (progress->failed_mask & ~limit) == 0u &&
+           progress->trials_done <= GUIDE_ACTION_PROGRESS_MAX_TRIALS &&
+           progress->status <= GUIDE_ACTION_PROGRESS_FAILED;
+}
+
+guide_action_plan_result_t guide_action_progress_encode(
+    const guide_action_progress_t *progress, uint8_t *out, size_t capacity,
+    size_t *out_size)
+{
+    if (progress == NULL || out == NULL || capacity < GUIDE_ACTION_PROGRESS_SIZE) {
+        return GUIDE_ACTION_PLAN_BAD_ARGUMENT;
+    }
+    if (!progress_masks_ok(progress)) {
+        return GUIDE_ACTION_PLAN_RANGE;
+    }
+    memset(out, 0, GUIDE_ACTION_PROGRESS_SIZE);
+    put_u32(out + 0u, GUIDE_ACTION_PROGRESS_MAGIC);
+    put_u16(out + 4u, (uint16_t)GUIDE_ACTION_PROGRESS_VERSION);
+    put_u16(out + 6u, (uint16_t)GUIDE_ACTION_PROGRESS_SIZE);
+    put_u32(out + 8u, progress->action_id);
+    put_u32(out + 12u, progress->plan_crc32);
+    put_u32(out + 16u, progress->generation);
+    put_u32(out + 20u, progress->trials_done);
+    put_u32(out + 24u, progress->deepest_trial);
+    put_u32(out + 28u, progress->reason);
+    put_u32(out + 32u, progress->status);
+    put_u32(out + 36u, progress->passed_mask);
+    put_u32(out + 40u, progress->failed_mask);
+    if (out_size != NULL) {
+        *out_size = GUIDE_ACTION_PROGRESS_SIZE;
+    }
+    return GUIDE_ACTION_PLAN_OK;
+}
+
+guide_action_plan_result_t guide_action_progress_decode(const uint8_t *payload,
+                                                        size_t size,
+                                                        guide_action_progress_t *out)
+{
+    if (payload == NULL || out == NULL) {
+        return GUIDE_ACTION_PLAN_BAD_ARGUMENT;
+    }
+    if (size != GUIDE_ACTION_PROGRESS_SIZE) {
+        return GUIDE_ACTION_PLAN_BAD_SIZE;
+    }
+    if (get_u32(payload + 0u) != GUIDE_ACTION_PROGRESS_MAGIC) {
+        return GUIDE_ACTION_PLAN_BAD_MAGIC;
+    }
+    if (get_u16(payload + 4u) != (uint16_t)GUIDE_ACTION_PROGRESS_VERSION) {
+        return GUIDE_ACTION_PLAN_BAD_VERSION;
+    }
+    if (get_u16(payload + 6u) != (uint16_t)GUIDE_ACTION_PROGRESS_SIZE) {
+        return GUIDE_ACTION_PLAN_BAD_SIZE;
+    }
+    guide_action_progress_t progress;
+    memset(&progress, 0, sizeof(progress));
+    progress.action_id = get_u32(payload + 8u);
+    progress.plan_crc32 = get_u32(payload + 12u);
+    progress.generation = get_u32(payload + 16u);
+    progress.trials_done = get_u32(payload + 20u);
+    progress.deepest_trial = get_u32(payload + 24u);
+    progress.reason = get_u32(payload + 28u);
+    progress.status = get_u32(payload + 32u);
+    progress.passed_mask = get_u32(payload + 36u);
+    progress.failed_mask = get_u32(payload + 40u);
+    if (!progress_masks_ok(&progress)) {
+        return GUIDE_ACTION_PLAN_RANGE;
+    }
+    *out = progress;
+    return GUIDE_ACTION_PLAN_OK;
+}
+
+bool guide_action_progress_matches(const guide_action_progress_t *progress,
+                                   uint32_t action_id, uint32_t plan_crc32,
+                                   uint32_t generation)
+{
+    return progress != NULL && progress->action_id == action_id &&
+           progress->plan_crc32 == plan_crc32 &&
+           progress->generation == generation;
+}

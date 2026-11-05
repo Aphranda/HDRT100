@@ -71,6 +71,53 @@ guide_action_plan_result_t guide_action_plan_to_words(const guide_action_plan_t 
                                                       uint32_t *words,
                                                       uint32_t word_count);
 
+/* ---------------------------------------------------------------- progress --
+ * The R segment runs with the ring down, so its result cannot be reported then.
+ * The board writes this record into a refmem parameter-pool slot while it runs
+ * (the pool is plain storage and needs no link) and Q reads it back after the
+ * ring is re-formed. It carries both the progress (which trials completed) and
+ * the problem (why the window stopped), which is what "recover progress and
+ * problems" means. */
+#define GUIDE_ACTION_PROGRESS_MAGIC 0x47505247u /* "GPRG" */
+#define GUIDE_ACTION_PROGRESS_VERSION 1u
+#define GUIDE_ACTION_PROGRESS_SIZE 48u
+#define GUIDE_ACTION_PROGRESS_MAX_TRIALS 32u
+
+typedef enum {
+    GUIDE_ACTION_PROGRESS_RUNNING = 0u,
+    GUIDE_ACTION_PROGRESS_COMPLETE = 1u,
+    GUIDE_ACTION_PROGRESS_STOPPED = 2u,
+    GUIDE_ACTION_PROGRESS_FAILED = 3u,
+} guide_action_progress_status_t;
+
+typedef struct {
+    uint32_t action_id;
+    uint32_t plan_crc32;
+    uint32_t generation;
+    uint32_t trials_done;
+    /* Highest trial index reached, so a resumed window continues from here. */
+    uint32_t deepest_trial;
+    /* 0 while healthy, otherwise why the window stopped. */
+    uint32_t reason;
+    uint32_t status;
+    uint32_t passed_mask;
+    uint32_t failed_mask;
+} guide_action_progress_t;
+
+/* Encodes/decodes the 48-byte record. Bit masks above MAX_TRIALS are rejected
+ * rather than silently truncated. */
+guide_action_plan_result_t guide_action_progress_encode(
+    const guide_action_progress_t *progress, uint8_t *out, size_t capacity,
+    size_t *out_size);
+guide_action_plan_result_t guide_action_progress_decode(const uint8_t *payload,
+                                                        size_t size,
+                                                        guide_action_progress_t *out);
+
+/* True when the record belongs to the given plan (Q must not mix generations). */
+bool guide_action_progress_matches(const guide_action_progress_t *progress,
+                                   uint32_t action_id, uint32_t plan_crc32,
+                                   uint32_t generation);
+
 #ifdef __cplusplus
 }
 #endif

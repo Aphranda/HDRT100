@@ -135,6 +135,85 @@ static void test_words_round_trip(void)
            GUIDE_ACTION_PLAN_BAD_SIZE);
 }
 
+static void test_progress_round_trip(void)
+{
+    guide_action_progress_t progress;
+    memset(&progress, 0, sizeof(progress));
+    progress.action_id = 4u;
+    progress.plan_crc32 = 0xDEADBEEFu;
+    progress.generation = 9u;
+    progress.trials_done = 3u;
+    progress.deepest_trial = 2u;
+    progress.reason = 0u;
+    progress.status = GUIDE_ACTION_PROGRESS_COMPLETE;
+    progress.passed_mask = 0x7u;
+    progress.failed_mask = 0u;
+
+    uint8_t buffer[GUIDE_ACTION_PROGRESS_SIZE];
+    size_t size = 0u;
+    assert(guide_action_progress_encode(&progress, buffer, sizeof(buffer), &size) ==
+           GUIDE_ACTION_PLAN_OK);
+    assert(size == GUIDE_ACTION_PROGRESS_SIZE);
+
+    guide_action_progress_t decoded;
+    assert(guide_action_progress_decode(buffer, size, &decoded) ==
+           GUIDE_ACTION_PLAN_OK);
+    assert(decoded.trials_done == 3u);
+    assert(decoded.deepest_trial == 2u);
+    assert(decoded.passed_mask == 0x7u);
+    assert(decoded.status == GUIDE_ACTION_PROGRESS_COMPLETE);
+    assert(guide_action_progress_matches(&decoded, 4u, 0xDEADBEEFu, 9u));
+    /* Another plan/generation must never be mistaken for this one. */
+    assert(!guide_action_progress_matches(&decoded, 4u, 0xDEADBEEFu, 10u));
+    assert(!guide_action_progress_matches(&decoded, 5u, 0xDEADBEEFu, 9u));
+}
+
+static void test_progress_records_the_stop_reason(void)
+{
+    /* A window that stopped early must keep both the reason and the deepest
+     * trial, so Q can resume instead of restarting from zero. */
+    guide_action_progress_t progress;
+    memset(&progress, 0, sizeof(progress));
+    progress.action_id = 6u;
+    progress.plan_crc32 = 0x1234u;
+    progress.generation = 2u;
+    progress.trials_done = 2u;
+    progress.deepest_trial = 4u;
+    progress.reason = 7u; /* LINK_TIMEOUT */
+    progress.status = GUIDE_ACTION_PROGRESS_STOPPED;
+    progress.passed_mask = 0x3u;
+
+    uint8_t buffer[GUIDE_ACTION_PROGRESS_SIZE];
+    size_t size = 0u;
+    assert(guide_action_progress_encode(&progress, buffer, sizeof(buffer), &size) ==
+           GUIDE_ACTION_PLAN_OK);
+    guide_action_progress_t decoded;
+    assert(guide_action_progress_decode(buffer, size, &decoded) ==
+           GUIDE_ACTION_PLAN_OK);
+    assert(decoded.reason == 7u);
+    assert(decoded.status == GUIDE_ACTION_PROGRESS_STOPPED);
+    assert(decoded.deepest_trial == 4u);
+}
+
+static void test_progress_rejects_bad_input(void)
+{
+    guide_action_progress_t progress;
+    memset(&progress, 0, sizeof(progress));
+    uint8_t buffer[GUIDE_ACTION_PROGRESS_SIZE];
+    size_t size = 0u;
+    /* More trials than the mask can represent. */
+    progress.trials_done = GUIDE_ACTION_PROGRESS_MAX_TRIALS + 1u;
+    assert(guide_action_progress_encode(&progress, buffer, sizeof(buffer), &size) ==
+           GUIDE_ACTION_PLAN_RANGE);
+    progress.trials_done = 0u;
+    progress.status = 9u;
+    assert(guide_action_progress_encode(&progress, buffer, sizeof(buffer), &size) ==
+           GUIDE_ACTION_PLAN_RANGE);
+    progress.status = GUIDE_ACTION_PROGRESS_RUNNING;
+    assert(guide_action_progress_encode(&progress, buffer, sizeof(buffer) - 1u,
+                                        &size) == GUIDE_ACTION_PLAN_BAD_ARGUMENT);
+}
+
 int main(void)
 {
     test_round_trip();
@@ -144,6 +223,9 @@ int main(void)
     test_rejects_small_output();
     test_plan_identity_uses_param_pool_crc();
     test_words_round_trip();
+    test_progress_round_trip();
+    test_progress_records_the_stop_reason();
+    test_progress_rejects_bad_input();
     printf("guide_action_plan: all groups passed\n");
     return 0;
 }
