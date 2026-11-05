@@ -1148,6 +1148,26 @@ rows[]: { trial_index, verdict_code, measured_u32 }        // 每 trial 一行
 所以每个动作的 **S 段固化必须在该动作训练会话关闭之后**（R 结束、Q 完成、训练 session 已 close）
 才可提交，且提交失败要按 fail-closed 处理，不能在训练窗口内抢写。
 
+### 9.27 复用清单：同一概念/功能只允许一份实现（硬约束）
+
+**规则**：动手前先在本表找到 canonical 实现并调用；找不到才允许新增，且新增时必须在本表登记。
+典型反例（本次已发生并撤回）：为"停环期间记住每 trial 结果"另写一套 `guide_slot_ledger`——
+REFMEM 参数池本来就是"调用方持有 region 的纯存储"，已经覆盖该功能。
+
+| 概念 | canonical（唯一实现） | 禁止的重复写法 |
+|---|---|---|
+| REFMEM 命令面/信封/ACK | `components/distributed_refmem/src/refmem_command.c`、`refmem_cmd_*`、`distributed_refmem_*` | 自建第二套命令帧/第二 ACK |
+| 大载荷/参数存储 | `refmem_param_pool.[ch]`（3 slot×1024 B，含 `command_seq`/`epoch`/CRC 校验） | 自建 slot/ledger/环形缓冲 |
+| 触发会话生命周期（C/T/R） | `refmem_trigger_session.[ch]`（IDLE→CONFIGURED→ARMED→RUNNING→STOPPING…） | 自建 CTRQS 相位机（本次已撤回） |
+| CRC | 按域复用现成实现：参数池 `refmem_param_pool_crc`、帧 `transport_crc32`、镜像 `FLASH_JOB_VERIFY_IMAGE_CRC` | **自写 CRC 算法或自造多项式** |
+| flash 提交 | core0 `FlashTransactionAO`（`flash_transaction.h`）+ `calibration_training_store_commit` | 业务侧直接 raw flash / 自建 journal |
+| boot 计划与档位 | `tdma_boot_plan`、`tdma_boot_profile_store`、`tdma_boot_stage` | 另写一套开机决策 |
+| 训练/标定判定 | `calibration_training_{marker,sck,data}`、`calibration_clk_{marker,coded}`、`calibration_link_p3` | 在引导执行器里重写判定 |
+| 环窗口进出 | `app_guide_scan_leave_window` / 冻结 boot 步骤重放 | 另写"停环-复环"流程 |
+
+新增登记格式：概念 | 新 canonical 路径 | 为什么现有实现不适用（必须写清，不能写"更方便"）。
+
+
 
 
 
