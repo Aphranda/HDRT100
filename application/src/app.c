@@ -91,6 +91,22 @@ static size_t s_boot_next_step;
  * its trial grid on it so all four boards share one wall-clock schedule. */
 static uint64_t s_boot_ring_up_ms;
 
+/* Leave a guide maintenance window: stop the ring, drop probe mode and replay
+ * the frozen boot steps so the full guide ring comes back.  This is the single
+ * "stop ring / re-form ring" primitive in the app: the P0T scan and the CTRQS
+ * executor both close their window through it instead of owning a second
+ * stop/re-form flow. */
+static void app_guide_window_close(uint64_t now_ms)
+{
+    (void)distributed_refmem_tdma_ring_stop();
+    (void)calibration_manager_set_topology_probe_mode(false, 0u);
+    s_boot_guide_done = false;
+    s_boot_attempted = true;
+    s_boot_next_step = 0u;
+    s_boot_deadline_ms = now_ms + 30000u;
+    s_boot_ring_watch_active = false;
+}
+
 /* M1 P0T pair scan. The schedule is anchored on the local ring-formation
  * moment, so the four boards keep the same trial slots without a cross-board
  * command: every board derives (driver, receiver, idle) from its own slot. */
@@ -1169,12 +1185,7 @@ static void app_guide_scan_leave_window(uint64_t now_ms)
     /* Close the dark window the same way the host tool does: stop first (the
      * probe setter only accepts a fully stopped ring), clear probe mode, then
      * re-run the frozen boot steps so the full ring comes back. */
-    (void)distributed_refmem_tdma_ring_stop();
-    (void)calibration_manager_set_topology_probe_mode(false, 0u);
-    s_boot_guide_done = false;
-    s_boot_attempted = true;
-    s_boot_next_step = 0u;
-    s_boot_deadline_ms = now_ms + 30000u;
+    app_guide_window_close(now_ms);
     s_guide_scan.state = APP_GUIDE_SCAN_STATE_RESTORE;
 }
 
@@ -1657,6 +1668,393 @@ bool app_guide_scan_get_pair(uint32_t index,
 }
 #endif /* PROJECT_TDMA_GUIDE_SCAN */
 
+/* --------------------------------------------------------------- CTRQS -----
+ * One guide action per round.  C/T arrive as REFMEM commands
+ * (app_refmem_domain_config.c).  R runs inside the same maintenance window the
+ * P0T scan uses and writes every trial's verdict into the local REFMEM
+ * parameter pool (plain storage, no link); the window then closes so Q can read
+ * the record back after the ring is re-formed.  Only P1 (CLK coarse bracket) is
+ * wired here: the other six actions fail closed with CONFIG_VALIDATION_FAILED
+ * until their trial body is implemented, instead of pretending to run.
+ *
+ * Plan mapping for P1 (the 64-byte plan is the C segment payload):
+ *   candidates[0]      reference node slot for this round
+ *   candidates[1..n]   TRAIN pulse counts (the candidate sweep)
+ *   trial_count        number of slots; slot_ms = window_ms / trial_count
+ */
+#define APP_CTRQS_STOP_MS 8000u
+#define APP_CTRQS_ARM_MS 8000u
+#define APP_CTRQS_FORWARD_MS 4000u
+#define APP_CTRQS_T0_OFFSET_MS 6000u
+#define APP_CTRQS_RESTORE_MS 45000u
+#define APP_CTRQS_MAX_TRIALS 32u
+#define APP_CTRQS_ACTION_P1 1u
+
+typedef enum {
+    APP_CTRQS_IDLE = 0,
+    APP_CTRQS_STOP,
+    APP_CTRQS_TOPO,
+    APP_CTRQS_ARM,
+    APP_CTRQS_FORWARD,
+    APP_CTRQS_TRIAL,
+    APP_CTRQS_RESTORE_WAIT,
+    APP_CTRQS_Q,
+    APP_CTRQS_DONE,
+} app_ctrqs_state_t;
+
+typedef struct {
+    app_ctrqs_state_t state;
+    guide_action_plan_t plan;
+    uint32_t epoch;
+    uint32_t local_slot;
+    uint32_t ref_slot;
+    uint32_t trials;
+    uint32_t slot_ms;
+    uint32_t trial;
+    uint32_t cycle_count;
+    uint32_t cycles[GUIDE_ACTION_PLAN_MAX_CANDIDATES];
+    uint64_t t0_ms;
+    uint64_t t_end_ms;
+    uint64_t deadline_ms;
+    uint32_t arm_try_ms;
+    uint32_t train_base_seq;
+    bool train_pending;
+    bool forward_armed;
+    guide_action_progress_t progress;
+} app_ctrqs_t;
+
+static app_ctrqs_t s_ctrqs;
+
+static uint64_t app_ctrqs_now_ms(void)
+{
+    return to_ms_since_boot(get_absolute_time());
+}
+
+static void app_ctrqs_publish(void)
+{
+    (void)app_cal_guide_publish_progress(&s_ctrqs.progress, s_ctrqs.epoch);
+}
+
+static bool app_ctrqs_ring_quiescent(void)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return tdma_runtime_owner_get_ring_snapshot(&ring) &&
+           ring.enabled == 0u && ring.adapter_started == 0u &&
+           ring.applied_config_seq == ring.config_seq;
+}
+
+static bool app_ctrqs_ring_formed(void)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return tdma_runtime_owner_get_ring_snapshot(&ring) &&
+           ring.enabled != 0u && ring.adapter_started != 0u &&
+           ring.node_count == (uint32_t)PROJECT_TDMA_GUIDE_NODES &&
+           ring.local_slot_id == s_ctrqs.local_slot &&
+           ring.reference_slot_id == s_ctrqs.ref_slot;
+}
+
+/* Abort the running window: keep the reason in the record, stop the ring and
+ * let the frozen boot steps rebuild it.  Fail-closed: the action never reaches
+ * Q with a masked failure. */
+static void app_ctrqs_abort(uint32_t reason)
+{
+    s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
+    s_ctrqs.progress.reason = reason;
+    app_ctrqs_publish();
+    app_guide_window_close(app_ctrqs_now_ms());
+    s_ctrqs.state = APP_CTRQS_RESTORE_WAIT;
+    s_ctrqs.deadline_ms = app_ctrqs_now_ms() + APP_CTRQS_RESTORE_MS;
+}
+
+static void app_ctrqs_finalize(void)
+{
+    s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_COMPLETE;
+    s_ctrqs.progress.reason = 0u;
+    app_ctrqs_publish();
+    app_guide_window_close(app_ctrqs_now_ms());
+    s_ctrqs.state = APP_CTRQS_RESTORE_WAIT;
+    s_ctrqs.deadline_ms = app_ctrqs_now_ms() + APP_CTRQS_RESTORE_MS;
+}
+
+static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
+{
+    const uint64_t now = app_ctrqs_now_ms();
+    const uint32_t nodes = (uint32_t)PROJECT_TDMA_GUIDE_NODES;
+    memset(&s_ctrqs, 0, sizeof(s_ctrqs));
+    s_ctrqs.plan = *plan;
+    s_ctrqs.epoch = epoch;
+    s_ctrqs.local_slot = distributed_refmem_local_slot();
+    s_ctrqs.progress = (guide_action_progress_t){
+        .action_id = plan->action_id,
+        .plan_crc32 = plan->plan_crc32,
+        .generation = plan->generation,
+        .trials_done = 0u,
+        .deepest_trial = 0u,
+        .reason = 0u,
+        .status = (uint32_t)GUIDE_ACTION_PROGRESS_RUNNING,
+        .passed_mask = 0u,
+        .failed_mask = 0u,
+    };
+    if (plan->action_id != APP_CTRQS_ACTION_P1 ||
+        plan->trial_count == 0u ||
+        plan->trial_count > APP_CTRQS_MAX_TRIALS ||
+        plan->window_ms == 0u || plan->candidate_count < 2u ||
+        plan->candidate_count > GUIDE_ACTION_PLAN_MAX_CANDIDATES ||
+        epoch == 0u || nodes == 0u) {
+        s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
+        s_ctrqs.progress.reason =
+            (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+        app_ctrqs_publish();
+        s_ctrqs.state = APP_CTRQS_DONE;
+        return;
+    }
+    s_ctrqs.ref_slot = plan->candidates[0] % nodes;
+    s_ctrqs.cycle_count = plan->candidate_count - 1u;
+    for (uint32_t i = 0u; i < s_ctrqs.cycle_count; i++) {
+        s_ctrqs.cycles[i] = plan->candidates[i + 1u];
+    }
+    s_ctrqs.trials = plan->trial_count;
+    s_ctrqs.slot_ms = plan->window_ms / plan->trial_count;
+    if (s_ctrqs.slot_ms < 300u) {
+        s_ctrqs.slot_ms = 300u;
+    }
+    /* One common schedule for all four boards: the trigger frame reaches them
+     * within a ring cycle, so a fixed offset from receipt is a shared epoch. */
+    s_ctrqs.t0_ms = now + APP_CTRQS_T0_OFFSET_MS;
+    s_ctrqs.t_end_ms =
+        s_ctrqs.t0_ms + ((uint64_t)s_ctrqs.trials * s_ctrqs.slot_ms);
+    s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_RUNNING;
+    app_ctrqs_publish();
+    /* The dark window below is intentional: do not let the ring completeness
+     * watch read it as a half ring. */
+    s_boot_ring_watch_active = false;
+    (void)distributed_refmem_tdma_ring_stop();
+    s_ctrqs.state = APP_CTRQS_STOP;
+    s_ctrqs.deadline_ms = now + APP_CTRQS_STOP_MS;
+}
+
+static void app_ctrqs_trial(void)
+{
+    const uint64_t now = app_ctrqs_now_ms();
+    if (now >= s_ctrqs.t_end_ms) {
+        app_ctrqs_finalize();
+        return;
+    }
+    const uint64_t slot_start =
+        s_ctrqs.t0_ms + ((uint64_t)s_ctrqs.trial * s_ctrqs.slot_ms);
+    if (now < slot_start) {
+        return;
+    }
+    if (s_ctrqs.local_slot != s_ctrqs.ref_slot) {
+        /* Followers only have to hold the forwarding persona; that is their
+         * measured contribution to this P1 round. */
+        tdma_pio_spi_clk_train_snapshot_t train;
+        const bool forwarding =
+            tdma_runtime_owner_get_clk_train_snapshot(&train) &&
+            train.state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING;
+        const uint32_t bit = 1u << s_ctrqs.trial;
+        if (forwarding) {
+            s_ctrqs.progress.passed_mask |= bit;
+        } else {
+            s_ctrqs.progress.failed_mask |= bit;
+        }
+        s_ctrqs.progress.trials_done++;
+        s_ctrqs.progress.deepest_trial = s_ctrqs.trial;
+        s_ctrqs.trial++;
+        app_ctrqs_publish();
+        return;
+    }
+    if (!s_ctrqs.train_pending) {
+        tdma_pio_spi_clk_train_snapshot_t train;
+        if (!tdma_runtime_owner_get_clk_train_snapshot(&train) ||
+            !distributed_refmem_tdma_ring_train(
+                s_ctrqs.cycles[s_ctrqs.trial % s_ctrqs.cycle_count])) {
+            app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            return;
+        }
+        s_ctrqs.train_base_seq = train.request_seq;
+        s_ctrqs.train_pending = true;
+        return;
+    }
+    tdma_pio_spi_clk_train_snapshot_t train;
+    if (!tdma_runtime_owner_get_clk_train_snapshot(&train)) {
+        app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+        return;
+    }
+    if (train.state == TDMA_PIO_SPI_CLK_TRAIN_ERROR) {
+        app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+        return;
+    }
+    if (train.request_seq == s_ctrqs.train_base_seq ||
+        train.state != TDMA_PIO_SPI_CLK_TRAIN_MASTER_COMPLETE) {
+        if (now >= slot_start + s_ctrqs.slot_ms) {
+            app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+        }
+        return;
+    }
+    s_ctrqs.train_pending = false;
+    const uint32_t bit = 1u << s_ctrqs.trial;
+    if (train.result == TDMA_PIO_SPI_CLK_TRAIN_RESULT_RETURN_OVERLAP) {
+        s_ctrqs.progress.passed_mask |= bit;
+    } else {
+        s_ctrqs.progress.failed_mask |= bit;
+    }
+    s_ctrqs.progress.trials_done++;
+    s_ctrqs.progress.deepest_trial = s_ctrqs.trial;
+    s_ctrqs.trial++;
+    app_ctrqs_publish();
+}
+
+static void app_ctrqs_service(void)
+{
+    const uint64_t now = app_ctrqs_now_ms();
+    switch (s_ctrqs.state) {
+    case APP_CTRQS_IDLE: {
+        guide_action_plan_t plan;
+        uint32_t epoch = 0u;
+        if (!app_cal_guide_take_trigger(&plan, &epoch)) {
+            return;
+        }
+        app_ctrqs_start(&plan, epoch);
+        return;
+    }
+    case APP_CTRQS_STOP:
+        if (app_ctrqs_ring_quiescent()) {
+            s_ctrqs.state = APP_CTRQS_TOPO;
+            return;
+        }
+        if (now >= s_ctrqs.deadline_ms) {
+            app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+        }
+        return;
+    case APP_CTRQS_TOPO:
+        if (!distributed_refmem_set_tdma_ring_topology(
+                s_ctrqs.local_slot, s_ctrqs.ref_slot,
+                (uint32_t)PROJECT_TDMA_GUIDE_NODES)) {
+            app_ctrqs_abort(
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            return;
+        }
+        s_ctrqs.state = APP_CTRQS_ARM;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_ARM_MS;
+        s_ctrqs.arm_try_ms = 0u;
+        return;
+    case APP_CTRQS_ARM:
+        if (!app_ctrqs_ring_quiescent()) {
+            (void)distributed_refmem_tdma_ring_stop();
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            }
+            return;
+        }
+        if (now < s_ctrqs.arm_try_ms) {
+            return;
+        }
+        s_ctrqs.arm_try_ms = (uint32_t)now + 150u;
+        if (!distributed_refmem_tdma_ring_arm() ||
+            distributed_refmem_tdma_ring_arm_last_result() !=
+                DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
+            (void)distributed_refmem_tdma_ring_stop();
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            }
+            return;
+        }
+        s_ctrqs.state = APP_CTRQS_FORWARD;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_FORWARD_MS;
+        /* The shared trial epoch is anchored on the trigger receipt, so the
+         * forward barrier must stay open at least until that epoch. */
+        if (s_ctrqs.deadline_ms < s_ctrqs.t0_ms + 1000u) {
+            s_ctrqs.deadline_ms = s_ctrqs.t0_ms + 1000u;
+        }
+        return;
+    case APP_CTRQS_FORWARD: {
+        if (!app_ctrqs_ring_formed()) {
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            }
+            return;
+        }
+        if (s_ctrqs.local_slot != s_ctrqs.ref_slot &&
+            !s_ctrqs.forward_armed) {
+            tdma_pio_spi_clk_train_snapshot_t train;
+            const bool have_train =
+                tdma_runtime_owner_get_clk_train_snapshot(&train);
+            if (!s_ctrqs.train_pending) {
+                if (!have_train || !distributed_refmem_tdma_ring_train(1u)) {
+                    app_ctrqs_abort(
+                        (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+                    return;
+                }
+                s_ctrqs.train_base_seq = train.request_seq;
+                s_ctrqs.train_pending = true;
+                return;
+            }
+            if (!have_train) {
+                return;
+            }
+            if (train.state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING) {
+                s_ctrqs.train_pending = false;
+                s_ctrqs.forward_armed = true;
+            } else if (train.state == TDMA_PIO_SPI_CLK_TRAIN_ERROR) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+                return;
+            } else if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+                return;
+            } else {
+                return;
+            }
+        }
+        if (now >= s_ctrqs.deadline_ms) {
+            app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            return;
+        }
+        if (now < s_ctrqs.t0_ms) {
+            return;
+        }
+        s_ctrqs.state = APP_CTRQS_TRIAL;
+        return;
+    }
+    case APP_CTRQS_TRIAL:
+        app_ctrqs_trial();
+        return;
+    case APP_CTRQS_RESTORE_WAIT:
+        if (s_boot_guide_done && s_boot_fail_step == 0u) {
+            s_ctrqs.state = APP_CTRQS_Q;
+            return;
+        }
+        if (now >= s_ctrqs.deadline_ms) {
+            s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
+            s_ctrqs.progress.reason =
+                (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE;
+            app_ctrqs_publish();
+            s_ctrqs.state = APP_CTRQS_Q;
+        }
+        return;
+    case APP_CTRQS_Q: {
+        guide_action_progress_t readback;
+        guide_action_reconcile_result_t reconcile;
+        const bool have = app_cal_guide_read_progress(&readback, s_ctrqs.epoch);
+        guide_action_reconcile(&readback, have, s_ctrqs.plan.action_id,
+                               s_ctrqs.plan.plan_crc32,
+                               s_ctrqs.plan.generation, &reconcile);
+        app_cal_guide_set_q_result(&readback, have, &reconcile);
+        s_ctrqs.state = APP_CTRQS_DONE;
+        return;
+    }
+    case APP_CTRQS_DONE:
+    default:
+        s_ctrqs.state = APP_CTRQS_IDLE;
+        return;
+    }
+}
+
+uint32_t app_guide_ctrqs_state(void)
+{
+    return (uint32_t)s_ctrqs.state;
+}
+
 bool app_is_control_plane_ready(void)
 {
     return s_app_control_plane_ready;
@@ -1725,6 +2123,7 @@ void app_diag_service(void)
     app_guide_listen_service();
     app_guide_ring_watch_service();
     app_guide_scan_service();
+    app_ctrqs_service();
     vdc_dpll_manager_core0_service();
     app_analyzer_storage_service();
     diagnostics_housekeeping_service();

@@ -37,8 +37,30 @@ typedef struct {
     uint32_t window_ms;
     uint32_t trial_count;
     uint32_t trigger_epoch;
+    /* Q readback: the progress record the R window left in the local pool and
+     * the reconcile decision; zero-initialised until the first Q completes. */
+    uint32_t progress_valid;
+    uint32_t progress_status;
+    uint32_t trials_done;
+    uint32_t deepest_trial;
+    uint32_t progress_reason;
+    uint32_t reconcile_decision;
+    uint32_t reconcile_resume_trial;
 } app_cal_guide_snapshot_t;
 bool app_cal_guide_snapshot(app_cal_guide_snapshot_t *snapshot);
+
+/* Q result store: the executor records the readback + reconcile decision so the
+ * single-port readback can expose them. */
+typedef struct {
+    bool have_record;
+    bool have_result;
+    guide_action_progress_t progress;
+    guide_action_reconcile_result_t reconcile;
+} app_cal_guide_q_t;
+void app_cal_guide_set_q_result(const guide_action_progress_t *progress,
+                                bool have_record,
+                                const guide_action_reconcile_result_t *result);
+bool app_cal_guide_get_q_result(app_cal_guide_q_t *out);
 
 #ifdef __cplusplus
 }

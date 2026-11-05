@@ -679,6 +679,33 @@ typedef struct {
 
 static app_cal_guide_state_t s_cal_guide;
 
+/* Q readback result: written by the CTRQS executor (app.c) once the ring is
+ * re-formed, read by the single-port PLAN? handler. */
+static app_cal_guide_q_t s_cal_guide_q;
+
+void app_cal_guide_set_q_result(const guide_action_progress_t *progress,
+                                bool have_record,
+                                const guide_action_reconcile_result_t *result)
+{
+    s_cal_guide_q.have_record = have_record;
+    s_cal_guide_q.have_result = result != NULL;
+    if (progress != NULL) {
+        s_cal_guide_q.progress = *progress;
+    }
+    if (result != NULL) {
+        s_cal_guide_q.reconcile = *result;
+    }
+}
+
+bool app_cal_guide_get_q_result(app_cal_guide_q_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    *out = s_cal_guide_q;
+    return s_cal_guide_q.have_result;
+}
+
 static bool cal_guide_config_handler(const uint32_t *params, uint32_t param_words,
                                      uint32_t *reason)
 {
@@ -789,6 +816,14 @@ bool app_cal_guide_snapshot(app_cal_guide_snapshot_t *snapshot)
     snapshot->profile_level = s_cal_guide.plan.profile_level;
     snapshot->window_ms = s_cal_guide.plan.window_ms;
     snapshot->trial_count = s_cal_guide.plan.trial_count;
+    snapshot->progress_valid =
+        (s_cal_guide_q.have_record && s_cal_guide_q.have_result) ? 1u : 0u;
+    snapshot->progress_status = s_cal_guide_q.progress.status;
+    snapshot->trials_done = s_cal_guide_q.progress.trials_done;
+    snapshot->deepest_trial = s_cal_guide_q.progress.deepest_trial;
+    snapshot->progress_reason = s_cal_guide_q.progress.reason;
+    snapshot->reconcile_decision = (uint32_t)s_cal_guide_q.reconcile.decision;
+    snapshot->reconcile_resume_trial = s_cal_guide_q.reconcile.resume_trial;
     return true;
 }
 bool app_refmem_domain_config_init(void)

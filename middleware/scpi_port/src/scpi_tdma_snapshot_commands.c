@@ -676,6 +676,31 @@ scpi_result_t scpi_cmd_system_tdma_guide_config(scpi_t *context)
     plan.window_ms = window_ms;
     plan.trial_count = trial_count;
     plan.candidate_count = 0u;
+    /* Optional C-segment payload: candidate_count, candidate[0..4], then
+     * threshold_low/high.  The plan is still the same 16-word payload; these
+     * fields are how the ladder carries "candidate table + thresholds" from the
+     * C segment instead of compiling them into the firmware. */
+    uint32_t candidate_count = 0u;
+    if (SCPI_ParamUInt32(context, &candidate_count, FALSE) == TRUE) {
+        if (candidate_count > GUIDE_ACTION_PLAN_MAX_CANDIDATES) {
+            scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
+            return SCPI_RES_ERR;
+        }
+        for (uint32_t i = 0u; i < candidate_count; i++) {
+            if (!scpi_port_read_u32(context, &plan.candidates[i])) {
+                scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
+                return SCPI_RES_ERR;
+            }
+        }
+        plan.candidate_count = candidate_count;
+        uint32_t threshold = 0u;
+        if (SCPI_ParamUInt32(context, &threshold, FALSE) == TRUE) {
+            plan.threshold_low = threshold;
+            if (SCPI_ParamUInt32(context, &threshold, FALSE) == TRUE) {
+                plan.threshold_high = threshold;
+            }
+        }
+    }
     uint32_t params[GUIDE_ACTION_PLAN_WORDS];
     if (guide_action_plan_to_words(&plan, params, GUIDE_ACTION_PLAN_WORDS) !=
         GUIDE_ACTION_PLAN_OK) {
@@ -740,6 +765,17 @@ scpi_result_t scpi_cmd_system_tdma_guide_plan_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.trial_count);
     SCPI_ResultUInt32(context, snapshot.trigger_pending ? 1u : 0u);
     SCPI_ResultUInt32(context, snapshot.trigger_epoch);
+    /* R/Q readback: executor state, the progress record read back after the
+     * ring re-formed, and the reconcile decision (appended, the first nine
+     * fields keep their original order). */
+    SCPI_ResultUInt32(context, app_guide_ctrqs_state());
+    SCPI_ResultUInt32(context, snapshot.progress_valid);
+    SCPI_ResultUInt32(context, snapshot.progress_status);
+    SCPI_ResultUInt32(context, snapshot.trials_done);
+    SCPI_ResultUInt32(context, snapshot.deepest_trial);
+    SCPI_ResultUInt32(context, snapshot.progress_reason);
+    SCPI_ResultUInt32(context, snapshot.reconcile_decision);
+    SCPI_ResultUInt32(context, snapshot.reconcile_resume_trial);
     return SCPI_RES_OK;
 }
 scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context)

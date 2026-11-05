@@ -96,6 +96,9 @@ bool app_guide_boot_profile_get(tdma_boot_profile_t *out);
  * Returns false on the first failed step; the failing index is 1-based. */
 bool app_guide_boot_service(void);
 uint32_t app_guide_boot_fail_step(void);
+/* CTRQS executor state (0 idle .. 8 done); the single-port PLAN? readback
+ * exposes it so R/Q progress is visible without a second command plane. */
+uint32_t app_guide_ctrqs_state(void);
 /* LISTEN = ARM (RX receives, TX not published) then start TX when the first
  * frame is heard; the 5 s join window sets join_timeout instead of pretending
  * the follower joined. */
