@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -28,13 +30,7 @@ static const uint8_t *slot_base_const(const uint8_t *region, uint32_t slot)
 
 uint32_t refmem_param_pool_crc(const void *payload, uint32_t payload_size)
 {
-    uint32_t crc = 2166136261u;
-    const uint8_t *bytes = (const uint8_t *)payload;
-    for (uint32_t i = 0u; i < payload_size; i++) {
-        crc ^= bytes[i];
-        crc *= 16777619u;
-    }
-    return crc;
+    return algo_fnv1a32_bytes(payload, payload_size);
 }
 
 void refmem_param_pool_init(uint8_t *region, size_t region_size)

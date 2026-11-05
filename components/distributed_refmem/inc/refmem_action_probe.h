@@ -8,6 +8,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #define REFMEM_ACTION_PROBE_WIRE_SIZE 60u
 #define REFMEM_ACTION_PROBE_FRAGMENT_SIZE 6u
 #define REFMEM_ACTION_PROBE_FRAGMENT_COUNT 10u
@@ -84,13 +86,7 @@ static inline uint32_t refmem_action_probe_get32(const uint8_t *p)
 
 static inline uint32_t refmem_action_probe_crc32(const uint8_t *p, unsigned n)
 {
-    uint32_t crc = UINT32_MAX;
-    for (unsigned i = 0; i < n; ++i) {
-        crc ^= p[i];
-        for (unsigned bit = 0; bit < 8u; ++bit)
-            crc = (crc >> 1u) ^ (0xEDB88320u & (0u - (crc & 1u)));
-    }
-    return ~crc;
+    return algo_crc32_iso_hdlc_compute(p, n);
 }
 
 static inline bool refmem_action_probe_record_valid(const refmem_action_probe_record_t *r)

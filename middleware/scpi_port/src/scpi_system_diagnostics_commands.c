@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "flash_transaction.h"
+#include "algo_checksum.h"
 #include "flash_map.h"
 #include "drv_flash.h"
 #include "project_config.h"
@@ -269,12 +270,7 @@ scpi_result_t scpi_cmd_flash_jedec_q(scpi_t *context)
 static uint32_t scpi_flash_validation_hash(const uint8_t *data,
                                             uint32_t length)
 {
-    uint32_t hash = 2166136261u;
-    for (uint32_t index = 0u; index < length; index++) {
-        hash ^= data[index];
-        hash *= 16777619u;
-    }
-    return hash;
+    return algo_fnv1a32_bytes(data, length);
 }
 
 scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context)

@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "app.h"
+#include "algo_checksum.h"
 #include "diagnostics_tdma_record.h"
 #include "pico/time.h"
 #include "board_config.h"
@@ -329,14 +330,7 @@ void scpi_refmem_sync_apply_node_load_delta(const refmem_sync_rx_snapshot_t *rx)
 
 uint32_t scpi_refmem_sync_build_id_crc32(void)
 {
-    uint32_t hash = 2166136261u;
-    const char *text = g_project_build_id;
-    while (text != NULL && *text != '\0') {
-        hash ^= (uint8_t)*text;
-        hash *= 16777619u;
-        text++;
-    }
-    return hash;
+    return algo_fnv1a32_str(g_project_build_id);
 }
 
 bool scpi_refmem_sync_build_hello_frame(uint8_t source_slot,

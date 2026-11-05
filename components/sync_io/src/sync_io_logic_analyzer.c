@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
@@ -1149,21 +1151,6 @@ uint32_t sync_io_logic_analyzer_default_source_mask(void)
     return descriptor != NULL ? descriptor->gpio_read_mask : 0u;
 }
 
-static uint32_t sync_io_logic_analyzer_crc32_update(uint32_t crc,
-                                                    const uint8_t *data,
-                                                    size_t size)
-{
-    for (size_t index = 0u; index < size; ++index) {
-        crc ^= data[index];
-        for (uint32_t bit = 0u; bit < 8u; ++bit) {
-            crc = (crc & 1u) != 0u
-                ? (crc >> 1u) ^ 0xEDB88320u
-                : crc >> 1u;
-        }
-    }
-    return crc;
-}
-
 static bool sync_io_logic_analyzer_mask_valid(uint32_t mask,
                                               uint32_t source_mask)
 {
@@ -1448,17 +1435,16 @@ uint32_t sync_io_logic_analyzer_raw_capture_crc32(
     if (capture == NULL || !capture->initialized || capture->records == NULL) {
         return 0u;
     }
-    uint32_t crc = 0xFFFFFFFFu;
+    uint32_t crc = 0u;
     const uint32_t retained = capture->produced_records -
                               capture->consumed_records;
     uint32_t index = capture->read_index;
     for (uint32_t count = 0u; count < retained; ++count) {
-        crc = sync_io_logic_analyzer_crc32_update(
-            crc, (const uint8_t *)&capture->records[index],
-            sizeof(capture->records[index]));
+        crc = algo_crc32_iso_hdlc_update(
+            crc, &capture->records[index], sizeof(capture->records[index]));
         index = (index + 1u) % capture->capacity;
     }
-    return crc ^ 0xFFFFFFFFu;
+    return crc;
 }
 
 bool sync_io_logic_analyzer_raw_capture_snapshot(

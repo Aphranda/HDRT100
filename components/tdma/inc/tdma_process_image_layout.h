@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "tdma_flight_engine.h"
+#include "algo_checksum.h"
 
 /* Product SHORT Node mailbox layout.  Allocation is mandatory-first and
  * entirely static: the one-byte diagnostic field is admitted only because
@@ -257,9 +258,7 @@ static inline int32_t tdma_process_image_expand_i16(int16_t value,
 static inline uint16_t tdma_process_image_crc16_update_byte(uint16_t crc,
                                                           uint8_t byte)
 {
-    uint32_t x = ((uint32_t)crc >> 8u) ^ byte;
-    x ^= x >> 4u;
-    return (uint16_t)(((uint32_t)crc << 8u) ^ (x << 12u) ^ (x << 5u) ^ x);
+    return algo_crc16_ccitt_false_update_byte(crc, byte);
 }
 
 static inline uint16_t tdma_process_image_crc16_ccitt(const uint8_t *data,

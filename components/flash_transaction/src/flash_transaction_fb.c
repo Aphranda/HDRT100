@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "project_config.h"
+#include "algo_checksum.h"
 
 /* Which COMPLETION site failed (0 = none).  Diagnostic only. */
 static uint32_t s_completion_site;
@@ -23,7 +24,7 @@ static uint32_t flash_transaction_request_fingerprint(
     if (request == NULL) {
         return 0u;
     }
-    uint32_t hash = 2166136261u;
+    uint32_t hash = ALGO_FNV1A32_OFFSET;
     /* provider generation is a runtime buffer lease and may legitimately be
      * re-created after reset.  store generation belongs to the durable object
      * epoch and must remain part of its stable identity. */
@@ -32,17 +33,10 @@ static uint32_t flash_transaction_request_fingerprint(
         request->relative_offset, request->length, request->store_generation,
     };
     const uint8_t *bytes = (const uint8_t *)fields;
-    for (uint32_t i = 0u; i < sizeof(fields); ++i) {
-        hash ^= bytes[i];
-        hash *= 16777619u;
-    }
+    hash = algo_fnv1a32_update(hash, bytes, sizeof(fields));
     if (request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
         request->data != NULL) {
-        bytes = request->data;
-        for (uint32_t i = 0u; i < request->length; ++i) {
-            hash ^= bytes[i];
-            hash *= 16777619u;
-        }
+        hash = algo_fnv1a32_update(hash, request->data, request->length);
     }
     return hash == 0u ? 1u : hash;
 }

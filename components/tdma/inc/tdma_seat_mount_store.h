@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "algo_checksum.h"
 #include "tdma_seat_admission.h"
 
 /* The seat mount table names which seat each load rides. A seat is a capacity;
@@ -101,31 +102,30 @@ void tdma_seat_mount_store_note_reject(uint32_t code);
 static inline uint32_t tdma_seat_mount_crc(uint32_t generation,
     const tdma_seat_mount_table_t *table)
 {
-    uint32_t crc = 0xFFFFFFFFu;
-    uint32_t words[2] = {generation, 0u};
-    if (table != NULL) words[1] = table->count;
+    uint8_t bytes[8];
+    const uint32_t words[2] = {generation, table != NULL ? table->count : 0u};
     for (uint32_t index = 0u; index < 2u; ++index) {
-        uint32_t word = words[index];
-        for (uint32_t byte = 0u; byte < 4u; ++byte) {
-            crc ^= word & 0xFFu;
-            word >>= 8u;
-            for (uint32_t bit = 0u; bit < 8u; ++bit)
-                crc = (crc >> 1u) ^ (0xEDB88320u & (0u - (crc & 1u)));
-        }
+        bytes[index * 4u + 0u] = (uint8_t)(words[index] & 0xFFu);
+        bytes[index * 4u + 1u] = (uint8_t)((words[index] >> 8u) & 0xFFu);
+        bytes[index * 4u + 2u] = (uint8_t)((words[index] >> 16u) & 0xFFu);
+        bytes[index * 4u + 3u] = (uint8_t)((words[index] >> 24u) & 0xFFu);
     }
+    uint32_t crc = algo_crc32_iso_hdlc_update(0u, bytes, sizeof(bytes));
     if (table != NULL) {
         for (uint32_t index = 0u; index < table->count; ++index) {
-            uint32_t word = (uint32_t)table->entries[index].message_class |
+            const uint32_t word =
+                (uint32_t)table->entries[index].message_class |
                 ((uint32_t)table->entries[index].seat_class << 8u);
-            for (uint32_t byte = 0u; byte < 4u; ++byte) {
-                crc ^= word & 0xFFu;
-                word >>= 8u;
-                for (uint32_t bit = 0u; bit < 8u; ++bit)
-                    crc = (crc >> 1u) ^ (0xEDB88320u & (0u - (crc & 1u)));
-            }
+            const uint8_t entry[4] = {
+                (uint8_t)(word & 0xFFu),
+                (uint8_t)((word >> 8u) & 0xFFu),
+                (uint8_t)((word >> 16u) & 0xFFu),
+                (uint8_t)((word >> 24u) & 0xFFu),
+            };
+            crc = algo_crc32_iso_hdlc_update(crc, entry, sizeof(entry));
         }
     }
-    return crc ^ 0xFFFFFFFFu;
+    return crc;
 }
 
 /* Seat the load rides, or NONE when it is not mounted on a scheduled seat. */

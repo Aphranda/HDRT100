@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
 #define REFMEM_VECTOR_TIME_CRITICAL(name) __not_in_flash_func(name)
@@ -202,12 +204,7 @@ void refmem_vector_table_init_directory(refmem_vector_table_t *table)
 static uint32_t REFMEM_VECTOR_TIME_CRITICAL(refmem_vector_crc32_update)(
     uint32_t crc, const void *data, size_t size)
 {
-    const uint8_t *bytes = (const uint8_t *)data;
-    for (size_t i = 0u; i < size; i++) {
-        crc ^= bytes[i];
-        crc *= 16777619u;
-    }
-    return crc;
+    return algo_fnv1a32_update(crc, data, size);
 }
 
 uint32_t REFMEM_VECTOR_TIME_CRITICAL(refmem_vector_fast_crc32)(

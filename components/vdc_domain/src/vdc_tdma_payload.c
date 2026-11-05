@@ -2,19 +2,18 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #define VDC_TDMA_PAYLOAD_CRC_OFFSET 2166136261u
 #define VDC_TDMA_PAYLOAD_CRC_PRIME 16777619u
 
 static uint32_t vdc_tdma_payload_crc32(const uint8_t *data, size_t size)
 {
-    uint32_t hash = VDC_TDMA_PAYLOAD_CRC_OFFSET;
     if (data == NULL && size != 0u) {
         return 0u;
     }
-    for (size_t i = 0u; i < size; i++) {
-        hash ^= data[i];
-        hash *= VDC_TDMA_PAYLOAD_CRC_PRIME;
-    }
+    const uint32_t hash = algo_fnv1a32_update(VDC_TDMA_PAYLOAD_CRC_OFFSET,
+                                             data, size);
     return hash == 0u ? 1u : hash;
 }
 

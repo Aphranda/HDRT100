@@ -75,6 +75,9 @@ typedef enum {
     REFMEM_COMMAND_TYPE_TRIGGER_SEQUENCE_ACTIVE = 47u,
     REFMEM_COMMAND_TYPE_TRIGGER_SEQUENCE_PLAN = 48u,
     REFMEM_COMMAND_TYPE_TRIGGER_ANGLE_SPEED = 49u,
+    /* Guide-ladder (P1..T3) control plane over the low-speed ring. */
+    REFMEM_COMMAND_TYPE_CAL_GUIDE_CONFIG = 50u,
+    REFMEM_COMMAND_TYPE_CAL_GUIDE_TRIGGER = 51u,
 } refmem_command_type_t;
 
 typedef enum {

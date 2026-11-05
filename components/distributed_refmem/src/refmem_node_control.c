@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #define REFMEM_NODE_CONTROL_CRC_SEED 2166136261u
 #define REFMEM_NODE_CONTROL_PARAM_BYTES \
     (REFMEM_NODE_CONTROL_PARAM_WORDS * sizeof(uint32_t))
@@ -11,22 +13,10 @@ static uint32_t refmem_node_control_crc(
     const uint32_t *params,
     uint32_t seq)
 {
-    uint32_t crc = REFMEM_NODE_CONTROL_CRC_SEED;
-    const uint8_t *snapshot_bytes = (const uint8_t *)snapshot;
-    for (size_t i = 0u; i < sizeof(*snapshot); i++) {
-        crc ^= snapshot_bytes[i];
-        crc *= 16777619u;
-    }
-    const uint8_t *param_bytes = (const uint8_t *)params;
-    for (size_t i = 0u; i < REFMEM_NODE_CONTROL_PARAM_BYTES; i++) {
-        crc ^= param_bytes[i];
-        crc *= 16777619u;
-    }
-    for (uint32_t shift = 0u; shift < 32u; shift += 8u) {
-        crc ^= (uint8_t)(seq >> shift);
-        crc *= 16777619u;
-    }
-    return crc;
+    uint32_t crc = algo_fnv1a32_update(REFMEM_NODE_CONTROL_CRC_SEED, snapshot,
+                                      sizeof(*snapshot));
+    crc = algo_fnv1a32_update(crc, params, REFMEM_NODE_CONTROL_PARAM_BYTES);
+    return algo_fnv1a32_u32_le(crc, seq);
 }
 
 bool refmem_node_control_write(

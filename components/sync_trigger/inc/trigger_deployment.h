@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "algo_checksum.h"
+
 #define TRIGGER_DEPLOYMENT_ROLE_COUNT 4u
 #define TRIGGER_DEPLOYMENT_IO_MASK 0x0fu
 
@@ -114,14 +116,13 @@ static inline trigger_deployment_result_t trigger_deployment_validate(
  * even an invalid table can be fingerprinted and must be validated separately. */
 static inline uint32_t trigger_deployment_crc_word(uint32_t crc, uint32_t word)
 {
-    for (uint32_t byte = 0u; byte < 4u; ++byte) {
-        crc ^= word & 0xffu;
-        word >>= 8u;
-        for (uint32_t bit = 0u; bit < 8u; ++bit) {
-            crc = (crc >> 1u) ^ (UINT32_C(0xedb88320) & (0u - (crc & 1u)));
-        }
-    }
-    return crc;
+    const uint8_t bytes[4] = {
+        (uint8_t)(word & 0xffu),
+        (uint8_t)((word >> 8u) & 0xffu),
+        (uint8_t)((word >> 16u) & 0xffu),
+        (uint8_t)((word >> 24u) & 0xffu),
+    };
+    return algo_crc32_raw_update(crc, bytes, sizeof(bytes));
 }
 
 static inline uint32_t trigger_deployment_crc(const trigger_deployment_t *table)

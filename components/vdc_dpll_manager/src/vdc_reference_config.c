@@ -13,6 +13,7 @@
 #include "board.h"
 #include "board_config.h"
 #include "board_identity.h"
+#include "algo_checksum.h"
 #include "app.h"
 #include "distributed_refmem.h"
 #include "ota_crc32.h"
@@ -77,15 +78,14 @@ static void reference_control_leave(void);
 static uint32_t reference_discipline_config_crc32(const vdc_reference_discipline_config_t *config)
 {
     const uint32_t words[] = {config->slew_ppb_per_s, config->filter_divisor, config->max_ppb};
-    uint32_t crc = UINT32_MAX;
-    for (size_t i = 0; i < 3u; ++i) {
-        for (unsigned byte = 0; byte < 4u; ++byte) {
-            crc ^= (words[i] >> (byte * 8u)) & 0xffu;
-            for (unsigned bit = 0; bit < 8u; ++bit)
-                crc = (crc >> 1u) ^ (UINT32_C(0xedb88320) & (0u - (crc & 1u)));
-        }
+    uint8_t bytes[sizeof(words)];
+    for (size_t i = 0u; i < sizeof(words) / sizeof(words[0]); i++) {
+        bytes[i * 4u + 0u] = (uint8_t)(words[i] & 0xFFu);
+        bytes[i * 4u + 1u] = (uint8_t)((words[i] >> 8u) & 0xFFu);
+        bytes[i * 4u + 2u] = (uint8_t)((words[i] >> 16u) & 0xFFu);
+        bytes[i * 4u + 3u] = (uint8_t)((words[i] >> 24u) & 0xFFu);
     }
-    return ~crc;
+    return algo_crc32_iso_hdlc_compute(bytes, sizeof(bytes));
 }
 
 /* Even request values cancel; odd values arm. Never recycle a request token.

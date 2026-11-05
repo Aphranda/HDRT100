@@ -2,16 +2,16 @@
 
 #include <stddef.h>
 
+#include "algo_checksum.h"
+
 static uint32_t mix_u32(uint32_t hash, uint32_t value)
 {
-    hash ^= value;
-    hash *= 16777619u;
-    return hash;
+    return algo_fnv1a32_word(hash, value);
 }
 
 static uint32_t compute_registry_crc(const refmem_action_registry_t *registry)
 {
-    uint32_t hash = 2166136261u;
+    uint32_t hash = ALGO_FNV1A32_OFFSET;
     hash = mix_u32(hash, registry->count);
     for (uint32_t i = 0u; i < registry->count; ++i) {
         const refmem_action_entry_t *e = &registry->entries[i];

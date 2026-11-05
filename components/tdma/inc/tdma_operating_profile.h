@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "algo_checksum.h"
+
 #define TDMA_OPERATING_PROFILE_VERSION 1u
 
 /* Base levels 0..22 are frozen and keep their existing profile CRCs. The
@@ -95,16 +97,13 @@ static inline uint32_t tdma_operating_profile_compose_schedule_crc32(
     if (base_schedule_crc32 == 0u || operating_profile_crc32 == 0u) {
         return 0u;
     }
-    uint32_t hash = 2166136261u;
+    uint32_t hash = ALGO_FNV1A32_OFFSET;
     const uint32_t values[2] = {
         base_schedule_crc32,
         operating_profile_crc32,
     };
     for (uint32_t value_index = 0u; value_index < 2u; value_index++) {
-        for (uint32_t shift = 0u; shift < 32u; shift += 8u) {
-            hash ^= (values[value_index] >> shift) & 0xFFu;
-            hash *= 16777619u;
-        }
+        hash = algo_fnv1a32_u32_le(hash, values[value_index]);
     }
     return hash;
 }

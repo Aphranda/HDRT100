@@ -903,6 +903,7 @@ pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/syn
     target_include_directories(${target_name} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/application/inc
         ${CMAKE_CURRENT_LIST_DIR}/boards/rp2350_trig/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/algo/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/calibration_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/board_identity/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/diagnostics/inc

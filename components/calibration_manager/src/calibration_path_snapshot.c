@@ -3,17 +3,15 @@
 #include <limits.h>
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #define CALIBRATION_PATH_SNAPSHOT_VERSION 2u
 #define CALIBRATION_PATH_CRC_OFFSET 2166136261u
 #define CALIBRATION_PATH_CRC_PRIME 16777619u
 
 static uint32_t hash_u32(uint32_t hash, uint32_t value)
 {
-    for (uint32_t i = 0u; i < 4u; i++) {
-        hash ^= (value >> (i * 8u)) & 0xFFu;
-        hash *= CALIBRATION_PATH_CRC_PRIME;
-    }
-    return hash;
+    return algo_fnv1a32_u32_le(hash, value);
 }
 
 static uint32_t hash_u64(uint32_t hash, uint64_t value)

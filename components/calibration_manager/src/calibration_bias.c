@@ -3,6 +3,8 @@
 #include <limits.h>
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #define CALIBRATION_BIAS_CRC_OFFSET 2166136261u
 #define CALIBRATION_BIAS_CRC_PRIME 16777619u
 
@@ -11,11 +13,7 @@
 
 static uint32_t hash_u32(uint32_t hash, uint32_t value)
 {
-    for (uint32_t i = 0u; i < 4u; i++) {
-        hash ^= (value >> (i * 8u)) & 0xFFu;
-        hash *= CALIBRATION_BIAS_CRC_PRIME;
-    }
-    return hash;
+    return algo_fnv1a32_u32_le(hash, value);
 }
 
 static uint32_t hash_i64(uint32_t hash, int64_t value)

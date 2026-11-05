@@ -8,6 +8,7 @@
 #include "board_config.h"
 #include "board_identity.h"
 #include "project_config.h"
+#include "algo_checksum.h"
 
 #include "distributed_refmem_vdc_bridge.h"
 #include "diagnostics.h"
@@ -887,13 +888,8 @@ uint32_t distributed_refmem_u32_payload_crc32(const uint32_t *fields,
         return 0u;
     }
 
-    uint32_t crc = 2166136261u;
-    const uint8_t *bytes = (const uint8_t *)fields;
-    for (uint32_t i = 0u; i < field_count * (uint32_t)sizeof(uint32_t); i++) {
-        crc ^= bytes[i];
-        crc *= 16777619u;
-    }
-    return crc;
+    return algo_fnv1a32_update(ALGO_FNV1A32_OFFSET, fields,
+                               field_count * sizeof(uint32_t));
 }
 
 uint32_t distributed_refmem_model_payload_crc32(uint32_t slot_id,

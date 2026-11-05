@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #define TDMA_PROCESS_IMAGE_HASH_OFFSET 2166136261u
 #define TDMA_PROCESS_IMAGE_HASH_PRIME 16777619u
 
@@ -16,11 +18,7 @@ static void tdma_process_image_set_result(
 
 static uint32_t tdma_process_image_hash_u32(uint32_t hash, uint32_t value)
 {
-    for (uint32_t shift = 0u; shift < 32u; shift += 8u) {
-        hash ^= (value >> shift) & 0xFFu;
-        hash *= TDMA_PROCESS_IMAGE_HASH_PRIME;
-    }
-    return hash;
+    return algo_fnv1a32_u32_le(hash, value);
 }
 
 static bool tdma_process_image_segment_empty(

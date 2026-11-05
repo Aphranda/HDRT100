@@ -3,6 +3,8 @@
 #include <limits.h>
 #include <stddef.h>
 
+#include "algo_checksum.h"
+
 _Static_assert(REFMEM_CMD_WIRE_SIZE == 56u, "REFMEM_CMD wire size changed");
 _Static_assert(REFMEM_CMD_CRC_OFFSET == 52u,
                "REFMEM_CMD CRC offset changed");
@@ -44,14 +46,7 @@ static uint32_t get_u32(const uint8_t *p)
 
 static uint32_t cmd_crc32(const uint8_t *p, size_t n)
 {
-    uint32_t crc = UINT32_MAX;
-    for (size_t i = 0u; i < n; ++i) {
-        crc ^= p[i];
-        for (unsigned bit = 0u; bit < 8u; ++bit) {
-            crc = (crc >> 1u) ^ (0xEDB88320u & (0u - (crc & 1u)));
-        }
-    }
-    return ~crc;
+    return algo_crc32_iso_hdlc_compute(p, n);
 }
 
 refmem_cmd_codec_result_t refmem_cmd_codec_encode(

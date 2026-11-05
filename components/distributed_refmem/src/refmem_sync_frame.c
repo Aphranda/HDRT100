@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stddef.h>
 
-#include "ota_crc32.h"
+#include "algo_checksum.h"
 
 static void refmem_sync_put_u16(uint8_t *dst, uint16_t value)
 {
@@ -34,22 +34,10 @@ static uint32_t refmem_sync_get_u32(const uint8_t *src)
 
 static uint16_t refmem_sync_crc16_ccitt(const uint8_t *data, size_t size)
 {
-    uint16_t crc = 0xFFFFu;
     if (data == NULL && size != 0u) {
         return 0u;
     }
-
-    for (size_t i = 0u; i < size; i++) {
-        crc ^= (uint16_t)data[i] << 8u;
-        for (uint32_t bit = 0u; bit < 8u; bit++) {
-            if ((crc & 0x8000u) != 0u) {
-                crc = (uint16_t)((crc << 1u) ^ 0x1021u);
-            } else {
-                crc = (uint16_t)(crc << 1u);
-            }
-        }
-    }
-    return crc;
+    return algo_crc16_ccitt_false_compute(data, size);
 }
 
 static void refmem_sync_frame_encode_header_raw(const refmem_sync_frame_header_t *header,
@@ -85,9 +73,8 @@ uint32_t refmem_sync_vdc_command_payload_crc32(
     if (payload == NULL) {
         return 0u;
     }
-    return ota_crc32_compute((const uint8_t *)payload,
-                             offsetof(refmem_sync_vdc_command_payload_t,
-                                      payload_crc32));
+    return algo_crc32_iso_hdlc_compute(
+        payload, offsetof(refmem_sync_vdc_command_payload_t, payload_crc32));
 }
 
 bool refmem_sync_vdc_command_payload_validate(
@@ -184,12 +171,14 @@ bool refmem_sync_vdc_command_frame_build(
 
 uint32_t refmem_sync_frame_payload_crc32(const void *payload, uint16_t payload_size)
 {
-    uint32_t crc = 0xFFFFFFFFu;
-    crc = ota_crc32_update(crc, (const uint8_t *)&payload_size, sizeof(payload_size));
+    /* Persisted frame payloads carry the raw reflected register (starts at
+     * zero); the length prefix is part of the covered bytes. */
+    uint32_t crc = algo_crc32_raw_update(0u, &payload_size,
+                                        sizeof(payload_size));
     if (payload_size != 0u && payload != NULL) {
-        crc = ota_crc32_update(crc, (const uint8_t *)payload, payload_size);
+        crc = algo_crc32_raw_update(crc, payload, payload_size);
     }
-    return crc ^ 0xFFFFFFFFu;
+    return crc;
 }
 
 uint16_t refmem_sync_frame_header_crc16(const refmem_sync_frame_header_t *header)

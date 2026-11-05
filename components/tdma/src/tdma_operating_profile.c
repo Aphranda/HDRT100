@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #define TDMA_OPERATING_PROFILE_FNV_OFFSET 2166136261u
 #define TDMA_OPERATING_PROFILE_FNV_PRIME 16777619u
 
@@ -82,11 +84,7 @@ _Static_assert(sizeof(s_tdma_lowrate_profiles) /
 static uint32_t tdma_operating_profile_hash_u32(uint32_t hash,
                                                  uint32_t value)
 {
-    for (uint32_t shift = 0u; shift < 32u; shift += 8u) {
-        hash ^= (value >> shift) & 0xFFu;
-        hash *= TDMA_OPERATING_PROFILE_FNV_PRIME;
-    }
-    return hash;
+    return algo_fnv1a32_u32_le(hash, value);
 }
 
 static void tdma_operating_profile_set_result(

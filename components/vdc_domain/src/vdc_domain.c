@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "tdma_operating_profile.h"
+#include "algo_checksum.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
@@ -36,11 +37,7 @@ void vdc_domain_request_oscillator_discipline(
 
 uint32_t vdc_domain_hash_u32(uint32_t hash, uint32_t value)
 {
-    for (uint32_t i = 0u; i < 4u; i++) {
-        hash ^= (value >> (i * 8u)) & 0xFFu;
-        hash *= VDC_DOMAIN_CRC_PRIME;
-    }
-    return hash;
+    return algo_fnv1a32_u32_le(hash, value);
 }
 
 uint32_t vdc_domain_abs_i32(int32_t value)

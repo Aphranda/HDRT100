@@ -1,5 +1,7 @@
 #include "storage_manager_internal.h"
 
+#include "algo_checksum.h"
+
 
 storage_manager_vector_t s_storage_vector;
 bool s_boot_snapshot_pending;
@@ -91,16 +93,7 @@ bool storage_budget_elapsed(uint64_t start_us, uint32_t budget_us)
 
 uint32_t storage_hash_path(const char *path)
 {
-    uint32_t hash = 2166136261u;
-    if (path == NULL) {
-        return hash;
-    }
-    while (*path != '\0') {
-        hash ^= (uint8_t)(*path);
-        hash *= 16777619u;
-        path++;
-    }
-    return hash;
+    return algo_fnv1a32_str(path);
 }
 
 const storage_manager_write_contract_t *storage_find_object_contract(storage_manager_object_t object)

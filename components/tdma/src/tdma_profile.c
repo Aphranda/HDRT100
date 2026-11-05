@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #define TDMA_PROFILE_CRC_OFFSET 2166136261u
 #define TDMA_PROFILE_CRC_PRIME 16777619u
 #define TDMA_PROFILE_DEFAULT_SHORT_CAPACITY 292u
@@ -38,11 +40,7 @@ static uint32_t tdma_profile_read_u32_le(const uint8_t *data)
 
 static uint32_t tdma_profile_hash_u32(uint32_t hash, uint32_t value)
 {
-    for (uint32_t shift = 0u; shift < 32u; shift += 8u) {
-        hash ^= (value >> shift) & 0xFFu;
-        hash *= TDMA_PROFILE_CRC_PRIME;
-    }
-    return hash;
+    return algo_fnv1a32_u32_le(hash, value);
 }
 
 static uint32_t tdma_profile_previous_slot(uint32_t slot, uint32_t node_count)

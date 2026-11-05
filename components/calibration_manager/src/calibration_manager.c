@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "board.h"
+#include "algo_checksum.h"
 #include "board_config.h"
 #include "board_identity.h"
 #include "calibration_training_phase.h"
@@ -37,7 +38,7 @@ static uint32_t calibration_manager_topology_generation(
         return 0u;
     }
 
-    uint32_t hash = UINT32_C(2166136261);
+    uint32_t hash = ALGO_FNV1A32_OFFSET;
     const uint32_t values[] = {
         staged->node_count,
         staged->reference_slot_id,
@@ -47,11 +48,7 @@ static uint32_t calibration_manager_topology_generation(
     };
     for (size_t value_index = 0u;
          value_index < sizeof(values) / sizeof(values[0]); value_index++) {
-        uint32_t value = values[value_index];
-        for (uint32_t byte_index = 0u; byte_index < 4u; byte_index++) {
-            hash ^= (value >> (byte_index * 8u)) & 0xffu;
-            hash *= UINT32_C(16777619);
-        }
+        hash = algo_fnv1a32_u32_le(hash, values[value_index]);
     }
     return hash == 0u ? 1u : hash;
 }

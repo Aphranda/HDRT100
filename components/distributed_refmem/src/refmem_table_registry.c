@@ -5,6 +5,7 @@
 
 #include "refmem_application_contract.h"
 #include "refmem_vector_table.h"
+#include "algo_checksum.h"
 
 static refmem_table_registry_entry_t s_registry[REFMEM_TABLE_REGISTRY_COUNT];
 static refmem_table_registry_snapshot_t s_snapshot;
@@ -161,12 +162,7 @@ static bool refmem_table_registry_find_package_table(const uint8_t *data,
 
 static uint32_t refmem_table_registry_crc32_update(uint32_t crc, const void *data, size_t size)
 {
-    const uint8_t *bytes = (const uint8_t *)data;
-    for (size_t i = 0u; i < size; i++) {
-        crc ^= bytes[i];
-        crc *= 16777619u;
-    }
-    return crc;
+    return algo_fnv1a32_update(crc, data, size);
 }
 
 static uint32_t refmem_table_read_u32_le(const uint8_t *data)
@@ -806,32 +802,23 @@ static uint32_t refmem_table_package_crc32_zero_field(const uint8_t *data,
                                                       size_t size,
                                                       uint32_t zero_offset)
 {
-    uint32_t crc = 0xFFFFFFFFu;
-    for (size_t i = 0u; i < size; i++) {
-        uint8_t byte = data[i];
-        if (i >= zero_offset && i < zero_offset + sizeof(uint32_t)) {
-            byte = 0u;
-        }
-        crc ^= byte;
-        for (uint32_t bit = 0u; bit < 8u; bit++) {
-            const uint32_t mask = 0u - (crc & 1u);
-            crc = (crc >> 1) ^ (0xEDB88320u & mask);
-        }
+    static const uint8_t zeros[sizeof(uint32_t)] = {0u, 0u, 0u, 0u};
+    if (size == 0u) {
+        return 0u;
     }
-    return ~crc;
+    size_t begin = (size_t)zero_offset < size ? (size_t)zero_offset : size;
+    size_t end = (size_t)zero_offset + sizeof(uint32_t);
+    if (end > size) {
+        end = size;
+    }
+    uint32_t crc = algo_crc32_iso_hdlc_update(0u, data, begin);
+    crc = algo_crc32_iso_hdlc_update(crc, zeros, end - begin);
+    return algo_crc32_iso_hdlc_update(crc, data + end, size - end);
 }
 
 static uint32_t refmem_table_package_crc32(const uint8_t *data, size_t size)
 {
-    uint32_t crc = 0xFFFFFFFFu;
-    for (size_t i = 0u; i < size; i++) {
-        crc ^= data[i];
-        for (uint32_t bit = 0u; bit < 8u; bit++) {
-            const uint32_t mask = 0u - (crc & 1u);
-            crc = (crc >> 1) ^ (0xEDB88320u & mask);
-        }
-    }
-    return ~crc;
+    return algo_crc32_iso_hdlc_compute(data, size);
 }
 
 static bool refmem_table_registry_find_package_table(const uint8_t *data,
@@ -892,7 +879,7 @@ static bool refmem_table_registry_find_package_table(const uint8_t *data,
 
 static uint32_t refmem_table_registry_crc32(void)
 {
-    uint32_t crc = 2166136261u;
+    uint32_t crc = ALGO_FNV1A32_OFFSET;
     for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
         crc = refmem_table_registry_crc32_update(crc, &s_registry[i], sizeof(s_registry[i]));
     }

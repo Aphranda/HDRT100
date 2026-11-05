@@ -64,6 +64,8 @@ enum {
     REFMEM_CMD_ID_TRIGGER_SEQUENCE_ACTIVE = 47u,
     REFMEM_CMD_ID_TRIGGER_SEQUENCE_PLAN = 48u,
     REFMEM_CMD_ID_TRIGGER_ANGLE_SPEED = 49u,
+    REFMEM_CMD_ID_CAL_GUIDE_CONFIG = 50u,
+    REFMEM_CMD_ID_CAL_GUIDE_TRIGGER = 51u,
 };
 
 extern const refmem_catalog_entry_t refmem_command_catalog[];

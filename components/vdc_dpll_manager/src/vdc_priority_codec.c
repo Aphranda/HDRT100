@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
 #define VDC_PRIORITY_CODEC_HOT __not_in_flash("vdc_priority_codec")
@@ -43,15 +45,7 @@ static uint64_t get64(const uint8_t *p)
 uint16_t vdc_priority_codec_crc16(const uint8_t *data, size_t size)
 {
     if (data == NULL) return 0u;
-    uint16_t crc = VDC_PRIORITY_CODEC_CRC_INIT;
-    for (size_t i = 0u; i < size; ++i) {
-        crc ^= (uint16_t)data[i] << 8u;
-        for (uint32_t bit = 0u; bit < 8u; ++bit)
-            crc = (crc & 0x8000u) != 0u
-                ? (uint16_t)((crc << 1u) ^ VDC_PRIORITY_CODEC_CRC_POLY)
-                : (uint16_t)(crc << 1u);
-    }
-    return crc;
+    return algo_crc16_ccitt_false_compute(data, size);
 }
 
 static bool valid_record(const vdc_priority_codec_record_t *record)

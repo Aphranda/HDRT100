@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "osal.h"
+#include "algo_checksum.h"
 #include "refmem_cmd_codec.h"
 #include "refmem_cmd_frame.h"
 #include "refmem_cmd_load.h"
@@ -14,14 +15,8 @@ static uint32_t s_control_seq;
 
 static uint32_t params_crc(const uint32_t *params, uint32_t words)
 {
-    uint32_t crc = 2166136261u;
-    for (uint32_t i = 0u; i < words; ++i) {
-        for (uint32_t shift = 0u; shift < 32u; shift += 8u) {
-            crc ^= (uint8_t)(params[i] >> shift);
-            crc *= 16777619u;
-        }
-    }
-    return crc;
+    return algo_fnv1a32_update(ALGO_FNV1A32_OFFSET, params,
+                               (size_t)words * sizeof(uint32_t));
 }
 
 bool distributed_refmem_control_submit(uint16_t command_id,

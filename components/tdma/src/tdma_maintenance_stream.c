@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 static void put_u16(uint8_t *dst, uint16_t value)
 {
     dst[0] = (uint8_t)value;
@@ -31,17 +33,10 @@ static uint32_t get_u32(const uint8_t *src)
 
 uint32_t tdma_maintenance_stream_crc32(const uint8_t *data, size_t size)
 {
-    uint32_t crc = 0xFFFFFFFFu;
     if (data == NULL) {
         return 0u;
     }
-    for (size_t i = 0u; i < size; i++) {
-        crc ^= data[i];
-        for (uint32_t bit = 0u; bit < 8u; bit++) {
-            crc = (crc >> 1u) ^ ((crc & 1u) ? 0xEDB88320u : 0u);
-        }
-    }
-    return crc ^ 0xFFFFFFFFu;
+    return algo_crc32_iso_hdlc_compute(data, size);
 }
 
 bool tdma_maintenance_stream_tx_begin(tdma_maintenance_stream_tx_t *tx,

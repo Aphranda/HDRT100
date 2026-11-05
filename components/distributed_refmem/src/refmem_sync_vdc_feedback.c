@@ -3,6 +3,8 @@
 #include <limits.h>
 #include <string.h>
 
+#include "algo_checksum.h"
+
 _Static_assert(sizeof(refmem_sync_vdc_feedback_record_t) == 64u,
                "Decoded feedback remains bounded across schemas");
 _Static_assert(sizeof(refmem_sync_vdc_feedback_assembly_t) == 80u,
@@ -65,13 +67,7 @@ static bool feedback_record_valid(const refmem_sync_vdc_feedback_record_t *r,
 uint32_t refmem_sync_vdc_feedback_crc32(const uint8_t *data, size_t size)
 {
     if (data == NULL && size != 0u) return 0u;
-    uint32_t crc = UINT32_MAX;
-    for (size_t i = 0u; i < size; ++i) {
-        crc ^= data[i];
-        for (uint32_t bit = 0u; bit < 8u; ++bit)
-            crc = (crc >> 1u) ^ ((0u - (crc & 1u)) & UINT32_C(0xedb88320));
-    }
-    return crc ^ UINT32_MAX;
+    return algo_crc32_iso_hdlc_compute(data, size);
 }
 
 uint32_t refmem_sync_vdc_feedback_next_sequence(uint32_t sequence)

@@ -1,8 +1,9 @@
 #include "distributed_config.h"
 
 #include <stddef.h>
+#include <string.h>
 
-#include "ota_crc32.h"
+#include "algo_checksum.h"
 
 static const distributed_config_role_map_t s_role_map = {
     .version = DISTRIBUTED_CONFIG_VERSION,
@@ -197,24 +198,19 @@ static bool distributed_config_has_action(uint32_t action_id)
 
 static uint32_t distributed_config_crc32(const void *data, size_t size)
 {
-    return ota_crc32_compute((const uint8_t *)data, (uint32_t)size);
+    return algo_crc32_iso_hdlc_compute(data, size);
 }
 
+/* Historical continuation: the callers pass a finalised CRC (or an XOR-folded
+ * value) and the table then continues it as a raw register step. This is NOT
+ * zlib's concatenation form; keep the produced value byte-identical because it
+ * is published as the table identity. */
 static uint32_t distributed_config_crc32_string(uint32_t seed, const char *text)
 {
     if (text == NULL) {
         return seed;
     }
-
-    uint32_t crc = seed;
-    for (const char *p = text; *p != '\0'; p++) {
-        crc ^= (uint8_t)*p;
-        for (uint32_t bit = 0u; bit < 8u; bit++) {
-            const uint32_t mask = 0u - (crc & 1u);
-            crc = (crc >> 1u) ^ (0xEDB88320u & mask);
-        }
-    }
-    return crc;
+    return algo_crc32_raw_update(seed, (const uint8_t *)text, strlen(text));
 }
 
 static uint32_t distributed_config_nack_reason_crc32(void)

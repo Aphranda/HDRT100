@@ -3,25 +3,25 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "ota_crc32.h"
+#include "algo_checksum.h"
 
 static uint32_t refmem_claim_crc32(const void *data, size_t size)
 {
-    return ota_crc32_update(0xFFFFFFFFu, (const uint8_t *)data, size) ^ 0xFFFFFFFFu;
+    /* Claim frames store the raw reflected register (starts at zero), not the
+     * zlib value; keep the seed explicit so the wire bytes do not change. */
+    return algo_crc32_raw_update(0u, data, size);
 }
 
 static uint32_t refmem_claim_raw_payload_crc32(const void *payload,
                                                size_t payload_size,
                                                uint32_t payload_count)
 {
-    uint32_t crc = 0xFFFFFFFFu;
-    crc = ota_crc32_update(crc,
-                           (const uint8_t *)&payload_count,
-                           sizeof(payload_count));
+    uint32_t crc = algo_crc32_raw_update(0u, &payload_count,
+                                        sizeof(payload_count));
     if (payload_size != 0u && payload != NULL) {
-        crc = ota_crc32_update(crc, (const uint8_t *)payload, payload_size);
+        crc = algo_crc32_raw_update(crc, payload, payload_size);
     }
-    return crc ^ 0xFFFFFFFFu;
+    return crc;
 }
 
 static uint32_t refmem_claim_payload_crc32(const refmem_claim_propose_frame_t *frame)

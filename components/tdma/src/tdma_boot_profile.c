@@ -2,19 +2,14 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 uint32_t tdma_boot_profile_crc32(const uint8_t *data, size_t size)
 {
-    uint32_t crc = 0xFFFFFFFFu;
     if (data == NULL) {
         return 0u;
     }
-    for (size_t i = 0u; i < size; i++) {
-        crc ^= data[i];
-        for (uint32_t bit = 0u; bit < 8u; bit++) {
-            crc = (crc >> 1u) ^ ((crc & 1u) ? 0xEDB88320u : 0u);
-        }
-    }
-    return crc ^ 0xFFFFFFFFu;
+    return algo_crc32_iso_hdlc_compute(data, size);
 }
 
 static void put_u32(uint8_t *cursor, uint32_t value)

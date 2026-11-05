@@ -2,16 +2,14 @@
 
 #include <string.h>
 
+#include "algo_checksum.h"
+
 #define VDC_SYNC_IO_ADAPTER_CRC_OFFSET 2166136261u
 #define VDC_SYNC_IO_ADAPTER_CRC_PRIME 16777619u
 
 static uint32_t vdc_sync_io_adapter_hash_u32(uint32_t hash, uint32_t value)
 {
-    for (uint32_t i = 0u; i < 4u; i++) {
-        hash ^= (value >> (i * 8u)) & 0xFFu;
-        hash *= VDC_SYNC_IO_ADAPTER_CRC_PRIME;
-    }
-    return hash;
+    return algo_fnv1a32_u32_le(hash, value);
 }
 
 static uint32_t vdc_sync_io_adapter_sample_at(uint32_t raw_word,
