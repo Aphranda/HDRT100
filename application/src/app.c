@@ -1683,21 +1683,27 @@ bool app_guide_scan_get_pair(uint32_t index,
  *   trial_count        number of slots; slot_ms = window_ms / trial_count
  */
 #define APP_CTRQS_STOP_MS 8000u
+#define APP_CTRQS_TOPO_MS 5000u
 #define APP_CTRQS_ARM_MS 8000u
+#define APP_CTRQS_FANOUT_MS 1000u
 #define APP_CTRQS_FORWARD_MS 4000u
 #define APP_CTRQS_T0_OFFSET_MS 6000u
 #define APP_CTRQS_RESTORE_MS 45000u
+#define APP_CTRQS_REBUILD_MS 20000u
+#define APP_CTRQS_REF_ARM_DELAY_MS 600u
 #define APP_CTRQS_MAX_TRIALS 32u
 #define APP_CTRQS_ACTION_P1 1u
 
 typedef enum {
     APP_CTRQS_IDLE = 0,
+    APP_CTRQS_FANOUT,
     APP_CTRQS_STOP,
     APP_CTRQS_TOPO,
     APP_CTRQS_ARM,
     APP_CTRQS_FORWARD,
     APP_CTRQS_TRIAL,
     APP_CTRQS_RESTORE_WAIT,
+    APP_CTRQS_REBUILD,
     APP_CTRQS_Q,
     APP_CTRQS_DONE,
 } app_ctrqs_state_t;
@@ -1720,6 +1726,13 @@ typedef struct {
     uint32_t train_base_seq;
     bool train_pending;
     bool forward_armed;
+    /* Pre-window ring identity, captured before the first STOP so the close
+     * path can rebuild the same ring even when the image has no boot plan. */
+    uint32_t restore_node_count;
+    uint32_t restore_local_slot;
+    uint32_t restore_reference_slot;
+    bool rebuild_topo_done;
+    bool rebuild_armed;
     guide_action_progress_t progress;
 } app_ctrqs_t;
 
@@ -1753,6 +1766,28 @@ static bool app_ctrqs_ring_formed(void)
            ring.reference_slot_id == s_ctrqs.ref_slot;
 }
 
+/* Some bench images run without a frozen boot plan (BOOT:PLAN? first field 0).
+ * app_guide_boot_service() then marks the replay done without forming any ring,
+ * so the shared window-close primitive cannot restore the ring by itself. */
+static bool app_ctrqs_boot_plan_present(void)
+{
+    tdma_boot_plan_t plan;
+    return app_guide_boot_plan_get(&plan) &&
+           plan.action != TDMA_BOOT_ACTION_NONE &&
+           plan.action != TDMA_BOOT_ACTION_REJECT;
+}
+
+static bool app_ctrqs_restore_formed(void)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return tdma_runtime_owner_get_ring_snapshot(&ring) &&
+           ring.enabled != 0u && ring.adapter_started != 0u &&
+           ring.up_running != 0u && ring.down_running != 0u &&
+           ring.node_count == s_ctrqs.restore_node_count &&
+           ring.local_slot_id == s_ctrqs.restore_local_slot &&
+           ring.reference_slot_id == s_ctrqs.restore_reference_slot;
+}
+
 /* Abort the running window: keep the reason in the record, stop the ring and
  * let the frozen boot steps rebuild it.  Fail-closed: the action never reaches
  * Q with a masked failure. */
@@ -1784,6 +1819,21 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
     s_ctrqs.plan = *plan;
     s_ctrqs.epoch = epoch;
     s_ctrqs.local_slot = distributed_refmem_local_slot();
+    /* Capture the ring we are about to stop so the close path can rebuild the
+     * same ring even on images without a frozen boot plan. */
+    {
+        tdma_ring_runtime_snapshot_t ring;
+        if (tdma_runtime_owner_get_ring_snapshot(&ring) &&
+            ring.node_count >= 2u) {
+            s_ctrqs.restore_node_count = ring.node_count;
+            s_ctrqs.restore_local_slot = ring.local_slot_id;
+            s_ctrqs.restore_reference_slot = ring.reference_slot_id;
+        } else {
+            s_ctrqs.restore_node_count = nodes;
+            s_ctrqs.restore_local_slot = s_ctrqs.local_slot;
+            s_ctrqs.restore_reference_slot = 0u;
+        }
+    }
     s_ctrqs.progress = (guide_action_progress_t){
         .action_id = plan->action_id,
         .plan_crc32 = plan->plan_crc32,
@@ -1828,9 +1878,12 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
     /* The dark window below is intentional: do not let the ring completeness
      * watch read it as a half ring. */
     s_boot_ring_watch_active = false;
-    (void)distributed_refmem_tdma_ring_stop();
-    s_ctrqs.state = APP_CTRQS_STOP;
-    s_ctrqs.deadline_ms = now + APP_CTRQS_STOP_MS;
+    /* The T command travels as maintenance fragments.  The issuer consumes its
+     * own copy from the local node-control record immediately, so stopping the
+     * ring right away would cut the fragments off before the followers see
+     * them.  Give the maintenance transport one fanout window first. */
+    s_ctrqs.state = APP_CTRQS_FANOUT;
+    s_ctrqs.deadline_ms = now + APP_CTRQS_FANOUT_MS;
 }
 
 static void app_ctrqs_trial(void)
@@ -1918,9 +1971,17 @@ static void app_ctrqs_service(void)
         app_ctrqs_start(&plan, epoch);
         return;
     }
+    case APP_CTRQS_FANOUT:
+        if (now >= s_ctrqs.deadline_ms) {
+            (void)distributed_refmem_tdma_ring_stop();
+            s_ctrqs.state = APP_CTRQS_STOP;
+            s_ctrqs.deadline_ms = now + APP_CTRQS_STOP_MS;
+        }
+        return;
     case APP_CTRQS_STOP:
         if (app_ctrqs_ring_quiescent()) {
             s_ctrqs.state = APP_CTRQS_TOPO;
+            s_ctrqs.deadline_ms = now + APP_CTRQS_TOPO_MS;
             return;
         }
         if (now >= s_ctrqs.deadline_ms) {
@@ -1928,16 +1989,25 @@ static void app_ctrqs_service(void)
         }
         return;
     case APP_CTRQS_TOPO:
-        if (!distributed_refmem_set_tdma_ring_topology(
+        if (distributed_refmem_set_tdma_ring_topology(
                 s_ctrqs.local_slot, s_ctrqs.ref_slot,
                 (uint32_t)PROJECT_TDMA_GUIDE_NODES)) {
-            app_ctrqs_abort(
-                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            s_ctrqs.state = APP_CTRQS_ARM;
+            s_ctrqs.deadline_ms = now + APP_CTRQS_ARM_MS;
+            /* Followers arm first; the reference releases the ring start last,
+             * the same handshake the host training tools use. */
+            s_ctrqs.arm_try_ms = (s_ctrqs.local_slot == s_ctrqs.ref_slot)
+                                     ? (uint32_t)(now + APP_CTRQS_REF_ARM_DELAY_MS)
+                                     : 0u;
             return;
         }
-        s_ctrqs.state = APP_CTRQS_ARM;
-        s_ctrqs.deadline_ms = now + APP_CTRQS_ARM_MS;
-        s_ctrqs.arm_try_ms = 0u;
+        /* The owner can refuse a topology write while the STOP/config handoff
+         * is still settling; retry inside the window instead of aborting on the
+         * first transient (the SCPI handler retries for the same reason). */
+        if (now >= s_ctrqs.deadline_ms) {
+            app_ctrqs_abort(
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+        }
         return;
     case APP_CTRQS_ARM:
         if (!app_ctrqs_ring_quiescent()) {
@@ -2021,8 +2091,20 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_RESTORE_WAIT:
         if (s_boot_guide_done && s_boot_fail_step == 0u) {
-            s_ctrqs.state = APP_CTRQS_Q;
-            return;
+            if (app_ctrqs_restore_formed()) {
+                s_ctrqs.state = APP_CTRQS_Q;
+                return;
+            }
+            if (!app_ctrqs_boot_plan_present()) {
+                /* No frozen boot plan in this image: the replay marked itself
+                 * done without forming a ring.  Rebuild the captured ring with
+                 * the same TOPO/ARM/START primitives instead. */
+                s_ctrqs.rebuild_topo_done = false;
+                s_ctrqs.arm_try_ms = 0u;
+                s_ctrqs.deadline_ms = now + APP_CTRQS_REBUILD_MS;
+                s_ctrqs.state = APP_CTRQS_REBUILD;
+                return;
+            }
         }
         if (now >= s_ctrqs.deadline_ms) {
             s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
@@ -2031,6 +2113,60 @@ static void app_ctrqs_service(void)
             app_ctrqs_publish();
             s_ctrqs.state = APP_CTRQS_Q;
         }
+        return;
+    case APP_CTRQS_REBUILD:
+        if (app_ctrqs_restore_formed()) {
+            s_ctrqs.state = APP_CTRQS_Q;
+            return;
+        }
+        if (!s_ctrqs.rebuild_topo_done) {
+            if (!app_ctrqs_ring_quiescent()) {
+                (void)distributed_refmem_tdma_ring_stop();
+                if (now >= s_ctrqs.deadline_ms) {
+                    goto ctrqs_rebuild_failed;
+                }
+                return;
+            }
+            if (!distributed_refmem_set_tdma_ring_topology(
+                    s_ctrqs.restore_local_slot, s_ctrqs.restore_reference_slot,
+                    s_ctrqs.restore_node_count)) {
+                if (now >= s_ctrqs.deadline_ms) {
+                    goto ctrqs_rebuild_failed;
+                }
+                return;
+            }
+            s_ctrqs.rebuild_topo_done = true;
+            s_ctrqs.arm_try_ms = (uint32_t)now + 300u;
+            return;
+        }
+        if (now < s_ctrqs.arm_try_ms) {
+            return;
+        }
+        s_ctrqs.arm_try_ms = (uint32_t)now + 150u;
+        if (!s_ctrqs.rebuild_armed) {
+            if (!app_ctrqs_ring_quiescent()) {
+                (void)distributed_refmem_tdma_ring_stop();
+            } else if (distributed_refmem_tdma_ring_arm() &&
+                       distributed_refmem_tdma_ring_arm_last_result() ==
+                           DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
+                s_ctrqs.rebuild_armed = true;
+            }
+        } else {
+            /* ARM starts the adapter; START releases the ring traffic.  A
+             * rejected/ignored START is retried on the next tick; the formed
+             * check at the top of this case is the barrier. */
+            (void)distributed_refmem_tdma_ring_start();
+        }
+        if (now >= s_ctrqs.deadline_ms) {
+            goto ctrqs_rebuild_failed;
+        }
+        return;
+    ctrqs_rebuild_failed:
+        s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
+        s_ctrqs.progress.reason =
+            (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE;
+        app_ctrqs_publish();
+        s_ctrqs.state = APP_CTRQS_Q;
         return;
     case APP_CTRQS_Q: {
         guide_action_progress_t readback;
