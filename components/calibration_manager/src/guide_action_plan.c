@@ -270,3 +270,83 @@ void guide_action_reconcile(const guide_action_progress_t *progress,
     }
     *out = result;
 }
+
+/* ------------------------------------------------------------ ladder ------ */
+
+void guide_action_ladder_reset(guide_action_ladder_t *ladder)
+{
+    if (ladder == NULL) {
+        return;
+    }
+    ladder->action_index = 0u;
+    ladder->resume_trial = 0u;
+    ladder->reason = 0u;
+}
+
+bool guide_action_ladder_is_last(const guide_action_ladder_t *ladder)
+{
+    return ladder != NULL && ladder->action_index + 1u >= GUIDE_ACTION_LADDER_COUNT;
+}
+
+guide_action_ladder_step_t guide_action_ladder_advance(
+    guide_action_ladder_t *ladder,
+    const guide_action_reconcile_result_t *reconcile,
+    guide_action_ladder_t *out)
+{
+    guide_action_ladder_t next;
+    if (ladder == NULL || reconcile == NULL) {
+        return GUIDE_ACTION_LADDER_STOPPED;
+    }
+    next.action_index = ladder->action_index;
+    next.resume_trial = 0u;
+    next.reason = reconcile->reason;
+
+    switch (reconcile->decision) {
+    case GUIDE_ACTION_RECONCILE_COMPLETE:
+        /* This action is finished; the report reason stays clean. */
+        next.reason = 0u;
+        if (ladder->action_index + 1u >= GUIDE_ACTION_LADDER_COUNT) {
+            next.action_index = ladder->action_index;
+            if (out != NULL) {
+                *out = next;
+            }
+            return GUIDE_ACTION_LADDER_DONE;
+        }
+        next.action_index = ladder->action_index + 1u;
+        if (out != NULL) {
+            *out = next;
+        }
+        return GUIDE_ACTION_LADDER_NEXT;
+
+    case GUIDE_ACTION_RECONCILE_RESUME:
+    case GUIDE_ACTION_RECONCILE_RESTART:
+        /* Stay on the same action; RESUME keeps the deepest trial reached. */
+        next.resume_trial = reconcile->resume_trial;
+        if (out != NULL) {
+            *out = next;
+        }
+        return GUIDE_ACTION_LADDER_RUN_SAME;
+
+    case GUIDE_ACTION_RECONCILE_FAILED:
+    default:
+        next.reason = reconcile->reason != 0u ? reconcile->reason : 1u;
+        if (out != NULL) {
+            *out = next;
+        }
+        return GUIDE_ACTION_LADDER_STOPPED;
+    }
+}
+
+/* ------------------------------------------------------------ commit ------ */
+
+guide_action_commit_t guide_action_commit_decision(bool session_closed,
+                                                    bool already_committed)
+{
+    if (!session_closed) {
+        return GUIDE_ACTION_COMMIT_DENY_SESSION_OPEN;
+    }
+    if (already_committed) {
+        return GUIDE_ACTION_COMMIT_SKIP_ALREADY_DONE;
+    }
+    return GUIDE_ACTION_COMMIT_ALLOW;
+}

@@ -252,6 +252,65 @@ static void test_reconcile_decisions(void)
     assert(result.reason == 7u);
 }
 
+static void test_ladder_walks_seven_actions(void)
+{
+    guide_action_ladder_t ladder;
+    guide_action_ladder_reset(&ladder);
+    guide_action_reconcile_result_t ok;
+    memset(&ok, 0, sizeof(ok));
+    ok.decision = GUIDE_ACTION_RECONCILE_COMPLETE;
+
+    guide_action_ladder_t out;
+    for (uint32_t index = 0u; index < GUIDE_ACTION_LADDER_COUNT; index++) {
+        assert(ladder.action_index == index);
+        assert(guide_action_ladder_is_last(&ladder) ==
+               (index + 1u == GUIDE_ACTION_LADDER_COUNT));
+        const guide_action_ladder_step_t step =
+            guide_action_ladder_advance(&ladder, &ok, &out);
+        if (index + 1u == GUIDE_ACTION_LADDER_COUNT) {
+            assert(step == GUIDE_ACTION_LADDER_DONE);
+        } else {
+            assert(step == GUIDE_ACTION_LADDER_NEXT);
+            ladder = out;
+        }
+    }
+}
+
+static void test_ladder_resumes_or_stops(void)
+{
+    guide_action_ladder_t ladder;
+    guide_action_ladder_reset(&ladder);
+    ladder.action_index = 3u;
+
+    guide_action_reconcile_result_t partial;
+    memset(&partial, 0, sizeof(partial));
+    partial.decision = GUIDE_ACTION_RECONCILE_RESUME;
+    partial.resume_trial = 5u;
+    guide_action_ladder_t out;
+    assert(guide_action_ladder_advance(&ladder, &partial, &out) ==
+           GUIDE_ACTION_LADDER_RUN_SAME);
+    assert(out.action_index == 3u);
+    assert(out.resume_trial == 5u);
+
+    guide_action_reconcile_result_t failed;
+    memset(&failed, 0, sizeof(failed));
+    failed.decision = GUIDE_ACTION_RECONCILE_FAILED;
+    failed.reason = 9u;
+    assert(guide_action_ladder_advance(&ladder, &failed, &out) ==
+           GUIDE_ACTION_LADDER_STOPPED);
+    assert(out.reason == 9u);
+}
+
+static void test_commit_gate_respects_open_session(void)
+{
+    /* HAOFV flash rule 2.1 #7: no ordinary write while training is running. */
+    assert(guide_action_commit_decision(false, false) ==
+           GUIDE_ACTION_COMMIT_DENY_SESSION_OPEN);
+    assert(guide_action_commit_decision(true, true) ==
+           GUIDE_ACTION_COMMIT_SKIP_ALREADY_DONE);
+    assert(guide_action_commit_decision(true, false) == GUIDE_ACTION_COMMIT_ALLOW);
+}
+
 int main(void)
 {
     test_round_trip();
@@ -265,6 +324,9 @@ int main(void)
     test_progress_records_the_stop_reason();
     test_progress_rejects_bad_input();
     test_reconcile_decisions();
+    test_ladder_walks_seven_actions();
+    test_ladder_resumes_or_stops();
+    test_commit_gate_respects_open_session();
     printf("guide_action_plan: all groups passed\n");
     return 0;
 }

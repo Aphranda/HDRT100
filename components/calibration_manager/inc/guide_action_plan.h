@@ -145,6 +145,49 @@ void guide_action_reconcile(const guide_action_progress_t *progress,
                             uint32_t plan_crc32, uint32_t generation,
                             guide_action_reconcile_result_t *out);
 
+/* ------------------------------------------------------------- ladder -----
+ * The ladder is seven actions, each one C/T/R/Q/S round. This module only
+ * decides "what next"; the phases themselves are driven by the caller with
+ * refmem_trigger_session + the pool helpers above. */
+#define GUIDE_ACTION_LADDER_COUNT 7u
+
+typedef enum {
+    GUIDE_ACTION_LADDER_RUN_SAME = 0u, /* resume/rerun the current action */
+    GUIDE_ACTION_LADDER_NEXT = 1u,     /* that action is done, take the next */
+    GUIDE_ACTION_LADDER_DONE = 2u,     /* all seven completed */
+    GUIDE_ACTION_LADDER_STOPPED = 3u,  /* reason carries why */
+} guide_action_ladder_step_t;
+
+typedef struct {
+    uint32_t action_index; /* 0 = P1 .. 6 = T3 */
+    uint32_t resume_trial; /* first trial the next window should run */
+    uint32_t reason;       /* 0 while healthy */
+} guide_action_ladder_t;
+
+void guide_action_ladder_reset(guide_action_ladder_t *ladder);
+
+/* Advances the ladder from one Q decision. `out` is written on every call so the
+ * caller always knows the next action index, the resume trial and the reason. */
+guide_action_ladder_step_t guide_action_ladder_advance(
+    guide_action_ladder_t *ladder,
+    const guide_action_reconcile_result_t *reconcile,
+    guide_action_ladder_t *out);
+
+/* True for the last action (T3), whose S may start the 10 MHz ring. */
+bool guide_action_ladder_is_last(const guide_action_ladder_t *ladder);
+
+/* ------------------------------------------------------------- commit -----
+ * S segment gate: HAOFV flash rule 2.1 #7 forbids an ordinary write transaction
+ * while a calibration training session is open. */
+typedef enum {
+    GUIDE_ACTION_COMMIT_ALLOW = 0u,
+    GUIDE_ACTION_COMMIT_DENY_SESSION_OPEN = 1u,
+    GUIDE_ACTION_COMMIT_SKIP_ALREADY_DONE = 2u,
+} guide_action_commit_t;
+
+guide_action_commit_t guide_action_commit_decision(bool session_closed,
+                                                    bool already_committed);
+
 #ifdef __cplusplus
 }
 #endif
