@@ -987,6 +987,30 @@ adapter 的 `last_rx_origin_slot_id/last_rx_hop_count/last_rx_hop_limit/last_rx_
 逐槽过程映像；仅凭单次 `last_rx_hop_count` 无法证明环序。这一条把 S1-6 从"接一个字段"改成了
 "先补一个聚合量"。
 
+### 9.24 单口引导的目标阶梯：P0–P3 + T0–T3（2026-11-05 目标定义）
+
+单口引导的完成定义 = **四板在无主机命令的条件下，按序跑完 P0→P1→P2→P3→T0→T1→T2→T3**，
+host 只在端口做触发与事后读回。当前每一项的"谁在驱动"：
+
+| 阶段 | 内容 | 当前驱动方 | 现状 | 板端化缺什么 |
+|---|---|---|---|---|
+| **P0** | 拓扑/线序 | **板端** | ✅ 自组 10 kHz + `BOOT:TOPology?`（M1 裁定：自组即接受） | 环序项（hop 聚合，见 §9.23） |
+| **P1** | 粗 CLK 标定 | host（`calibration_clk_train.py`） | ✅ 验收里跑通，未板端化 | 板端候选表 + 串行执行器（复用暗窗原语） |
+| **P2** | 编码 MARK 标定 | host（`calibration_clk_coded.py`） | ✅ 跑通，未板端化 | 同上 + codebook 选择规则 |
+| **P3** | per-link 时延/驻留 | host（`calibration_link_p3.py`） | ✅ 跑通；**active candidate 仍 BLOCKED**（endpoint bias） | 板端执行 + bias 闭合 |
+| **T0** | TRN-00 marker/residence | host（`calibration_marker_train.py`） | ✅ 跑通，未板端化 | M2：候选×重复阶梯下移 |
+| **T1** | TRN-01 SCK 偏移矩阵 | host（`calibration_sck_train.py`） | ✅ 跑通，未板端化 | M3 |
+| **T2** | TRN-02 DATA 重复矩阵 | host（`calibration_data_train.py`） | ✅ 跑通，未板端化 | M4 |
+| **T3** | TRN-03 staging + ARM | **板端（开机）** | ✅ 有 stage 即起 10 MHz（②，`GUIDE_STAGE_BOOT`） | staging 数据从环上来（R2b/单口分发） |
+
+**结论**：P0 与 T3 已板端化；P1/P2/P3 与 T0/T1/T2 目前仍是 **host 编排、板端执行**——
+板端只缺"把候选×重复的固定阶梯搬到板内串行执行"这一层（M2–M4 的同一套原语），
+其 ARM/INJECT/接受判定本来就已经在板端（`calibration_training_{marker,sck,data}`）。
+
+**收口判据（单口引导完成）**：断开全部四口后，四板依次完成 P0→P1→P2→P3→T0→T1→T2→T3，
+`accepted topology + generation/CRC + 逐阶段 reason` 可从单口读回，且任一步失败整轮 STOPPED 并留证。
+
+
 
 **为什么自组稳、P0T 不稳（第四条结论）**：自组的稳定性来自"不做测量、幂等收敛"——USB 不在环里、
 10 kHz 每秒上万次独立判决、认成功要求 `RESIDENT|SEEDED|ORIGIN|HOP|REQUIRED|SEQUENCE|IDENTITY`
