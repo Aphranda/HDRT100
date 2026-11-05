@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-10-14
+Last updated: 2026-11-05
 
 ## 文档接口与状态规则
 
@@ -60,7 +60,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 | 顺序 | 下一步 | 对应任务 / 退出条件 |
 |---|---|---|
 | 1 | 验证缺参考时模型保持、质量降级及恢复发布 | `VDC-SNAPSHOT-001`、`VDC-HOLD-001`；局部发布/恢复见 026–028，typed 新鲜度见 030，停更/再 ARM 见 031，Core0 诊断镜像见 032，GUARD 启动等待见 033，健康 LOCKED 投影见 034，正式 aging 失效处理见 035。下一步推进正式合格输入接入、控制迁移和逐事件保持/恢复证据。032 首轮源失效/停机链因果未证，保留原失败；补偿 HOLD 与 Domain HOLDOVER 分开判定。 |
-| 2 | 保持已验证 delay，扩展恢复及输出证据 | `VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-DRIFT-001`；已有同配置 STOP/ARM 证据，补单板复位恢复、脉冲身份和测量误差。 |
+| 2 | 保持已验证 delay，扩展恢复及输出证据 | `VDC-OUTPUT-001`、`VDC-STAB-001`、`VDC-PRECISION-001`、`VDC-DRIFT-001`；已有同配置 STOP/ARM 证据，补单板复位恢复、脉冲身份和测量误差。 |
 | 3 | 验证失联、保持、恢复及旧会话退休 | `VDC-RECOVERY-001`、`VDC-HOLD-001`；区分偶发坏样本与持续失效，恢复后重新收敛。 |
 | 4 | 闭合正式精度及 VDC RUN 发布 | `VDC-CAL-001`、`VDC-EVID-001`、`VDC-LOCK-001`、`VDC-RUN-001`、`VDC-VERIFY-001`；校准、同事件身份、freshness、快照及完整调度证据齐全。 |
 
@@ -71,6 +71,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | `VDC-OUTPUT-001` | 共同未来边沿与独立输出补偿 | IN PROGRESS | 已有持续输出和 TIMER1 基线；补齐首沿/同 ordinal 对账、跨启动重复性、长期脉冲连续性及相位误差。模型和块计数不替代实际边沿。 |
+| `VDC-STAB-001` | 首窗口连续输出稳定性：TDMA 阶段后首个 DPLL 窗口的 `STARVED` 断流 | PENDING | **现象（2026-11-05，同日两个 build 复现；以下为运行快照，非产品事实源）**：build `20261105132330`（`out/HardwareAcceptance/20261105/p3-212304/`）与 `20261105142140`（`out/HardwareAcceptance/20261105/p3-222113/`）的**第 1 次** 60 s 窗口，NO.3/NO.4 两从板在同一相对时刻断流——89/89 与 91/90 块、1424 与 1456/1440 边沿后 `reason=3`（`SYNC_IO_RUN_OUTPUT_STARVED`）；同轮 NO.1/NO.2 跑到主机 STOP（59.7/59.1 s）。同板同配置的第 2 次窗口全部跑满 60 s（3926–3942 块、外部 `scope 12/12`）。**板端机制证据（退休快照 `run_output_raw`）**：`retire_fdebug` 置 `PIO_FDEBUG_TXSTALL`(RUN_SM)、`retire_dma_remaining=0`、最后一次成功提交后约 24 ms 无新提交（块长 `period_ns × block_edges`）、`plan_rejects=binding_rejects=last_submit_failure=0`、`commit_waits=5–6`、`model_changes=1`（对照 NO.2 的 524–553）、补给最小余量约 6 ms ⇒ **一次补给/提交迟到即可致命**，不是提交被拒；GUARD 只在 `VDC_PRIORITY_GUARD_CHECKPOINT_S` 观测（`first_failure_ms` 落在 60 s），断流在窗口结束前静默。**判读**：`scope 12/12 missed`（CH3/CH4 无边沿）是下游现象，不是示波器/触发缺陷；上游成立的是 `VDC-LONGTERM-002-B`「同一会话输出无未解释断流」未满足。**退出门禁**：①一次带时间戳的仪表跑钉死断流点——区分 `vdc_output.c` 的 commit-horizon 拒绝（`commit_waits`）与 TDMA 相位补给交接被跳过（`app.c` 的 `run_planned`/`run_cached`），并把结果落进每次 attempt 的日志（当前只有 `Capture exited 2`）；②修复后，TDMA 阶段之后**首次** DPLL 窗口在预声明轮次内零未解释断流（轮次由用户裁定，至少跨两个 build），不得以重试掩盖；③补给余量按块长重新定界（目标 ≥2 块跑道），同工况留 `refill_min_margin_ticks`/`commit_waits` 实测；④与 `VDC-OUTPUT-001`、`SYNC-OUT-002` 交叉引用，PIO 连续判据只引用、不重复登记。 |
 | `VDC-PRECISION-001` | 实际输出相位精度 | IN PROGRESS | 依本页物理分级，核验全部有效边沿、窗口、探头/通道时延及测量不确定度；不独立平移曲线消除偏差。通道时延读回与启动收敛窗分级判据见进度 037。 |
 | `VDC-DRIFT-001` | 持续频率与相位斜率收敛 | IN PROGRESS | 对账校正方向、量纲、限幅、更新间隔和实际 DCO；扩展同模型/事件窗口，短窗均频不冒充长期精度。 |
 | `VDC-FAST-001` | 最小预编码同步记录方案 | IN PROGRESS | 固定字段及事件/圈身份、单位、有效性、代际、误差界可审查；生成、装载、保全、匹配、回收的 owner、期限、容量及资源预算明确。不得截宽隐藏不确定度。 |

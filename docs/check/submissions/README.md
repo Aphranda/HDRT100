@@ -84,3 +84,4 @@ Last updated: <YYYY-MM-DD>
 | `REFMEM_HAOFV_REVIEW_01.md` | RefMem 四条款 HAOFV 偏差 R1：预算符号、config-control subtype、session writer、ActionDispatcher 归属、本地/协调者边界、实时性已修 | `PASS_WITH_CHANGES` |
 | `DOCS_CROSS_REVIEW_01.md` | agent 约束收敛：`tools/**`/`.agents/**/*.py` 归 host、契约 id 全量校验、`DRAFT_CLAUSE_DEBT`、§8 迁入 EXE §7 | 初审 `APPROVE-WITH-FIXES` → 复审 `PASS_WITH_NOTE`；4 项必修功能面闭环 |
 | `ARCH_ALGORITHM_REUSE_CROSS_REVIEW_01.md` | 校验原语合并（CRC-32/CCITT/FNV → `components/algo`）+ `p3_dpll_gate`/`validate_summary` 自检修复；逐字节等价与四板 P3 `SCOPE_PASS` 证据 | `ACCEPT_WITH_DEVIATION`；C11 `PASS_WITH_NOTE`，host 凭证待接受会话重生成 |
+| `ARCH_CONCEPT_DUPLICATION_CROSS_REVIEW_01.md` | 重复概念合并/归档计划（A1–A11 / B1 / C）的独立交叉核验；评审修订 4 处 A 项、撤回 A10 合并、批次重排 | `ACCEPT_WITH_DEVIATION`；C11 `PASS_WITH_CHANGES`，`REFMEM-ACTION-01` 已 superseded |

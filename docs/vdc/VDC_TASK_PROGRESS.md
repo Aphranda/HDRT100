@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-10-25
+Last updated: 2026-11-05
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -21,6 +21,15 @@ Last updated: 2026-10-25
 | 下一 gate | 必须指向一个 TODO Task ID 或明确外部阻塞。 |
 
 ## 当前 checkpoint
+
+### VDC-PROGRESS-20261105-067：首窗口两从板 `STARVED` 断流可复现（SYNC-OUT-002 类）——只入稳定性待办，未改固件
+
+- TODO task ID：`VDC-STAB-001` PENDING（本轮登记新建）；联动 `VDC-OUTPUT-001`、`SYNC-OUT-002`。以下数字为运行快照，非产品事实源。
+- **现象**：build `20261105132330`（`out/HardwareAcceptance/20261105/p3-212304/`）与 `20261105142140`（`out/HardwareAcceptance/20261105/p3-222113/`）的**第 1 次** DPLL 60 s 窗口，NO.3/NO.4 在各自 RUN 起点后 1.44–1.48 s 断流（89/89、91/90 块；1424、1456/1440 边沿）并锁死 `reason=3`（`SYNC_IO_RUN_OUTPUT_STARVED`）；同轮 NO.1/NO.2 跑到主机 STOP 正常。同板同配置第 2 次窗口全部跑满 60 s（3926–3942 块、外部 `scope 12/12`）。
+- **板端证据**（`dpll-four-board-short/capture/input-probe.json` 退休快照）：`PIO_FDEBUG_TXSTALL`(RUN_SM) 置位、`retire_dma_remaining=0`、最后一次成功提交后约 24 ms 无新提交、`commit_waits=5–6`、`model_changes=1`（NO.2 为 524–553）、`plan_rejects=binding_rejects=last_submit_failure=0`、最小补给余量约 6 ms（块长 16 ms）；GUARD 只在 `VDC_PRIORITY_GUARD_CHECKPOINT_S` 观测，`first_failure_ms` 落在 60 s，断流在窗口结束前静默。
+- **判读**：`scope 12/12 missed` 中 11 个窗口报 CH3 无边沿、第 12 个为收尾超时，示波器与采集链路正常（11 个窗口各留 4×65 万点 RAW），属下游现象；`VALIDATION_HARDWARE_ACCEPTANCE_PLAYBOOK.md` 里「NO.3/4 无脉冲 / STARVED / 12/12 missed 可能是示波器/触发/窗口问题」对本次签名不成立，该行待修订（本轮未改该文件）。
+- **未做**：未改固件、未改判据、未重跑台架。验收凭证仍是第 2 次窗口的 PASS（`config/hardware_acceptance/p3_acceptance_receipt.json`，`SCOPE_PASS`、外部相位 32 ns INFO），但「同一会话无未解释断流」（`VDC-LONGTERM-002-B`）未因此成立。
+- 下一 gate：`VDC-STAB-001` 门禁①——带时间戳的断流点仪表跑，区分 `vdc_output.c` 的 commit-horizon 拒绝与 `app.c` 的 TDMA 相位补给交接被跳过。
 
 ### VDC-PROGRESS-20261025-066：step 30 后续——host harness 收口（568 项）与凭证按类分流（firmware/host/docs）
 

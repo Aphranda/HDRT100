@@ -201,6 +201,7 @@ docs/
 | `docs/check/submissions/DOCS_CROSS_REVIEW_01.md` | agent 约束收敛的 C11 独立交叉核验：`tools/**` 与 `.agents/**/*.py` 归 host、契约 id 全量校验、`DRAFT_CLAUSE_DEBT` 限时债务、§8 模板迁入 EXE §7；初审 `APPROVE-WITH-FIXES` → 复审 `PASS_WITH_NOTE`，4 项必修功能面闭环，minor 残留随 M2/M3 处理。 |
 | `docs/check/submissions/CALIBRATION_GUIDE_CROSS_REVIEW_01.md` | 单口引导期校准流程（10 kHz 载体）HAOFV 双审：v1 判 `REJECT`（9 BLOCKER / 13 MAJOR），v2 逐条处置，待复审；未登记、未改 registry。 |
 | `docs/check/submissions/ARCH_ALGORITHM_REUSE_CROSS_REVIEW_01.md` | 校验原语合并 + P3 自检修复的 C11 交叉核验：`components/algo/inc/algo_checksum.h` 为已迁移站点唯一实现，逐字节等价经独立复核；审查 11 项（1 流程 BLOCKER、2 MAJOR）已逐条处置；结论 `ACCEPT_WITH_DEVIATION`，C11 `PASS_WITH_NOTE`（host 凭证由接受会话重生成）。 |
+| `docs/check/submissions/ARCH_CONCEPT_DUPLICATION_CROSS_REVIEW_01.md` | 重复概念合并/归档计划的 C11 交叉核验：A1–A11 合并、B1 归档、C 保持；评审判 4 处 A 项需修订、A10 不合并、批次重排，`REFMEM-ACTION-01` 由 pending 改 superseded；结论 `ACCEPT_WITH_DEVIATION`。 |
 | `docs/trigger/t2/TRIGGER_T2_HANDOFF_CHECKLIST.md` | T2 会话交接与自审清单：环境事实、已闭环项与可核验处、立即要做的 3 项、流程铁律与自审命令（原「用户偏好」小节已于 2026-10-13 移除，索引随之更正）。 |
 | `docs/trigger/t2/TRIGGER_T2_DEBUG_PLAYBOOK.md` | T2 调试手册：测量纪律、失败定位的固定顺序、已踩坑位（症状→根因→修法）、决策规则、工具配方、网关预装两组的精确设计。 |
 | `docs/interface/SCPI_HOST_ARCHITECTURE.md` | 接口域架构：上位机与多板系统的通信边界、单串口 + RefMem 分布式控制拓扑与待冻结项。 |
