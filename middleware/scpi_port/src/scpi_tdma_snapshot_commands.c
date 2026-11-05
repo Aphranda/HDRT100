@@ -9,6 +9,7 @@
 #include "app.h"
 #include "app_refmem_domain_config.h"
 #include "guide_action_plan.h"
+#include "refmem_domain_config.h"
 #include "refmem_param_pool.h"
 #include "diagnostics_tdma_record.h"
 #include "pico/time.h"
@@ -702,6 +703,16 @@ scpi_result_t scpi_cmd_system_tdma_guide_config(scpi_t *context)
         scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
         return SCPI_RES_ERR;
     }
+    /* The ring carries the command to the other nodes; the local node applies it
+     * directly because the RefMem node-control record does not preserve the
+     * inline parameter words (the mirror writes params=NULL), so the local
+     * dispatch would otherwise see zeros. */
+    uint32_t reason = (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+    if (!refmem_domain_config_dispatch(REFMEM_COMMAND_TYPE_CAL_GUIDE_CONFIG,
+                                       params, GUIDE_ACTION_PLAN_WORDS, &reason)) {
+        scpi_port_push_exec_error(context, "TDMA_GUIDE_CONFIG");
+        return SCPI_RES_ERR;
+    }
     return scpi_port_result_ok(context);
 }
 
@@ -732,6 +743,12 @@ scpi_result_t scpi_cmd_system_tdma_guide_trigger(scpi_t *context)
     request.payload_crc32 = refmem_param_pool_crc(params, sizeof(params));
     request.issue_epoch = epoch;
     if (!distributed_refmem_command_try_post(&request, osal_tick_ms())) {
+        scpi_port_push_exec_error(context, "TDMA_GUIDE_TRIGGER");
+        return SCPI_RES_ERR;
+    }
+    uint32_t reason = (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+    if (!refmem_domain_config_dispatch(REFMEM_COMMAND_TYPE_CAL_GUIDE_TRIGGER,
+                                       params, 2u, &reason)) {
         scpi_port_push_exec_error(context, "TDMA_GUIDE_TRIGGER");
         return SCPI_RES_ERR;
     }
