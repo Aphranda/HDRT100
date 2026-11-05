@@ -267,6 +267,19 @@ Last updated: 2026-11-05
 - 处置：源码改动保留在工作区并用 `refs/wip/m1-scan-20261105` 兜底；凭证与提交等台架 P0T 稳定后
   一次完成（`workflow_steps.py run --preset pico2-v2-factory-candidate --tdma-only`）。
 
+**续（第 16 轮，2026-11-05 19:50）——P0T 失败定位为工具传输问题，③-b 已入库**：
+
+- **A/B 证据（同台架同线序）**：workflow 内 P0T 连续 3 次 `RING:START <timeout>`（`error_after`
+  仍 `0,"No error"`）；独立 `calibration_ring_topology.py --adjacency-only --short-open --gap 0.2`
+  连续 2 次 **4/4 通过**（环序 1→2→3→4）。差异只在 persistent CDC + 100 ms action-timeout，
+  因此是**软件问题**，不是线序/硬件。
+- 绕过：standalone P0T（**必须做 NO 分配**，`--no-assign` 会被 `--reuse-topology` 判 node map 不一致）
+  + `workflow_steps.py run --reuse-topology <summary>` → 本次 V2 P3 `PASS_WITH_WARNINGS`
+  （build `20261105114026`，INFO 33 / WARN 2 / ERROR 0 / FATAL 0）。
+- **③-b 已入库**（`aabcbd34`）：adapter 逐槽 RX 计数 + `SYSTem:TDMA:RING:RXSLOT?`；
+  四板实测 `mask=1`、`count[0]≈5.3–5.5k`（cut-through 保留发起者，语义见 §9.22）。
+- 待办：P0T 的 START 超时后应像 ARM 一样用 `RING:STATus?` 复核意图，而不是直接失败。
+
 ## CAL-TASK-20261105-043 - 交接：日间 M0 收口，新会话入口
 
 **已完成并入库**（提交 `4458cff3`、`0777e5b6`、`44631607`、`5d4105dd`）：

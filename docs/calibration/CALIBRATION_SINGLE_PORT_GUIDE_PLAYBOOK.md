@@ -764,6 +764,26 @@ foreach ($s in @('0010071E65B5CB38','FB276192BEF9CCE1','2BD5090FE009FA2A','A1E54
 **注意**：整片擦除会清板号（NO.0），刷完需 `SYSTem:BOARD:NO <n>` 逐板写回；本 runbook 用普通
 `picotool load`（不 `--full-erase`），保留板号与标定。
 
+**P0T 在 workflow 里偶发 `START <timeout>`（2026-11-05，软件侧）**：同一台架、同一线序，
+`workflow_steps.py run` 内的 P0T 连续 3 次在某个 pair 的 `RING:START` 上 `<timeout>`
+（`error_after` 仍是 `0,"No error"`，即板端已接受），而**独立运行**
+`calibration_ring_topology.py --adjacency-only --short-open --gap 0.2` 连续 2 次 4/4 通过。
+物理线序不变，因此这是**工具传输/重试路径**的问题（persistent CDC + 100 ms action-timeout），
+不是台架。绕过方式（已验证）：
+
+```powershell
+python tools/calibration_ring_validate/calibration_ring_topology.py `
+  --board-id <NO.1..4 串口序> --anchor-id <NO.1> --adjacency-only `
+  --short-open --gap 0.2 --out-dir out/m1-scan/p0t-fix
+python tools/hardware_acceptance/workflow_steps.py run `
+  --preset pico2-v2-factory-candidate --tdma-only `
+  --reuse-topology out/m1-scan/p0t-fix/summary.json --out-dir out/m1-scan/full-v2k
+```
+
+`--reuse-topology` 只接受**做过 NO 分配**的 summary（`--no-assign` 会被判
+`known topology committed node map differs`）。根治方向：P0T 的 START 超时后应像 ARM 一样用
+`RING:STATus?` 复核意图，而不是直接判失败。
+
 ### 9.19 M1 P0T 板端对表扫描（实现 + 实板状态）
 
 **裁定（2026-11-05，用户）：M1 的拓扑接受改用 10 kHz 自组，邻接矩阵只保留为 provisioning 工具。**
