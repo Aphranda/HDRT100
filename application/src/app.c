@@ -1693,6 +1693,11 @@ bool app_guide_scan_get_pair(uint32_t index,
 #define APP_CTRQS_REF_ARM_DELAY_MS 600u
 #define APP_CTRQS_MAX_TRIALS 32u
 #define APP_CTRQS_ACTION_P1 1u
+#define APP_CTRQS_ACTION_P2 2u
+#define APP_CTRQS_P2_STEP_MS 5000u
+#define APP_CTRQS_P2_CODED_MS 6000u
+#define APP_CTRQS_P2_STOP_MS 6000u
+#define APP_CTRQS_P2_REF_DELAY_MS 120u
 
 typedef enum {
     APP_CTRQS_IDLE = 0,
@@ -1702,6 +1707,11 @@ typedef enum {
     APP_CTRQS_ARM,
     APP_CTRQS_FORWARD,
     APP_CTRQS_TRIAL,
+    APP_CTRQS_P2_PREP,
+    APP_CTRQS_P2_ARM,
+    APP_CTRQS_P2_STOP,
+    APP_CTRQS_P2_WAIT,
+    APP_CTRQS_P2_CODED_STOP,
     APP_CTRQS_RESTORE_WAIT,
     APP_CTRQS_REBUILD,
     APP_CTRQS_Q,
@@ -1733,6 +1743,21 @@ typedef struct {
     uint32_t restore_reference_slot;
     bool rebuild_topo_done;
     bool rebuild_armed;
+    /* P2 (coded marker) request: the same five words the SCPI handler passes
+     * to calibration_manager_request_clk_coded(). */
+    uint32_t p2_prep_step;
+    uint32_t p2_codebook;
+    uint32_t p2_min_lag;
+    uint32_t p2_max_lag;
+    uint32_t p2_max_distance;
+    uint32_t p2_min_margin;
+    uint32_t p2_probe_phase;
+    uint32_t p2_level;
+    uint32_t p2_ref_start_ms;
+    bool p2_started;
+    bool p2_fwd_seen;
+    uint32_t hard_fail_reason;
+    uint64_t stop_try_ms;
     guide_action_progress_t progress;
 } app_ctrqs_t;
 
@@ -1759,6 +1784,20 @@ static bool app_ctrqs_ring_quiescent(void)
     return tdma_runtime_owner_get_ring_snapshot(&ring) &&
            ring.enabled == 0u && ring.adapter_started == 0u &&
            ring.applied_config_seq == ring.config_seq;
+}
+
+/* tdma_ring_runtime_configure() bumps config_seq on every call, including the
+ * NULL STOP (tdma_ring_runtime.c).  Issuing STOP from the 1 ms service tick
+ * therefore keeps applied_config_seq chasing config_seq forever and the
+ * quiescent barrier never closes.  Throttle the request so the runtime gets a
+ * generation-stable pass to retire it. */
+static void app_ctrqs_stop_throttled(uint64_t now)
+{
+    if (s_ctrqs.stop_try_ms != 0u && now < s_ctrqs.stop_try_ms + 150u) {
+        return;
+    }
+    s_ctrqs.stop_try_ms = now;
+    (void)distributed_refmem_tdma_ring_stop();
 }
 
 static bool app_ctrqs_ring_formed(void)
@@ -1808,7 +1847,10 @@ static void app_ctrqs_abort(uint32_t reason)
 
 static void app_ctrqs_finalize(void)
 {
-    if (s_ctrqs.progress.trials_done < s_ctrqs.trials) {
+    if (s_ctrqs.hard_fail_reason != 0u) {
+        s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
+        s_ctrqs.progress.reason = s_ctrqs.hard_fail_reason;
+    } else if (s_ctrqs.progress.trials_done < s_ctrqs.trials) {
         /* A short slot window (ring formed late / missed slots) is not a
          * completed action: fail closed instead of reporting COMPLETE with a
          * partial trial count. */
@@ -1903,13 +1945,50 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
     const bool repeat_last_action =
         s_ctrqs_ladder.action_index != 0u &&
         plan->action_id == s_ctrqs_ladder.action_index;
-    if (plan->action_id != APP_CTRQS_ACTION_P1 ||
-        plan->trial_count == 0u ||
-        plan->trial_count > APP_CTRQS_MAX_TRIALS ||
-        plan->window_ms == 0u || plan->candidate_count < 2u ||
-        plan->candidate_count > GUIDE_ACTION_PLAN_MAX_CANDIDATES ||
-        epoch == 0u || nodes == 0u ||
-        (plan->action_id != expected_action && !repeat_last_action)) {
+    s_ctrqs.ref_slot = nodes != 0u ? plan->candidates[0] % nodes : 0u;
+    bool plan_valid =
+        plan->trial_count != 0u &&
+        plan->trial_count <= APP_CTRQS_MAX_TRIALS &&
+        plan->window_ms != 0u &&
+        plan->candidate_count <= GUIDE_ACTION_PLAN_MAX_CANDIDATES &&
+        epoch != 0u && nodes != 0u &&
+        (plan->action_id == expected_action || repeat_last_action);
+    if (plan->action_id == APP_CTRQS_ACTION_P1) {
+        plan_valid = plan_valid && plan->candidate_count >= 2u;
+        s_ctrqs.cycle_count = plan->candidate_count - 1u;
+        for (uint32_t i = 0u; i < s_ctrqs.cycle_count; i++) {
+            s_ctrqs.cycles[i] = plan->candidates[i + 1u];
+        }
+        s_ctrqs.trials = plan->trial_count;
+        s_ctrqs.slot_ms = plan->window_ms / plan->trial_count;
+        if (s_ctrqs.slot_ms < 300u) {
+            s_ctrqs.slot_ms = 300u;
+        }
+    } else if (plan->action_id == APP_CTRQS_ACTION_P2) {
+        /* P2 candidate layout: ref_slot, codebook, min_lag, max_lag,
+         * min_margin; threshold_low = probe phase cycles, threshold_high =
+         * max best-distance. */
+        s_ctrqs.p2_codebook = plan->candidates[1];
+        s_ctrqs.p2_min_lag = plan->candidates[2];
+        s_ctrqs.p2_max_lag = plan->candidates[3];
+        s_ctrqs.p2_min_margin = plan->candidates[4];
+        s_ctrqs.p2_max_distance = plan->threshold_high;
+        s_ctrqs.p2_probe_phase = plan->threshold_low;
+        s_ctrqs.p2_level = plan->profile_level;
+        plan_valid = plan_valid && plan->candidate_count == 5u &&
+                     plan->trial_count == 1u &&
+                     s_ctrqs.p2_codebook <= 3u &&
+                     s_ctrqs.p2_min_lag < s_ctrqs.p2_max_lag &&
+                     s_ctrqs.p2_max_lag - s_ctrqs.p2_min_lag + 1u <= 256u &&
+                     s_ctrqs.p2_probe_phase != 0u &&
+                     s_ctrqs.p2_max_distance != 0u &&
+                     s_ctrqs.p2_level != 0u;
+        s_ctrqs.trials = 1u;
+        s_ctrqs.slot_ms = plan->window_ms;
+    } else {
+        plan_valid = false;
+    }
+    if (!plan_valid) {
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
         s_ctrqs.progress.reason =
             (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
@@ -1925,16 +2004,6 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         app_cal_guide_set_ladder_result(s_ctrqs_ladder.action_index, 0u);
         s_ctrqs.state = APP_CTRQS_DONE;
         return;
-    }
-    s_ctrqs.ref_slot = plan->candidates[0] % nodes;
-    s_ctrqs.cycle_count = plan->candidate_count - 1u;
-    for (uint32_t i = 0u; i < s_ctrqs.cycle_count; i++) {
-        s_ctrqs.cycles[i] = plan->candidates[i + 1u];
-    }
-    s_ctrqs.trials = plan->trial_count;
-    s_ctrqs.slot_ms = plan->window_ms / plan->trial_count;
-    if (s_ctrqs.slot_ms < 300u) {
-        s_ctrqs.slot_ms = 300u;
     }
     /* One common schedule for all four boards: the trigger frame reaches them
      * within a ring cycle, so a fixed offset from receipt is a shared epoch. */
@@ -2041,8 +2110,11 @@ static void app_ctrqs_service(void)
     }
     case APP_CTRQS_FANOUT:
         if (now >= s_ctrqs.deadline_ms) {
-            (void)distributed_refmem_tdma_ring_stop();
-            s_ctrqs.state = APP_CTRQS_STOP;
+            app_ctrqs_stop_throttled(now);
+            s_ctrqs.state =
+                (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_P2)
+                    ? APP_CTRQS_P2_PREP
+                    : APP_CTRQS_STOP;
             s_ctrqs.deadline_ms = now + APP_CTRQS_STOP_MS;
         }
         return;
@@ -2079,7 +2151,7 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_ARM:
         if (!app_ctrqs_ring_quiescent()) {
-            (void)distributed_refmem_tdma_ring_stop();
+            app_ctrqs_stop_throttled(now);
             if (now >= s_ctrqs.deadline_ms) {
                 app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
             }
@@ -2092,7 +2164,7 @@ static void app_ctrqs_service(void)
         if (!distributed_refmem_tdma_ring_arm() ||
             distributed_refmem_tdma_ring_arm_last_result() !=
                 DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
-            (void)distributed_refmem_tdma_ring_stop();
+            app_ctrqs_stop_throttled(now);
             if (now >= s_ctrqs.deadline_ms) {
                 app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
             }
@@ -2157,6 +2229,177 @@ static void app_ctrqs_service(void)
     case APP_CTRQS_TRIAL:
         app_ctrqs_trial();
         return;
+    case APP_CTRQS_P2_PREP:
+        if (s_ctrqs.p2_prep_step == 0u) {
+            if (!app_ctrqs_ring_quiescent()) {
+                app_ctrqs_stop_throttled(now);
+                if (now >= s_ctrqs.deadline_ms) {
+                    app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+                }
+                return;
+            }
+            /* Keep the training stage: the coded persona expects a matching
+             * topology stage, and the window close needs it to re-form the
+             * guide ring.  The host tool clears it because it never restores
+             * the ring; this loop does. */
+            if (!calibration_manager_set_topology_probe_mode(
+                    true, s_ctrqs.p2_probe_phase) ||
+                !tdma_runtime_owner_stage_operating_profile(s_ctrqs.p2_level) ||
+                !tdma_runtime_owner_apply_operating_profile()) {
+                app_ctrqs_abort(
+                    (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+                return;
+            }
+            s_ctrqs.p2_prep_step = 1u;
+            s_ctrqs.deadline_ms = now + APP_CTRQS_P2_STEP_MS;
+            return;
+        }
+        if (!distributed_refmem_set_tdma_ring_topology(
+                s_ctrqs.local_slot, s_ctrqs.ref_slot,
+                (uint32_t)PROJECT_TDMA_GUIDE_NODES)) {
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort(
+                    (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            }
+            return;
+        }
+        s_ctrqs.state = APP_CTRQS_P2_ARM;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_P2_STEP_MS;
+        s_ctrqs.arm_try_ms = (s_ctrqs.local_slot == s_ctrqs.ref_slot)
+                                 ? (uint32_t)(now + APP_CTRQS_REF_ARM_DELAY_MS)
+                                 : 0u;
+        return;
+    case APP_CTRQS_P2_ARM:
+        if (!app_ctrqs_ring_formed()) {
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+                return;
+            }
+            if (now < s_ctrqs.arm_try_ms) {
+                return;
+            }
+            s_ctrqs.arm_try_ms = (uint32_t)now + 150u;
+            if (!app_ctrqs_ring_quiescent()) {
+                app_ctrqs_stop_throttled(now);
+            } else if (distributed_refmem_tdma_ring_arm() &&
+                       distributed_refmem_tdma_ring_arm_last_result() !=
+                           DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
+                app_ctrqs_stop_throttled(now);
+            }
+            return;
+        }
+        s_ctrqs.state = APP_CTRQS_P2_STOP;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_P2_STOP_MS;
+        return;
+    case APP_CTRQS_P2_STOP:
+        app_ctrqs_stop_throttled(now);
+        if (!app_ctrqs_ring_quiescent()) {
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            }
+            return;
+        }
+        (void)calibration_manager_set_topology_probe_mode(false, 0u);
+        s_ctrqs.state = APP_CTRQS_P2_WAIT;
+        s_ctrqs.deadline_ms = s_ctrqs.t0_ms + APP_CTRQS_P2_CODED_MS;
+        s_ctrqs.p2_ref_start_ms = (uint32_t)(s_ctrqs.t0_ms +
+                                             APP_CTRQS_P2_REF_DELAY_MS);
+        return;
+    case APP_CTRQS_P2_WAIT: {
+        calibration_clk_coded_snapshot_t coded;
+        const bool have = calibration_manager_get_clk_coded_snapshot(&coded);
+        if (!s_ctrqs.p2_started) {
+            if (now < s_ctrqs.t0_ms) {
+                return;
+            }
+            if (s_ctrqs.local_slot == s_ctrqs.ref_slot &&
+                now < s_ctrqs.p2_ref_start_ms) {
+                return;
+            }
+            if (!calibration_manager_request_clk_coded(
+                    s_ctrqs.p2_codebook, s_ctrqs.p2_min_lag,
+                    s_ctrqs.p2_max_lag, s_ctrqs.p2_max_distance,
+                    s_ctrqs.p2_min_margin)) {
+                app_ctrqs_abort(
+                    (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+                return;
+            }
+            s_ctrqs.p2_started = true;
+            return;
+        }
+        if (!have) {
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            }
+            return;
+        }
+        if (s_ctrqs.local_slot == s_ctrqs.ref_slot) {
+            bool done = false;
+            bool pass = false;
+            if (coded.state == CALIBRATION_CLK_CODED_ACCEPTED) {
+                done = true;
+                pass = true;
+            } else if (coded.state == CALIBRATION_CLK_CODED_REJECTED) {
+                done = true;
+                s_ctrqs.hard_fail_reason =
+                    coded.reject_reason != 0u
+                        ? coded.reject_reason
+                        : (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+            } else if (now >= s_ctrqs.deadline_ms) {
+                done = true;
+                s_ctrqs.hard_fail_reason =
+                    (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
+            }
+            if (!done) {
+                return;
+            }
+            s_ctrqs.progress.trials_done = 1u;
+            s_ctrqs.progress.deepest_trial = 0u;
+            if (pass) {
+                s_ctrqs.progress.passed_mask = 1u;
+            } else {
+                s_ctrqs.progress.failed_mask = 1u;
+            }
+            app_ctrqs_publish();
+        } else {
+            if (!s_ctrqs.p2_fwd_seen &&
+                (coded.state == CALIBRATION_CLK_CODED_CLOCK_CODED ||
+                 coded.state == CALIBRATION_CLK_CODED_ACCEPTED)) {
+                s_ctrqs.p2_fwd_seen = true;
+            }
+            if (now < s_ctrqs.deadline_ms) {
+                return;
+            }
+            s_ctrqs.progress.trials_done = 1u;
+            s_ctrqs.progress.deepest_trial = 0u;
+            if (s_ctrqs.p2_fwd_seen) {
+                s_ctrqs.progress.passed_mask = 1u;
+            } else {
+                s_ctrqs.progress.failed_mask = 1u;
+                s_ctrqs.hard_fail_reason =
+                    (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
+            }
+            app_ctrqs_publish();
+        }
+        s_ctrqs.state = APP_CTRQS_P2_CODED_STOP;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_P2_STOP_MS;
+        return;
+    }
+    case APP_CTRQS_P2_CODED_STOP: {
+        calibration_clk_coded_snapshot_t coded;
+        (void)calibration_manager_stop_clk_coded();
+        const bool idle = calibration_manager_get_clk_coded_snapshot(&coded) &&
+                          coded.state == CALIBRATION_CLK_CODED_IDLE;
+        if (!idle && now < s_ctrqs.deadline_ms) {
+            return;
+        }
+        if (!idle && s_ctrqs.hard_fail_reason == 0u) {
+            s_ctrqs.hard_fail_reason =
+                (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
+        }
+        app_ctrqs_finalize();
+        return;
+    }
     case APP_CTRQS_RESTORE_WAIT:
         if (s_boot_guide_done && s_boot_fail_step == 0u) {
             if (app_ctrqs_restore_formed()) {
@@ -2189,7 +2432,7 @@ static void app_ctrqs_service(void)
         }
         if (!s_ctrqs.rebuild_topo_done) {
             if (!app_ctrqs_ring_quiescent()) {
-                (void)distributed_refmem_tdma_ring_stop();
+                app_ctrqs_stop_throttled(now);
                 if (now >= s_ctrqs.deadline_ms) {
                     goto ctrqs_rebuild_failed;
                 }
@@ -2213,7 +2456,7 @@ static void app_ctrqs_service(void)
         s_ctrqs.arm_try_ms = (uint32_t)now + 150u;
         if (!s_ctrqs.rebuild_armed) {
             if (!app_ctrqs_ring_quiescent()) {
-                (void)distributed_refmem_tdma_ring_stop();
+                app_ctrqs_stop_throttled(now);
             } else if (distributed_refmem_tdma_ring_arm() &&
                        distributed_refmem_tdma_ring_arm_last_result() ==
                            DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
