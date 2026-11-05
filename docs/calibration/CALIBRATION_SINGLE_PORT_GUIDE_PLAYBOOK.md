@@ -1030,6 +1030,29 @@ host 只在端口做触发与事后读回。当前每一项的"谁在驱动"：
 | 单口读回 | 只有各阶段自己的 SCPI 快照 | Q 段 typed mirror / 位图（§2.5、§2.6） |
 | 高速环只在最后起 | ✅ 已满足（T3 stage → ARM → 10 MHz） | — |
 
+### 9.25 每个动作跑一次 C→T→R→Q→S（执行模型）
+
+单口引导的执行单位不是"整条链一次跑完"，而是**每个动作（P1/P2/P3/T0/T1/T2/T3…）各跑一次
+C→T→R→Q→S**；环在动作之间保持 10 kHz，只有 R 段进暗窗，S 段把该动作的结果变成可 ARM 的 staging。
+上一动作的 Q 不通过就不进入下一动作。
+
+| 段 | 每个动作内做什么 | 失败处置 |
+|---|---|---|
+| **C** | 把该动作的计划（候选表/阈值/重复数/`(crc32,size)` 引用）随环下发到每板 RAM staging；目标本地 owner 校验后 ACK | C 未全 ACK → 不广播 T，动作记 `REJECT_CONFIG` 并停 |
+| **T** | 协调板在环上广播一个 trigger word（4 B，单 chunk）+ 该动作的 epoch；各板按本地 epoch 在窗口内起跑 | 超窗 → 记 `TRIGGER_MISSED`，不猜、不补测 |
+| **R** | 短暗窗内本地串行跑该动作的固定阶梯（STOP→配置→ARM→INJECT→判定→STOP），逐 trial 落本地记录 | 任一步失败 → 整动作 `STOPPED`，不进入 Q，不进下一动作 |
+| **Q** | 重放冻结 boot 步骤复环 10 kHz，逐板发布该动作的身份 + 逐 trial 字段（带 age/stale） | 身份缺失或 stale → 该动作 FAIL |
+| **S** | 该动作结果通过校验后变成可 ARM 的 staging（T3 的 stage 即由此而来）；**只有最后一个动作的 S** 才 `ARM → START 10 MHz` | 校验不过 → 保留上一份 staging，回到 10 kHz |
+
+**执行器形状**：一个通用 `guide_action_runner`，输入 `(action_id, plan_ref, epoch)`，
+按 `C→T→R→Q→S` 五个阶段推进，每阶段有**完成条件 + 超时 + reason**；动作表是数据
+（类似 `k_guide_phase_ms`），不是五段各自写死。M1 扫描的暗窗原语（`STOP→配置→等 applied→
+ARM(带屏障)→START→采样→STOP` + 重放 boot 步骤复环）可直接作为 R/Q 的实现骨架。
+
+**与 §9.24 的关系**：§9.24 定"谁驱动"，本节定"一次动作怎么跑"。两者合起来 = 断开四口后，
+四板对每个动作各跑一轮 CTRQS，全部通过后最后一轮的 S 才起 10 MHz。
+
+
 
 
 
