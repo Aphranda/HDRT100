@@ -974,6 +974,21 @@ adapter 的 `last_rx_origin_slot_id/last_rx_hop_count/last_rx_hop_limit/last_rx_
   `workflow_steps.py` 的 `phase_topology_gate` 仍硬要求 12 对结果、从不查 `BOOT:TOPology?`——文档已裁、
   门禁未接，需同步。
 
+**稳定性实测（2026-11-05，S0 部分先落两处）**：workflow 的 P0T 现在显式钉住 `--short-open` 与
+`--gap 0.2`（前者原来就加了，后者原先由 timing profile 隐式推导，导致"验证过的组合"与"run 执行的
+组合"不一致）。同台架**连续 5 轮 standalone P0T 全部 4/4 通过**（`out/m1-scan/p0t-stab-1..5`），
+此前 workflow 内是 3 连败。S0 剩余两项（OR→AND、三态判定/局部重试）与 S1 的 hop 校验仍未做。
+
+**为什么自组稳、P0T 不稳（第四条结论）**：自组的稳定性来自"不做测量、幂等收敛"——USB 不在环里、
+10 kHz 每秒上万次独立判决、认成功要求 `RESIDENT|SEEDED|ORIGIN|HOP|REQUIRED|SEQUENCE|IDENTITY`
+七位闭环（`tdma_pio_spi_ring_adapter.h:42-56`、`rx.c:550-581`）、错误自愈不升级、启动零决策
+（map 硬编码 slot→slot+1）。P0T 恰好相反：每对 1.5 s 一次判决、出错整轮丢弃。因此"把 P0T 搬到板端"
+并不自动变稳——板端版的时基是"复位后 12.5 s + k×5 s"（`app.c:98-100`，注释里写明前提
+`all boards reset together`），而逐板看到环流量的偏差实测 0.6–1.2 s，采样窗只有 1.6 s，
+一次复位偏移就能把邻对突发算成本对（假阳性）。**若要板端化，先改成事件驱动开窗**（收到前驱帧/边沿
+再开窗），否则只是把"可复现的 USB 丢 ACK"换成"更难复现的复位偏移"。
+
+
 
 **S 段实板测试步骤（待 matrix 就绪后执行）**：
 

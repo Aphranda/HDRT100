@@ -3459,6 +3459,13 @@ def phase_topology(run: AcceptanceRun) -> None:
         if "--timeout" in topology_command:
             topology_command[topology_command.index("--timeout") + 1] = str(
                 topology_timeout_s)
+        # Pin the inter-command gap that was validated on this bench
+        # (2026-11-05): 0.2 s. The timing profile used to derive it implicitly,
+        # so the combination that passed was not the one this command ran.
+        if "--gap" in topology_command:
+            topology_command[topology_command.index("--gap") + 1] = "0.2"
+        else:
+            topology_command.extend(["--gap", "0.2"])
         _run_step(topology_command, root, out_dir / "topology.log")
     else:
         print("Hardware acceptance: reuse measured line order; read current UID/build/NO", flush=True)
