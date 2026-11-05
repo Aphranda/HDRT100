@@ -735,8 +735,17 @@ bool tdma_pio_spi_ring_adapter_process_rx_impl(
     tdma_service_timing_record(TDMA_TIMING_RX_EVIDENCE, rx_evidence_start);
     adapter->rx_count++;
     if (view.origin_slot_id < TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX) {
-        adapter->rx_slot_count[view.origin_slot_id]++;
-        adapter->rx_slot_mask |= (uint32_t)1u << view.origin_slot_id;
+        const uint32_t slot = view.origin_slot_id;
+        const uint32_t hop = view.hop_count > 0xffu ? 0xffu : view.hop_count;
+        adapter->rx_slot_count[slot]++;
+        adapter->rx_slot_mask |= (uint32_t)1u << slot;
+        if (adapter->rx_slot_hop_min[slot] == 0xffu ||
+            hop < adapter->rx_slot_hop_min[slot]) {
+            adapter->rx_slot_hop_min[slot] = (uint8_t)hop;
+        }
+        if (hop > adapter->rx_slot_hop_max[slot]) {
+            adapter->rx_slot_hop_max[slot] = (uint8_t)hop;
+        }
     }
     if ((view.flags & TDMA_TRANSPORT_FLAG_IDLE_BEACON) != 0u) {
         adapter->idle_beacon_rx_count++;

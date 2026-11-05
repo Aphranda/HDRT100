@@ -1317,6 +1317,12 @@ scpi_result_t scpi_cmd_system_tdma_ring_rxslot_q(scpi_t *context)
     for (size_t slot = 0u; slot < TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX; slot++) {
         SCPI_ResultUInt32(context, snapshot.rx_slot_count[slot]);
     }
+    for (size_t slot = 0u; slot < TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX; slot++) {
+        SCPI_ResultUInt32(context, snapshot.rx_slot_hop_min[slot]);
+    }
+    for (size_t slot = 0u; slot < TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX; slot++) {
+        SCPI_ResultUInt32(context, snapshot.rx_slot_hop_max[slot]);
+    }
     return SCPI_RES_OK;
 }
 

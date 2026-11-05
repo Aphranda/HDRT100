@@ -845,6 +845,8 @@ bool tdma_pio_spi_ring_adapter_try_get_snapshot(
     snapshot->rx_slot_mask = adapter->rx_slot_mask;
     for (size_t slot = 0u; slot < TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX; slot++) {
         snapshot->rx_slot_count[slot] = adapter->rx_slot_count[slot];
+        snapshot->rx_slot_hop_min[slot] = adapter->rx_slot_hop_min[slot];
+        snapshot->rx_slot_hop_max[slot] = adapter->rx_slot_hop_max[slot];
     }
         snapshot->rx_bad_count = adapter->rx_bad_count;
         snapshot->rx_transport_bad_count = adapter->rx_transport_bad_count;

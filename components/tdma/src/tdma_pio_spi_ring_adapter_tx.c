@@ -474,6 +474,14 @@ bool tdma_pio_spi_ring_adapter_start(
     adapter->diagnostic_burst_valid = 1u;
     adapter->rx_count = 0u;
     adapter->rx_bad_count = 0u;
+    /* New ARM lifetime: forget the heard-slot evidence, including the hop
+     * envelope (0xFF = "no hop seen yet" for that origin). */
+    adapter->rx_slot_mask = 0u;
+    for (size_t slot = 0u; slot < TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX; slot++) {
+        adapter->rx_slot_count[slot] = 0u;
+        adapter->rx_slot_hop_min[slot] = 0xffu;
+        adapter->rx_slot_hop_max[slot] = 0u;
+    }
     adapter->rx_transport_bad_count = 0u;
     adapter->rx_schedule_bad_count = 0u;
     adapter->rx_profile_bad_count = 0u;

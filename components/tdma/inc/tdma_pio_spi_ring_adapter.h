@@ -460,6 +460,10 @@ typedef struct {
     /* Which origin slots this board actually hears: bit i = slot i accepted. */
     uint32_t rx_slot_mask;
     uint32_t rx_slot_count[TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX];
+    /* Per-origin hop envelope: the last-frame latch is overwritten by later
+     * frames, so ring order has to be read from the observed min/max hop. */
+    uint8_t rx_slot_hop_min[TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX];
+    uint8_t rx_slot_hop_max[TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX];
     uint32_t rx_transport_bad_count;
     uint32_t rx_schedule_bad_count;
     uint32_t rx_profile_bad_count;
@@ -689,6 +693,10 @@ typedef struct {
     /* Which origin slots this board actually hears: bit i = slot i accepted. */
     uint32_t rx_slot_mask;
     uint32_t rx_slot_count[TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX];
+    /* Per-origin hop envelope: the last-frame latch is overwritten by later
+     * frames, so ring order has to be read from the observed min/max hop. */
+    uint8_t rx_slot_hop_min[TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX];
+    uint8_t rx_slot_hop_max[TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX];
     uint32_t rx_transport_bad_count;
     uint32_t rx_schedule_bad_count;
     uint32_t rx_profile_bad_count;
