@@ -1133,6 +1133,22 @@ rows[]: { trial_index, verdict_code, measured_u32 }        // 每 trial 一行
 `deepest_trial` 让下一轮从断点继续；`plan_crc32`/`generation` 与 C 段一致才被 Q 采信，
 否则整动作重跑（不混用旧槽位）。
 
+**HAOFV 合规（必须逐条满足，`docs/arch/HAOFV_FLASH_ARCHITECTURE.md` §2.1）**：
+
+| 门 | 本设计怎么满足 |
+|---|---|
+| **① 不改 wire** | 只复用既有 `REFMEM_CMD` 信封与 `refmem_param_pool` 槽位；不新增 payload class、不加第二命令槽/ACK、不改帧长 |
+| **② core0/core1 边界** | C/T/Q 全是 RAM 与命令面操作，不写 flash；R 段只写本板 param pool（RAM）。**S 段的 flash 落入必须由 core0 `FlashTransactionAO` 以 intent 发起**（§2.1 规则 1），业务侧不得直接调 raw flash |
+| **③ 单写者** | 每块板的 param pool region 只有本板 owner 写；flash 只有 `FlashTransactionAO` 写（`ARCH-FLASHOWNER-01`）；R 期间环已停，PIO 无第二使用者 |
+| **④ fail-closed** | Q 的 `command_seq`/CRC 不符 ⇒ `STALE` 整动作重跑；S 段写校验不过 ⇒ 该动作 FAIL、generation 不前进、保留上一份 staging |
+| **⑤ 不改 map/错误码** | 不改 FlashMap、不新增错误码；`reason` 复用既有 reason 集合（`TRIGGER_MISSED`/`ARM_TIMEOUT` 等都是既有分类） |
+| **⑥ 证据** | 每项落 host 单测 + 四板 HIL + P3 凭证；无证据不得标 ✅ |
+
+**额外硬约束**：§2.1 规则 7 要求"**RUN、Calibration training 进行中不得开始普通写事务**"——
+所以每个动作的 **S 段固化必须在该动作训练会话关闭之后**（R 结束、Q 完成、训练 session 已 close）
+才可提交，且提交失败要按 fail-closed 处理，不能在训练窗口内抢写。
+
+
 
 
 
