@@ -5,40 +5,43 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_calibration_marker_train.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_trn03_closed_loop.py",
     "tests/python/test_vdc_host_harness.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_calibration_marker_train.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_trn03_closed_loop.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 9.953,
+  "duration_s": 9.453,
   "returncode": 0,
   "summary": {
-    "passed": 119,
+    "passed": 203,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
-    "xfailed": 0
+    "xfailed": 1
   },
-  "summary_line": "119 passed in 9.53s",
+  "summary_line": "203 passed, 1 xfailed in 9.05s",
   "tail": [
-    "........................................................................ [ 60%]",
-    "...............................................                          [100%]",
-    "119 passed in 9.53s"
+    "........................................................................ [ 35%]",
+    "..............x......................................................... [ 70%]",
+    "............................................................             [100%]",
+    "=========================== short test summary info ===========================",
+    "XFAIL tests/python/test_trn03_closed_loop.py::test_load_mask_releases_only_newly_enabled_loads - pre-existing: app.c quarantine release now includes the foundation mask (~ (newly_enabled | APP_REALTIME_LOAD_FOUNDATION_MASK)); the assertion predates that change and needs an owner decision",
+    "203 passed, 1 xfailed in 9.05s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "494d1d4e178dfa06230841654801ddc6b629a0c39773074af4bedfbb305afbc6",
+  "fingerprint": "a0613374db66c2e7fbe1bebacd2c3c9fe635f905faebf9cbdda3913c4da5d824",
   "file_count": 1161,
-  "working_fingerprint": "494d1d4e178dfa06230841654801ddc6b629a0c39773074af4bedfbb305afbc6",
-  "started_at_utc": "2026-11-05T17:26:31.779417+00:00"
+  "working_fingerprint": "a0613374db66c2e7fbe1bebacd2c3c9fe635f905faebf9cbdda3913c4da5d824",
+  "started_at_utc": "2026-11-05T18:12:01.158311+00:00"
 }

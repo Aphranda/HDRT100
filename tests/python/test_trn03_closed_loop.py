@@ -1267,7 +1267,7 @@ def test_product_flight_arm_uses_configured_process_image_payload() -> None:
     )[1].split("static bool tdma_runtime_owner_flight_phys_timestamp_ready", 1)[0]
     snapshot = arm.index("tdma_flight_engine_get_snapshot")
     payload_set = arm.index("tdma_pio_spi_phys_set_flight_payload_size")
-    product_gate = arm.index("stage->enabled != 0u && !have_flight_map")
+    product_gate = arm.index("(stage->enabled != 0u || bringup) && !have_flight_map")
     phys_arm = arm.index("tdma_pio_spi_phys_arm(context, config)")
     assert snapshot < payload_set < phys_arm
     assert product_gate < phys_arm
@@ -1325,8 +1325,8 @@ def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
     assert "origin_done_irq_count++" in flight_tx
     assert "timeout_now_ns =\n        tdma_pio_spi_phys_now_us() * 1000ull" in flight_tx
     assert "flight_tx_launch_timestamp_ns = tx_edge_diagnostic_ns" in flight_tx
-    assert "UINT64_MAX - timeout_now_ns < wire_ns + 1000000ull" in flight_tx
-    assert "timeout_now_ns + wire_ns + 1000000ull" in flight_tx
+    assert "UINT64_MAX - timeout_now_ns < wire_ns + completion_margin_ns" in flight_tx
+    assert "timeout_now_ns + wire_ns + completion_margin_ns" in flight_tx
 
 
 def test_origin_data_output_and_capture_have_single_pin_directions() -> None:
@@ -2010,6 +2010,45 @@ def test_finite_acquisition_stops_all_boards_before_export(monkeypatch, tmp_path
     stops = [row for row in actions if row["action"] == "STOP_BEFORE_EXPORT"]
     assert [row["node"] for row in stops] == [board.address for board in boards]
     assert sum("error" in row for row in stops) == (failure == "stop")
+
+
+@pytest.mark.parametrize("stopped", [1, 0])
+def test_stop_lost_ack_requires_stopped_readback(monkeypatch, tmp_path, stopped):
+    clock, calls = [10.0], []
+    monkeypatch.setattr(trn03.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(trn03.time, "time", lambda: 123)
+    monkeypatch.setattr(trn03.time, "sleep",
+                        lambda delay: clock.__setitem__(0, clock[0] + delay))
+    boards = [SimpleNamespace(address="node0")]
+    args = SimpleNamespace(sample_interval_s=0.25, startup_timeout_s=0.5,
+                           window_s=0.5, arm_wait=1, leave_running=False)
+
+    def command(board, text, args):
+        calls.append(text)
+        if text == "SYSTem:TDMA:RING:STOP":
+            return "OK(no payload; verified by state readback)"
+        if text.endswith("STATus?"):
+            state = 3 if any("RECord:ARM" in value for value in calls) else 0
+            return f"{state},123,250000,8,0,0,0,1600,0"
+        return '"OK"'
+
+    monkeypatch.setattr(trn03, "board_command", command)
+    monkeypatch.setattr(trn03, "stopped_snapshot",
+                        lambda board, args, index: {"passed": stopped})
+    monkeypatch.setattr(trn03, "export_frozen", lambda *a, **kw: {"exported": True})
+    progress = SimpleNamespace(emit=lambda *a, **kw: None)
+    actions = []
+    if stopped:
+        result = trn03.acquire_board_records(
+            boards, boards, args, actions, progress, tmp_path)
+        assert result["node0"]["exported"] is True
+        stop = next(row for row in actions if row["action"] == "STOP_BEFORE_EXPORT")
+        assert stop["ack_disposition"].startswith("OK(no payload")
+        assert stop["stopped_readback"]["passed"] == 1
+    else:
+        with pytest.raises(RuntimeError, match="STOP before export failed"):
+            trn03.acquire_board_records(
+                boards, boards, args, actions, progress, tmp_path)
 
 
 def test_board_acquisition_saves_previous_frozen_record(monkeypatch, tmp_path):

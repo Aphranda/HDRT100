@@ -1643,8 +1643,19 @@ def acquire_board_records(ordered, start_order, args, actions, progress, out_dir
                 actions.append(row)
                 try:
                     row["response"] = board_command(board, "SYSTem:TDMA:RING:STOP", args)
-                    if row["response"].strip().strip('"') != "OK":
-                        raise RuntimeError(f"STOP rejected: {row['response']}")
+                    normalized = row["response"].strip().strip('"')
+                    if normalized != "OK":
+                        if normalized != "OK(no payload; verified by state readback)":
+                            raise RuntimeError(f"STOP rejected: {row['response']}")
+                        # USB CDC can lose the STOP reply after the firmware
+                        # consumed the intent.  The placeholder only promotes
+                        # with a fresh stopped readback; a real refusal leaves
+                        # the ring enabled (or config != applied) and still fails.
+                        stopped = stopped_snapshot(board, args, ordered.index(board))
+                        row["ack_disposition"] = normalized
+                        row["stopped_readback"] = stopped
+                        if not stopped.get("passed"):
+                            raise RuntimeError(f"STOP rejected: {row['response']}")
                 except Exception as exc:
                     row["error"] = f"{type(exc).__name__}: {exc}"
                     stop_errors[board.address] = row["error"]
