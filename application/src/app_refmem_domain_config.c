@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "distributed_refmem.h"
+#include "guide_action_plan.h"
 #include "refmem_command.h"
 #include "refmem_domain_config.h"
 #include "sync_io_sequence.h"
@@ -664,13 +665,69 @@ static bool trigger_sequence_active_handler(const uint32_t *params,
     return true;
 }
 
+/* Guide ladder (P1..T3): C carries the 64-byte plan as 16 inline words and the
+ * plan stays in RAM until T consumes it with the action id and epoch. Nothing is
+ * persisted here - S owns that, after the training session is closed. */
+typedef struct {
+    bool plan_valid;
+    bool trigger_pending;
+    guide_action_plan_t plan;
+    uint32_t trigger_epoch;
+} app_cal_guide_state_t;
+
+static app_cal_guide_state_t s_cal_guide;
+
+static bool cal_guide_config_handler(const uint32_t *params, uint32_t param_words,
+                                     uint32_t *reason)
+{
+    guide_action_plan_t plan;
+    if (params == NULL ||
+        guide_action_plan_from_words(params, param_words, &plan) !=
+            GUIDE_ACTION_PLAN_OK) {
+        return reject(reason);
+    }
+    s_cal_guide.plan = plan;
+    s_cal_guide.plan_valid = true;
+    s_cal_guide.trigger_pending = false;
+    s_cal_guide.trigger_epoch = 0u;
+    return true;
+}
+
+static bool cal_guide_trigger_handler(const uint32_t *params, uint32_t param_words,
+                                      uint32_t *reason)
+{
+    /* A trigger is only meaningful for the plan it names: a mismatched or
+     * missing plan is rejected instead of running the previous action. */
+    if (params == NULL || param_words != 2u || !s_cal_guide.plan_valid ||
+        params[0] != s_cal_guide.plan.action_id) {
+        return reject(reason);
+    }
+    s_cal_guide.trigger_epoch = params[1];
+    s_cal_guide.trigger_pending = true;
+    return true;
+}
+
+bool app_cal_guide_take_trigger(guide_action_plan_t *plan, uint32_t *epoch)
+{
+    if (!s_cal_guide.trigger_pending) {
+        return false;
+    }
+    if (plan != NULL) {
+        *plan = s_cal_guide.plan;
+    }
+    if (epoch != NULL) {
+        *epoch = s_cal_guide.trigger_epoch;
+    }
+    s_cal_guide.trigger_pending = false;
+    return true;
+}
+
 bool app_refmem_domain_config_init(void)
 {
     refmem_domain_config_reset();
     return refmem_domain_config_register(
                REFMEM_COMMAND_TYPE_TDMA_RING_TOPOLOGY, 2u,
-               tdma_ring_topology_handler) &&
-           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TDMA_SEAT_ROTATION,
+               tdma_ring_topology_handler) &&           refmem_domain_config_register(REFMEM_COMMAND_TYPE_TDMA_SEAT_ROTATION,
                                          3u, tdma_seat_rotation_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TDMA_PERIOD, 1u,
                                          tdma_period_handler) &&
@@ -730,6 +787,11 @@ bool app_refmem_domain_config_init(void)
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_MOUNT, 3u,
                                          t2_mount_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_UNMOUNT, 0u,
-                                         t2_unmount_handler);
+                                         t2_unmount_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_CAL_GUIDE_CONFIG,
+                                         GUIDE_ACTION_PLAN_WORDS,
+                                         cal_guide_config_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_CAL_GUIDE_TRIGGER,
+                                         2u, cal_guide_trigger_handler);
 }
 

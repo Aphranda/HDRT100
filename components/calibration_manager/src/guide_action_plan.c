@@ -69,6 +69,46 @@ guide_action_plan_result_t guide_action_plan_encode(const guide_action_plan_t *p
     return GUIDE_ACTION_PLAN_OK;
 }
 
+guide_action_plan_result_t guide_action_plan_from_words(const uint32_t *words,
+                                                        uint32_t word_count,
+                                                        guide_action_plan_t *out)
+{
+    uint8_t payload[GUIDE_ACTION_PLAN_SIZE];
+    if (words == NULL || out == NULL) {
+        return GUIDE_ACTION_PLAN_BAD_ARGUMENT;
+    }
+    if (word_count != GUIDE_ACTION_PLAN_WORDS) {
+        return GUIDE_ACTION_PLAN_BAD_SIZE;
+    }
+    for (uint32_t index = 0u; index < GUIDE_ACTION_PLAN_WORDS; index++) {
+        put_u32(payload + (index * 4u), words[index]);
+    }
+    return guide_action_plan_decode(payload, sizeof(payload), out);
+}
+
+guide_action_plan_result_t guide_action_plan_to_words(const guide_action_plan_t *plan,
+                                                      uint32_t *words,
+                                                      uint32_t word_count)
+{
+    uint8_t payload[GUIDE_ACTION_PLAN_SIZE];
+    size_t size = 0u;
+    if (words == NULL) {
+        return GUIDE_ACTION_PLAN_BAD_ARGUMENT;
+    }
+    if (word_count != GUIDE_ACTION_PLAN_WORDS) {
+        return GUIDE_ACTION_PLAN_BAD_SIZE;
+    }
+    const guide_action_plan_result_t encoded =
+        guide_action_plan_encode(plan, payload, sizeof(payload), &size);
+    if (encoded != GUIDE_ACTION_PLAN_OK) {
+        return encoded;
+    }
+    for (uint32_t index = 0u; index < GUIDE_ACTION_PLAN_WORDS; index++) {
+        words[index] = get_u32(payload + (index * 4u));
+    }
+    return GUIDE_ACTION_PLAN_OK;
+}
+
 guide_action_plan_result_t guide_action_plan_decode(const uint8_t *payload,
                                                     size_t size,
                                                     guide_action_plan_t *out)

@@ -515,6 +515,7 @@ set(PROJECT_APP_SOURCES
         components/calibration_manager/src/calibration_training_sck.c
         components/calibration_manager/src/calibration_training_store.c
         components/calibration_manager/src/calibration_stage_derive.c
+        components/calibration_manager/src/guide_action_plan.c
         components/calibration_manager/src/calibration_pio_loopback.c
         components/board_identity/src/board_identity.c
         components/diagnostics/src/diagnostics.c

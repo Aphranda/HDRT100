@@ -36,6 +36,7 @@ static bool distributed_refmem_is_config_type(uint32_t type)
     case REFMEM_COMMAND_TYPE_T2_UNMOUNT:
     case REFMEM_COMMAND_TYPE_VDC_STOP:
     case REFMEM_COMMAND_TYPE_VDC_START:
+    case REFMEM_COMMAND_TYPE_CAL_GUIDE_CONFIG:
         return true;
     default:
         return false;

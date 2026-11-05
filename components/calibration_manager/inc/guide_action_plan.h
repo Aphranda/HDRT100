@@ -59,6 +59,18 @@ guide_action_plan_result_t guide_action_plan_decode(const uint8_t *payload,
                                                     size_t size,
                                                     guide_action_plan_t *out);
 
+/* The plan travels as the 16 inline words of CAL_GUIDE_CONFIG, so the byte
+ * layout above must be assembled on the target. Both directions validate the
+ * word count and the same ranges as the byte codec. */
+#define GUIDE_ACTION_PLAN_WORDS (GUIDE_ACTION_PLAN_SIZE / 4u)
+
+guide_action_plan_result_t guide_action_plan_from_words(const uint32_t *words,
+                                                        uint32_t word_count,
+                                                        guide_action_plan_t *out);
+guide_action_plan_result_t guide_action_plan_to_words(const guide_action_plan_t *plan,
+                                                      uint32_t *words,
+                                                      uint32_t word_count);
+
 #ifdef __cplusplus
 }
 #endif

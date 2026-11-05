@@ -116,6 +116,25 @@ static void test_plan_identity_uses_param_pool_crc(void)
     assert(crc_a != crc_b);
 }
 
+static void test_words_round_trip(void)
+{
+    /* The plan travels as the 16 inline words of CAL_GUIDE_CONFIG. */
+    const guide_action_plan_t plan = sample_plan();
+    uint32_t words[GUIDE_ACTION_PLAN_WORDS];
+    assert(guide_action_plan_to_words(&plan, words, GUIDE_ACTION_PLAN_WORDS) ==
+           GUIDE_ACTION_PLAN_OK);
+    guide_action_plan_t decoded;
+    assert(guide_action_plan_from_words(words, GUIDE_ACTION_PLAN_WORDS, &decoded) ==
+           GUIDE_ACTION_PLAN_OK);
+    assert(decoded.action_id == plan.action_id);
+    assert(decoded.plan_crc32 == plan.plan_crc32);
+    assert(decoded.candidates[1] == 12u);
+    assert(decoded.threshold_high == 9u);
+    /* A wrong word count is rejected instead of being partially decoded. */
+    assert(guide_action_plan_from_words(words, GUIDE_ACTION_PLAN_WORDS - 1u, &decoded) ==
+           GUIDE_ACTION_PLAN_BAD_SIZE);
+}
+
 int main(void)
 {
     test_round_trip();
@@ -124,6 +143,7 @@ int main(void)
     test_rejects_out_of_range_counts();
     test_rejects_small_output();
     test_plan_identity_uses_param_pool_crc();
+    test_words_round_trip();
     printf("guide_action_plan: all groups passed\n");
     return 0;
 }

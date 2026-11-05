@@ -24,13 +24,15 @@ def test_guide_commands_are_registered() -> None:
     assert "CAL_GUIDE_TRIGGER" in commands
 
 
-def test_guide_config_carries_a_slot_reference() -> None:
+def test_guide_config_carries_the_plan_inline() -> None:
     command = _commands()["CAL_GUIDE_CONFIG"]
     assert command["id"] == 50
     assert command["owner"] == "CAL"
-    # The plan lives in the parameter pool; the frame only carries the reference.
-    assert command["param_kind"] == "ref"
-    assert command["param_words"] == 0
+    # The 64-byte plan fits the 16-word inline block, so the command carries it
+    # directly instead of referencing a parameter-pool slot (the config handler
+    # only receives inline words).
+    assert command["param_kind"] == "inline"
+    assert command["param_words"] == 16
     # Re-sending the same plan sequence must be safe.
     assert command["idempotent"] is True
 
