@@ -1707,6 +1707,10 @@ bool app_guide_scan_get_pair(uint32_t index,
 #define APP_CTRQS_T0_STEP_MS 6000u
 #define APP_CTRQS_T0_STOP_MS 4000u
 #define APP_CTRQS_T0_INJECT_DELAY_MS 200u
+#define APP_CTRQS_ACTION_T1 5u
+#define APP_CTRQS_T1_STEP_MS 6000u
+#define APP_CTRQS_T1_STOP_MS 4000u
+#define APP_CTRQS_T1_INJECT_DELAY_MS 200u
 
 typedef enum {
     APP_CTRQS_IDLE = 0,
@@ -1727,6 +1731,9 @@ typedef enum {
     APP_CTRQS_T0_PREP,
     APP_CTRQS_T0_RUN,
     APP_CTRQS_T0_STOP,
+    APP_CTRQS_T1_PREP,
+    APP_CTRQS_T1_RUN,
+    APP_CTRQS_T1_STOP,
     APP_CTRQS_RESTORE_WAIT,
     APP_CTRQS_REBUILD,
     APP_CTRQS_Q,
@@ -1797,6 +1804,20 @@ typedef struct {
     bool t0_prepared;
     bool t0_injected;
     bool t0_trial_passed;
+    /* T1 (per-link SCK offset training): the identity fields are the shared
+     * plan generation, the candidates carry the link and search window. */
+    uint32_t t1_link_index;
+    uint32_t t1_link_delay_ns;
+    int32_t t1_search_start;
+    int32_t t1_search_end;
+    uint32_t t1_launch_guard;
+    uint32_t t1_max_distance;
+    uint32_t t1_min_margin;
+    uint32_t t1_trial;
+    uint64_t t1_trial_t0_ms;
+    bool t1_prepared;
+    bool t1_injected;
+    bool t1_trial_passed;
     uint32_t hard_fail_reason;
     uint64_t stop_try_ms;
     guide_action_progress_t progress;
@@ -2103,6 +2124,33 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         if (s_ctrqs.slot_ms < 500u) {
             s_ctrqs.slot_ms = 500u;
         }
+    } else if (plan->action_id == APP_CTRQS_ACTION_T1) {
+        /* T1 candidate layout (v2): link_index, link_base_delay_ns,
+         * search_start_offset, search_end_offset, sck_launch_guard_samples;
+         * threshold_low = max_best_distance, threshold_high = min_margin.
+         * Identity = plan generation; configured offset starts at 0 and the
+         * per-capture guard is fixed at 4 samples (tool default shape). */
+        s_ctrqs.t1_link_index = plan->candidates[0];
+        s_ctrqs.t1_link_delay_ns = plan->candidates[1];
+        s_ctrqs.t1_search_start = (int32_t)plan->candidates[2];
+        s_ctrqs.t1_search_end = (int32_t)plan->candidates[3];
+        s_ctrqs.t1_launch_guard = plan->candidates[4];
+        s_ctrqs.t1_max_distance = plan->threshold_low;
+        s_ctrqs.t1_min_margin = plan->threshold_high;
+        plan_valid = plan_valid && plan->candidate_count == 5u &&
+                     s_ctrqs.t1_link_index < nodes &&
+                     s_ctrqs.t1_link_delay_ns >= 1u &&
+                     s_ctrqs.t1_link_delay_ns <= 1000000u &&
+                     s_ctrqs.t1_search_start < s_ctrqs.t1_search_end &&
+                     (uint32_t)(s_ctrqs.t1_search_end -
+                                s_ctrqs.t1_search_start) <= 256u &&
+                     s_ctrqs.t1_launch_guard <= 64u &&
+                     s_ctrqs.t1_max_distance != 0u;
+        s_ctrqs.trials = plan->trial_count;
+        s_ctrqs.slot_ms = plan->window_ms / s_ctrqs.trials;
+        if (s_ctrqs.slot_ms < 500u) {
+            s_ctrqs.slot_ms = 500u;
+        }
     } else {
         plan_valid = false;
     }
@@ -2402,6 +2450,93 @@ static void app_ctrqs_t0_step(uint64_t now)
     }
 }
 
+static void app_ctrqs_t1_advance(bool passed, uint64_t now)
+{
+    const uint32_t bit = 1u << s_ctrqs.t1_trial;
+    if (passed) {
+        s_ctrqs.progress.passed_mask |= bit;
+    } else {
+        s_ctrqs.progress.failed_mask |= bit;
+    }
+    s_ctrqs.progress.trials_done++;
+    s_ctrqs.progress.deepest_trial = s_ctrqs.t1_trial;
+    s_ctrqs.t1_trial++;
+    app_ctrqs_publish();
+    if (s_ctrqs.t1_trial >= s_ctrqs.trials) {
+        app_ctrqs_finalize();
+        return;
+    }
+    s_ctrqs.t1_prepared = false;
+    s_ctrqs.t1_injected = false;
+    s_ctrqs.t1_trial_t0_ms =
+        s_ctrqs.t0_ms + (uint64_t)s_ctrqs.t1_trial * s_ctrqs.slot_ms;
+    s_ctrqs.deadline_ms = s_ctrqs.t1_trial_t0_ms + APP_CTRQS_T1_STEP_MS;
+    s_ctrqs.state = APP_CTRQS_T1_RUN;
+    (void)now;
+}
+
+static void app_ctrqs_t1_step(uint64_t now)
+{
+    const uint32_t nodes = (uint32_t)PROJECT_TDMA_GUIDE_NODES;
+    const uint32_t source = s_ctrqs.t1_link_index % nodes;
+    const uint32_t destination = (source + 1u) % nodes;
+    const bool participant = s_ctrqs.local_slot == source ||
+                             s_ctrqs.local_slot == destination;
+    if (now >= s_ctrqs.deadline_ms) {
+        calibration_manager_stop_sck_training();
+        s_ctrqs.t1_trial_passed = false;
+        s_ctrqs.state = APP_CTRQS_T1_STOP;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_T1_STOP_MS;
+        return;
+    }
+    if (now < s_ctrqs.t1_trial_t0_ms) {
+        return;
+    }
+    if (!participant) {
+        /* Only the two endpoints of the trained link may arm the SCK
+         * training; the other boards no-op this trial. */
+        app_ctrqs_t1_advance(true, now);
+        return;
+    }
+    if (!s_ctrqs.t1_prepared) {
+        if (!calibration_manager_request_sck_training(
+                source, destination, 1u, s_ctrqs.plan.generation,
+                s_ctrqs.plan.generation, s_ctrqs.plan.generation,
+                s_ctrqs.t1_launch_guard, s_ctrqs.t1_link_delay_ns, 0,
+                s_ctrqs.t1_search_start, s_ctrqs.t1_search_end, 4u,
+                s_ctrqs.t1_max_distance, s_ctrqs.t1_min_margin)) {
+            app_ctrqs_abort(
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            return;
+        }
+        s_ctrqs.t1_prepared = true;
+        return;
+    }
+    if (s_ctrqs.local_slot == source && !s_ctrqs.t1_injected) {
+        if (now < s_ctrqs.t1_trial_t0_ms + APP_CTRQS_T1_INJECT_DELAY_MS) {
+            return;
+        }
+        if (!calibration_manager_inject_sck_training()) {
+            app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            return;
+        }
+        s_ctrqs.t1_injected = true;
+        return;
+    }
+    calibration_training_sck_snapshot_t snap;
+    if (!calibration_manager_get_sck_training_snapshot(&snap)) {
+        return;
+    }
+    if (snap.state == CALIBRATION_TRAINING_SCK_ACCEPTED ||
+        snap.state == CALIBRATION_TRAINING_SCK_REJECTED) {
+        s_ctrqs.t1_trial_passed =
+            snap.state == CALIBRATION_TRAINING_SCK_ACCEPTED;
+        calibration_manager_stop_sck_training();
+        s_ctrqs.state = APP_CTRQS_T1_STOP;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_T1_STOP_MS;
+    }
+}
+
 static void app_ctrqs_service(void)
 {    const uint64_t now = app_ctrqs_now_ms();
     switch (s_ctrqs.state) {
@@ -2424,7 +2559,10 @@ static void app_ctrqs_service(void)
                           ? APP_CTRQS_P3_PREP
                           : (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_T0)
                                 ? APP_CTRQS_T0_PREP
-                                : APP_CTRQS_STOP;
+                                : (s_ctrqs.plan.action_id ==
+                                   APP_CTRQS_ACTION_T1)
+                                      ? APP_CTRQS_T1_PREP
+                                      : APP_CTRQS_STOP;
             s_ctrqs.deadline_ms = now + APP_CTRQS_STOP_MS;
         }
         return;
@@ -2794,6 +2932,35 @@ static void app_ctrqs_service(void)
             return;
         }
         app_ctrqs_t0_advance(idle && s_ctrqs.t0_trial_passed, now);
+        return;
+    }
+    case APP_CTRQS_T1_PREP:
+        if (!app_ctrqs_ring_torn_down()) {
+            app_ctrqs_stop_throttled(now);
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            }
+            return;
+        }
+        s_ctrqs.t1_trial = 0u;
+        s_ctrqs.t1_prepared = false;
+        s_ctrqs.t1_injected = false;
+        s_ctrqs.t1_trial_t0_ms = s_ctrqs.t0_ms;
+        s_ctrqs.deadline_ms = s_ctrqs.t1_trial_t0_ms + APP_CTRQS_T1_STEP_MS;
+        s_ctrqs.state = APP_CTRQS_T1_RUN;
+        return;
+    case APP_CTRQS_T1_RUN:
+        app_ctrqs_t1_step(now);
+        return;
+    case APP_CTRQS_T1_STOP: {
+        calibration_training_sck_snapshot_t snap;
+        const bool idle =
+            calibration_manager_get_sck_training_snapshot(&snap) &&
+            snap.state == CALIBRATION_TRAINING_SCK_IDLE;
+        if (!idle && now < s_ctrqs.deadline_ms) {
+            return;
+        }
+        app_ctrqs_t1_advance(idle && s_ctrqs.t1_trial_passed, now);
         return;
     }
     case APP_CTRQS_RESTORE_WAIT:
