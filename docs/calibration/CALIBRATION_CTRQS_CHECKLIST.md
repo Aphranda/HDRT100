@@ -115,9 +115,11 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 
 1. **B4 先行**：接通 10 kHz 低速引导环（生成 level 23 的校准 stage，或让标准环路径接受
    低速档），并让 C 段的 `level` 固定为引导档；P1/P2 窗口随之改用引导档，10 MHz 只留 T3 的 S。
-2. **B5**：修复 coded 的 DATA 回路（先读 phys persona/引脚归属，再决定是否在 P2 prep 显式
-   释放/切换 persona），让 P2 参考板 `capture` 非平线且 `margin>0`。
-3. P2 通过后逐动作推进 P3 → T0 → T1 → T2 → T3；只有 T3 的 S 允许 `ARM → START 10 MHz`。
+2. **B5 已通过**（`c6677dcb`）：P2 参考板 coded 启动延后到 t0+1.5 s 后，四板 P2 Q=COMPLETE，
+   参考板 `flags=63, reject=0, best_lag=102, margin=417`；连续 4 次复跑通过。保留观察（P1 偶发
+   FORWARD 超时仍按残余记录）。
+3. **P3–T3**：先冻结 §6.1 的 C 段布局（来自 canonical host 工具的参数字段），再按动作各实现
+   一个 R 体并跑通 C→T→R→Q→S；只有 T3 的 S 允许 `ARM → START 10 MHz`。
 4. 每次 P3 前确认四板 `SYST:FW:BUILD?` 一致；窗口偶发超时先重触发一次再归因。
 
 命令形状（C 段参数必须逗号分隔）：
@@ -133,6 +135,23 @@ SYST:TDMA:GUIDE:PLAN?
 执行器与 Q/S 只读项（ctrqs_state、progress_valid、progress_status、trials_done、deepest_trial、
 progress_reason、reconcile_decision、reconcile_resume_trial、commit_decision、commit_applicable、
 commit_ok、ladder_index、ladder_step）。
+
+### 6.1 P3–T3 动作的 C 段布局（待冻结，勿臆造）
+
+P3–T3 的 R 体尚未实现；其 C 段布局必须先按下列 canonical 工具的参数面冻结，再写执行器
+（禁止在固件里写死候选/档位）。对应关系来自 playbook §9.24：
+
+| 动作 | canonical host 工具 | 需要由 C 段下发的关键输入 | 板端既有原语 |
+|---|---|---|---|
+| P3 | `calibration_link_p3.py` | `signal_group`、`repeats`、`pulse_count`、`capture_words`、`baud`、频率档 | `calibration_manager_request_p3(role, baud, pulse_count, capture_words, epoch, signal_group)` |
+| T0 | `calibration_marker_train.py` | `level`、reference/origin node、`codebook`、`epoch`、residence/offset 矩阵开关 | `calibration_manager_request_marker_training(...)` |
+| T1 | `calibration_sck_train.py` | `link_index`、`link_delay_ns`、search start/end、guards、max distance、min margin、repeats | 既有 SCK 训练原语（T1 工具同源） |
+| T2 | `calibration_data_train.py` | link、marker/data 方向、`marker_to_data_samples`、node offsets、search/guards | 既有 DATA 训练原语（T2 工具同源） |
+| T3 | `trn03_closed_loop.py` / 开机 staging | stage 数据经环上来；`GUIDE_STAGE_BOOT` | 板端 boot/stage → `ARM → START 10 MHz` |
+
+约束：每个动作一轮 C→T→R→Q→S；候选×重复只在该动作 R 段内部循环；只有 T3 的 S 允许
+`ARM → START 10 MHz`。在该表冻结前，P3–T3 的 `CONFig` 会被 `plan_valid` 拒绝（fail-closed），
+这是预期行为。
 
 ## 7. 台架与操作注意
 
