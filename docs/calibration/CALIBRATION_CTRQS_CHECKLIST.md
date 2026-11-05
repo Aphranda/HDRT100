@@ -69,6 +69,30 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 - P2–T3 的 R 段 trial body（当前只有 P1 已实现）；七动作全链；T3 的 S 后 `ARM → START 10 MHz`。
 - 参考板窗口偶发 FORWARD 超时（约半数轮次之一），自恢复后可重触发；根因未定位。
 
+**2026-11-06 07:5x M5 完成快照（七动作全链实板通过）**：
+
+- 同一 build `20261105234532` 上：`P1→P2→P3→T0→T1→T2→T3` 七动作全链四板 Q=COMPLETE；
+  T3 后四板 `RING` 均 `enabled=1, adapter_started=1`（10 MHz 档 running）。
+- T3 四板 `PLAN?` = `1,7,305419904,46,7,4000,1,0,206,0,1,1,1,0,0,1,0,2,1,0,6,2`
+  （COMPLETE、trials_done=1、reconcile COMPLETE、S=SKIP、ladder_index=6）。
+- 关键修复：T3 复用窗口 restore 的 `REBUILD` 成环路径（stop→TOPO+DIAG→静默→ARM→START），
+  成环时补记一条 trial 再进 Q（`48b51f5c`）。
+- 参数约束（实板归纳）：P2 参考板 coded 需 t0+1.5 s 启动；T0 link delay ≤ ~124 ns；
+  T1 launch_guard ≥ link_base_delay_samples − search_start；T2 marker+base+data+search ≤ 32 cycles。
+
+**证据索引（本轮及前序）**：
+
+| 证据 | 路径/提交 |
+|---|---|
+| 七动作链命令序列 | gen 40–46、trigger 200–206（本轮会话记录）；四板 `PLAN?` 见上 |
+| P3 凭证 | `out/HardwareAcceptance/20261106/p3-074522`（`20261105234532`，PASS 0 WARN/0 ERROR） |
+| P3 历史 | `p3-073216`、`p3-071940`、`p3-070625`、`p3-065307`、`p3-064126`、`p3-062813`、`p3-060804`、`p3-055840`、`p3-054459`、`p3-050537` 等 |
+| 代码提交 | `a9fbe9ca`（B1）→`7d77b787`（R/Q 骨架）→`4cfdc6b5`/`642cdcf8`（STOP 处置）→`e18429a9`（T 扇出/自恢复）→`f6bff624`（S 门）→`4df276da`（阶梯）→`542dcc0c`（STOP 节流）→`dab5e8b6`（store 重 stage）→`21d50a37`（共享 epoch）→`aca13990`（TOPO 后 DIAG）→`5ce9b926`/`54208304`（P3）→`e419b0fa`（T0）→`1c6d559c`（T1）→`a8512d83`（T2）→`48b51f5c`（T3） |
+| 文档提交 | `be6701a6`、`1772c699`、`10e4eff1`、`8ede4990`、`265faf03`、`4c7c6198`、`bd69ebd8` |
+
+**M6 剩余**：B4（10 kHz 低速引导环）未接通；七动作全链当前跑在 10 MHz，需在设计档位复验后
+才能作为最终 HIL 口径；每动作 S 均 SKIP，代数语义待确认。
+
 **2026-11-06 04:55 追加快照**：
 
 - 已修：P2_STOP 每拍 STOP 的 `config_seq` 抖动（`542dcc0c`）；P2 prep 的 stage clear 与窗口复环
