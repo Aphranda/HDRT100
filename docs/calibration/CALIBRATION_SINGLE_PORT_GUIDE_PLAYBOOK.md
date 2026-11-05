@@ -1164,6 +1164,7 @@ REFMEM 参数池本来就是"调用方持有 region 的纯存储"，已经覆盖
 | boot 计划与档位 | `tdma_boot_plan`、`tdma_boot_profile_store`、`tdma_boot_stage` | 另写一套开机决策 |
 | 训练/标定判定 | `calibration_training_{marker,sck,data}`、`calibration_clk_{marker,coded}`、`calibration_link_p3` | 在引导执行器里重写判定 |
 | 环窗口进出 | `app_guide_scan_leave_window` / 冻结 boot 步骤重放 | 另写"停环-复环"流程 |
+| **动作计划载荷（C 段）** | `components/calibration_manager/{inc,src}/guide_action_plan.[ch]`（64 B 定长，magic/version/size/候选数/trial 数全部校验，CRC 仍由 `refmem_param_pool_crc` 统一算） | 另写一份计划编码/第二个候选表格式 |
 
 新增登记格式：概念 | 新 canonical 路径 | 为什么现有实现不适用（必须写清，不能写"更方便"）。
 
