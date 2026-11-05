@@ -3164,10 +3164,13 @@ static void app_ctrqs_service(void)
             }
             return;
         }
-        s_ctrqs.t3_topo = false;
-        s_ctrqs.t3_armed = false;
-        s_ctrqs.deadline_ms = now + APP_CTRQS_T3_ARM_MS;
-        s_ctrqs.state = APP_CTRQS_T3_ARM;
+        /* Reuse the proven rebuild path to form the 10 MHz ring.  The rebuild
+         * re-applies the captured topology, re-asserts the bench diagnostic
+         * flag and retries ARM/START exactly like every other window close. */
+        s_ctrqs.rebuild_topo_done = false;
+        s_ctrqs.arm_try_ms = 0u;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_REBUILD_MS;
+        s_ctrqs.state = APP_CTRQS_REBUILD;
         return;
     case APP_CTRQS_T3_ARM:
         if (app_ctrqs_restore_formed()) {
@@ -3251,6 +3254,19 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_REBUILD:
         if (app_ctrqs_restore_formed()) {
+            if (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_T3 &&
+                s_ctrqs.progress.trials_done == 0u) {
+                /* T3's trial is exactly this: the trained stage forms a
+                 * 10 MHz ring.  Record it before Q so the reconcile and the
+                 * S gate see a completed action. */
+                s_ctrqs.progress.passed_mask |= 1u;
+                s_ctrqs.progress.trials_done = 1u;
+                s_ctrqs.progress.deepest_trial = 0u;
+                s_ctrqs.progress.status =
+                    (uint32_t)GUIDE_ACTION_PROGRESS_COMPLETE;
+                s_ctrqs.progress.reason = 0u;
+                app_ctrqs_publish();
+            }
             s_ctrqs.state = APP_CTRQS_Q;
             return;
         }
