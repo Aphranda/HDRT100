@@ -1703,6 +1703,10 @@ bool app_guide_scan_get_pair(uint32_t index,
 #define APP_CTRQS_P3_STOP_MS 5000u
 #define APP_CTRQS_P3_REF_DELAY_MS 300u
 #define APP_CTRQS_P3_MAX_REPEATS 4u
+#define APP_CTRQS_ACTION_T0 4u
+#define APP_CTRQS_T0_STEP_MS 6000u
+#define APP_CTRQS_T0_STOP_MS 4000u
+#define APP_CTRQS_T0_INJECT_DELAY_MS 200u
 
 typedef enum {
     APP_CTRQS_IDLE = 0,
@@ -1720,6 +1724,9 @@ typedef enum {
     APP_CTRQS_P3_PREP,
     APP_CTRQS_P3_RUN,
     APP_CTRQS_P3_STOP,
+    APP_CTRQS_T0_PREP,
+    APP_CTRQS_T0_RUN,
+    APP_CTRQS_T0_STOP,
     APP_CTRQS_RESTORE_WAIT,
     APP_CTRQS_REBUILD,
     APP_CTRQS_Q,
@@ -1778,6 +1785,18 @@ typedef struct {
     uint64_t p3_trial_t0_ms;
     bool p3_started;
     bool p3_trial_passed;
+    /* T0 (marker/residence): identity comes from the plan generation, the five
+     * candidates carry origin/codebook/link delay/offset/repeats. */
+    uint32_t t0_origin_node;
+    uint32_t t0_codebook;
+    uint32_t t0_link_base_delay_ns;
+    uint32_t t0_offset_samples;
+    uint32_t t0_repeats;
+    uint32_t t0_trial;
+    uint64_t t0_trial_t0_ms;
+    bool t0_prepared;
+    bool t0_injected;
+    bool t0_trial_passed;
     uint32_t hard_fail_reason;
     uint64_t stop_try_ms;
     guide_action_progress_t progress;
@@ -2060,6 +2079,30 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         if (s_ctrqs.slot_ms < 1000u) {
             s_ctrqs.slot_ms = 1000u;
         }
+    } else if (plan->action_id == APP_CTRQS_ACTION_T0) {
+        /* T0 candidate layout (v2): origin_node, codebook, link_base_delay_ns,
+         * offset_sample_count, repeats.  The marker identity (epoch/sequence/
+         * marker_id/generation) is the shared plan generation, and no
+         * diagnostic faults are injected. */
+        s_ctrqs.t0_origin_node = plan->candidates[0];
+        s_ctrqs.t0_codebook = plan->candidates[1];
+        s_ctrqs.t0_link_base_delay_ns = plan->candidates[2];
+        s_ctrqs.t0_offset_samples = plan->candidates[3];
+        s_ctrqs.t0_repeats = plan->candidates[4];
+        plan_valid = plan_valid && plan->candidate_count == 5u &&
+                     s_ctrqs.t0_origin_node < nodes &&
+                     s_ctrqs.t0_codebook >= 1u &&
+                     s_ctrqs.t0_codebook <= 3u &&
+                     s_ctrqs.t0_link_base_delay_ns <= 1000000u &&
+                     s_ctrqs.t0_offset_samples <=
+                         CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES &&
+                     s_ctrqs.t0_repeats >= 1u &&
+                     s_ctrqs.t0_repeats <= APP_CTRQS_P3_MAX_REPEATS;
+        s_ctrqs.trials = s_ctrqs.t0_repeats;
+        s_ctrqs.slot_ms = plan->window_ms / s_ctrqs.trials;
+        if (s_ctrqs.slot_ms < 500u) {
+            s_ctrqs.slot_ms = 500u;
+        }
     } else {
         plan_valid = false;
     }
@@ -2283,6 +2326,82 @@ static void app_ctrqs_p3_step(uint64_t now)
     }
 }
 
+static void app_ctrqs_t0_advance(bool passed, uint64_t now)
+{
+    const uint32_t bit = 1u << s_ctrqs.t0_trial;
+    if (passed) {
+        s_ctrqs.progress.passed_mask |= bit;
+    } else {
+        s_ctrqs.progress.failed_mask |= bit;
+    }
+    s_ctrqs.progress.trials_done++;
+    s_ctrqs.progress.deepest_trial = s_ctrqs.t0_trial;
+    s_ctrqs.t0_trial++;
+    app_ctrqs_publish();
+    if (s_ctrqs.t0_trial >= s_ctrqs.trials) {
+        app_ctrqs_finalize();
+        return;
+    }
+    s_ctrqs.t0_prepared = false;
+    s_ctrqs.t0_injected = false;
+    s_ctrqs.t0_trial_t0_ms =
+        s_ctrqs.t0_ms + (uint64_t)s_ctrqs.t0_trial * s_ctrqs.slot_ms;
+    s_ctrqs.deadline_ms = s_ctrqs.t0_trial_t0_ms + APP_CTRQS_T0_STEP_MS;
+    s_ctrqs.state = APP_CTRQS_T0_RUN;
+    (void)now;
+}
+
+static void app_ctrqs_t0_step(uint64_t now)
+{
+    if (now >= s_ctrqs.deadline_ms) {
+        calibration_manager_stop_marker_training();
+        s_ctrqs.t0_trial_passed = false;
+        s_ctrqs.state = APP_CTRQS_T0_STOP;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_T0_STOP_MS;
+        return;
+    }
+    if (now < s_ctrqs.t0_trial_t0_ms) {
+        return;
+    }
+    if (!s_ctrqs.t0_prepared) {
+        if (!calibration_manager_request_marker_training(
+                s_ctrqs.t0_codebook, s_ctrqs.plan.generation,
+                s_ctrqs.plan.generation, s_ctrqs.plan.generation,
+                s_ctrqs.plan.generation, s_ctrqs.t0_link_base_delay_ns,
+                (int32_t)s_ctrqs.t0_offset_samples, s_ctrqs.t0_origin_node,
+                0u)) {
+            app_ctrqs_abort(
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            return;
+        }
+        s_ctrqs.t0_prepared = true;
+        return;
+    }
+    if (s_ctrqs.local_slot == s_ctrqs.t0_origin_node && !s_ctrqs.t0_injected) {
+        if (now < s_ctrqs.t0_trial_t0_ms + APP_CTRQS_T0_INJECT_DELAY_MS) {
+            return;
+        }
+        if (!calibration_manager_inject_marker_training()) {
+            app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            return;
+        }
+        s_ctrqs.t0_injected = true;
+        return;
+    }
+    calibration_training_marker_snapshot_t snap;
+    if (!calibration_manager_get_marker_training_snapshot(&snap)) {
+        return;
+    }
+    if (snap.state == CALIBRATION_TRAINING_MARKER_ACCEPTED ||
+        snap.state == CALIBRATION_TRAINING_MARKER_REJECTED) {
+        s_ctrqs.t0_trial_passed =
+            snap.state == CALIBRATION_TRAINING_MARKER_ACCEPTED;
+        calibration_manager_stop_marker_training();
+        s_ctrqs.state = APP_CTRQS_T0_STOP;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_T0_STOP_MS;
+    }
+}
+
 static void app_ctrqs_service(void)
 {    const uint64_t now = app_ctrqs_now_ms();
     switch (s_ctrqs.state) {
@@ -2303,7 +2422,9 @@ static void app_ctrqs_service(void)
                     ? APP_CTRQS_P2_PREP
                     : (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_P3)
                           ? APP_CTRQS_P3_PREP
-                          : APP_CTRQS_STOP;
+                          : (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_T0)
+                                ? APP_CTRQS_T0_PREP
+                                : APP_CTRQS_STOP;
             s_ctrqs.deadline_ms = now + APP_CTRQS_STOP_MS;
         }
         return;
@@ -2644,6 +2765,35 @@ static void app_ctrqs_service(void)
         }
         app_ctrqs_p3_advance(idle && persona_clean && s_ctrqs.p3_trial_passed,
                              now);
+        return;
+    }
+    case APP_CTRQS_T0_PREP:
+        if (!app_ctrqs_ring_torn_down()) {
+            app_ctrqs_stop_throttled(now);
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            }
+            return;
+        }
+        s_ctrqs.t0_trial = 0u;
+        s_ctrqs.t0_prepared = false;
+        s_ctrqs.t0_injected = false;
+        s_ctrqs.t0_trial_t0_ms = s_ctrqs.t0_ms;
+        s_ctrqs.deadline_ms = s_ctrqs.t0_trial_t0_ms + APP_CTRQS_T0_STEP_MS;
+        s_ctrqs.state = APP_CTRQS_T0_RUN;
+        return;
+    case APP_CTRQS_T0_RUN:
+        app_ctrqs_t0_step(now);
+        return;
+    case APP_CTRQS_T0_STOP: {
+        calibration_training_marker_snapshot_t snap;
+        const bool idle = calibration_manager_get_marker_training_snapshot(
+                              &snap) &&
+                          snap.state == CALIBRATION_TRAINING_MARKER_IDLE;
+        if (!idle && now < s_ctrqs.deadline_ms) {
+            return;
+        }
+        app_ctrqs_t0_advance(idle && s_ctrqs.t0_trial_passed, now);
         return;
     }
     case APP_CTRQS_RESTORE_WAIT:
