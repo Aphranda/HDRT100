@@ -165,6 +165,17 @@ P3–T3 的 R 体尚未实现；其 C 段布局必须先按下列 canonical 工�
 
 草案只用于下一步实现与联调；`plan_valid` 的最终校验必须按上表实现后才能放行对应 action。
 
+**实现前的关键设计约束（本轮新增）**：
+
+- P3/T1/T2 是**逐链路**动作（source/destination 或 link_index），不是单板动作；四板必须按
+  同一链路顺序协调，每板按 `local_slot` 计算自己在当前链路的 role（initiator/responder/无关），
+  无关板在该 trial 保持静默并在链路结束后继续。host 工具是逐链路串行编排的
+  （`run_trial(source, destination)`），板端执行器必须复刻这个“链路串行 + 每板 role”语义，
+  不能用单板 role 直接跑。
+- 因此 P3 的 C 段除了候选，还需携带链路顺序（例如 candidates 中的 source/destination 对，
+  或 window 内的链路表）；该布局需要在实现前再冻结一次（草案 v1 的 5 槽可能不够）。
+- T3 例外：它是整环 staging + ARM，不需要逐链路 role。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
