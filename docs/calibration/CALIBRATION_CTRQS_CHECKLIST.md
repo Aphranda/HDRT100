@@ -176,6 +176,13 @@ P3–T3 的 R 体尚未实现；其 C 段布局必须先按下列 canonical 工�
   或 window 内的链路表）；该布局需要在实现前再冻结一次（草案 v1 的 5 槽可能不够）。
 - T3 例外：它是整环 staging + ARM，不需要逐链路 role。
 
+**链路推导规则（v2 决议，2026-11-06）**：链路不写入 C 段，由环拓扑推导——N 节点环的第 L 条链路
+为 `source=L`、`destination=(L+1) mod N`，按 L=0..N-1 顺序串行；每板在链路 L 的 role：
+`local==source → INITIATOR`、`local==destination → RESPONDER`、其余静默。C 段的 5 个候选因此
+保持为：`起始链路(0)`、`signal_group`、`pulse_count`、`capture_words`、`每链路重复数`；
+`threshold_low=baud_hz`、`threshold_high=frequency tolerance`；`window_ms` 覆盖全部链路。
+Q 仅在全部链路 × 重复都通过时 COMPLETE（`passed_mask` 按链路×重复置位）。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
