@@ -4,13 +4,23 @@ Status: Active
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`
 Related: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`, `docs/tools/DOCS_TOOLS_TODO.md`, `docs/check/DOCS_REGRESSION_PLAN.md`
-Last updated: 2026-11-04
+Last updated: 2026-11-05
 
 ## 文档接口
 
 本文只记录实施与验证事实，任务状态以 TODO 为准，治理语义以 Architecture 为准。每条记录引用稳定任务 ID，使用唯一 `TOOLS-PROGRESS-YYYYMMDD-NNN`，最新记录在上；轮转遵循文档自回归 C14/C15，历史失败和原始证据不得丢失。
 
 ## 当前 checkpoint
+
+### TOOLS-PROGRESS-20261105-018：out/ 只做本地证据——补 .gitignore 漏口并归档 agent 草稿
+
+- TODO task ID：`TOOLS-CHECK-001`。用户 2026-11-05 规则：**out/ 是本地证据位置，不可保存需要云端同步的文件**。
+- **现象**：`out/agents8-new.md`（6905 B，2026-11-04 17:22，本会话开始前由更早的 agent 会话写入）是 §8 的旧草稿（止于 8.2、缺 8.3）。它因 `.gitignore` 的 `!out/*.md` 反选而**可入库**，与「out/ 只放本地证据」直接冲突。
+- **修复**：`.gitignore` 只放行 `out/README.md` 与 `out/standards/**`，其余 `out/*.md` 回归本地草稿；`out/README.md` §0 补「本目录是本地证据区，不是同步区」；`EXE` §6 同步一条规则。
+- **清理**：按 out/README 允许的「移动/归档」把该草稿移到 `out/archive/cold/docs-drafts/agents8-new.md`（**未删除**；内容已被 `DOCS_EXECUTION_CONSTRAINTS.md` §7 覆盖）。
+- **防复发**：`test_constraint_sync` 新增 `test_out_is_local_evidence_only`——`git check-ignore` 断言 `out/*.md` 被忽略、`out/README.md` 与 `out/standards/**` 仍跟踪。
+- **验证**：`test_constraint_sync` 8 passed；`docs_check` 253 files OK；`doc_regression` PASS。
+- **残余**：`out/ota_tdma_section.md`、`out/scpi_catalog_draft.md` 是历史已跟踪草稿（在入库状态），是否迁到 `docs/` 或退出入库需你确认。
 
 ### TOOLS-PROGRESS-20261104-017：M4 后半 + M5——PLAN 副本清零、对账测试扩到 tools 文档
 

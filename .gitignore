@@ -1,4 +1,4 @@
-﻿# Build directories
+# Build directories
 build/
 build-*/
 cmake-build-*/
@@ -195,5 +195,6 @@ tools/scratch/*
 out/standards/
 !out/standards/
 !out/standards/**
-!out/*.md
+# 只放行 out/ 的说明文件；out/ 是本地证据区，agent 产出的草稿/模板/计划不得入库
+!out/README.md
 
