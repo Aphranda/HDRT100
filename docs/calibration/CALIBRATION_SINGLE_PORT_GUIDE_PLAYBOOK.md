@@ -876,6 +876,15 @@ M1 的第一段实现：引导环自组完成后，四板**不接主机命令**�
 `READ:CALibration:TRAINing:STAGe:PERSistence?` 四板均为 `persisted_valid=0`（无已提交 stage）。
 正测试需要一个真实 TRN-03 stage（由 TRN-02 证据生成），负测试可在无 stage 时验证"仍按 10 kHz 起环"。
 
+**实板结果（2026-11-05 晚，已更新）**：V2 预设 P3 产出真实 matrix 后，`trn03_stage.py --commit`
+四板 `persisted_valid=1/loaded=1/reject=0`；刷 `PROJECT_TDMA_GUIDE_STAGE_BOOT=ON` 的 bench 镜像并
+同步重启 → 四板活动档 **7（10 MHz/1 ms）**、`BOOT:TOPology?=1,0`、`enabled=1 node_count=4
+up=1 down=1`、tx/rx ≈ 1e4，**无主机起环命令**。
+
+**已知限制（待办）**：`STAGe:CLEar` 只清 RAM、不清 NVS 记录；开机覆盖只以 `persisted_valid` 为准
+（`loaded` 在 restore 之后才置位，不能当前置条件），跨拓扑/跨 profile 的陈旧记录目前靠 ARM 门与
+restore 上下文拒绝——**开机前 CRC 预校验仍是待办**，否则陈旧记录可能选错 level。
+
 **S 段实板测试步骤（待 matrix 就绪后执行）**：
 
 1. 完整验收链产出 `trn03-matrix.json`（`workflow_steps.py run` 的 21 步）；

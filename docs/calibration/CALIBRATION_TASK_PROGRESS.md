@@ -229,6 +229,22 @@ Last updated: 2026-11-05
 - 邻接矩阵（§9.19/9.20 的对表扫描）降级为 **provisioning 专用**；`CAL-GUIDE-11` 随之改口径。
 - 台架：四板运行 `out/build/m1-self` 镜像（bench），NO.1..4，环已自组。
 
+**续（第 13 轮，2026-11-05 18:30）——② S 段正测试通过：有 TRN-03 stage 时开机直接起 10 MHz**：
+
+- 用 V2 预设跑完整 P3 得到真实 matrix（`out/m1-scan/full-v2d/trn03-matrix.json`，
+  该轮 `PASS`：INFO 42 / WARN 0 / ERROR 0 / FATAL 0）；`trn03_stage.py --config ... --commit`
+  四板 `passed=true`，`PERSistence?` = `persisted_valid=1, loaded=1, reject=0`。
+- 刷 bench 镜像变体（`PROJECT_TDMA_GUIDE_AUTOFORM=ON`、`GUIDE_SCAN=OFF`、`GUIDE_STAGE_BOOT=ON`）
+  并同步重启 → 四板 `SYST:TDMA:OPMode?` 活动档 **7（10 MHz / 1 ms）**，
+  `BOOT:TOPology? = 1,0`，`RING:STATus?` `enabled=1 node_count=4 up=1 down=1`、
+  tx/rx ≈ 9.9k–10.4k。**全程无主机起环命令**。
+- 负向观察：`STAGe:CLEar` 只清 RAM stage、不清 NVS 记录；此时记录被上下文判 `reject=7`，
+  但个别板仍可能因 restore 时序先加载 → 出现"三块 23、一块 7"的混档（环起不来）。
+  因此开机覆盖只以 `persisted_valid` 为准（`loaded` 是 restore 之后才置位的，不能当前置条件）；
+  跨拓扑/跨 profile 的陈旧记录目前靠 ARM 门与 restore 上下文拒绝，**开机前 CRC 预校验是待办**。
+- 台架现状：四板 bench 镜像 `m1-stage`（`20261105100647`）、NO.1..4、以 10 MHz 运行在
+  persisted stage 上（`BOOT:TOPology?=1,0`）。
+
 ## CAL-TASK-20261105-043 - 交接：日间 M0 收口，新会话入口
 
 **已完成并入库**（提交 `4458cff3`、`0777e5b6`、`44631607`、`5d4105dd`）：
