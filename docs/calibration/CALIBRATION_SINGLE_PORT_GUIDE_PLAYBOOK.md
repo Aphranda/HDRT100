@@ -979,6 +979,15 @@ adapter 的 `last_rx_origin_slot_id/last_rx_hop_count/last_rx_hop_limit/last_rx_
 组合"不一致）。同台架**连续 5 轮 standalone P0T 全部 4/4 通过**（`out/m1-scan/p0t-stab-1..5`），
 此前 workflow 内是 3 连败。S0 剩余两项（OR→AND、三态判定/局部重试）与 S1 的 hop 校验仍未做。
 
+**hop 自证的第一个实测（2026-11-05 晚）**：四板在成形的 10 kHz 环上读 `FLIGHT:PROcess?` 的
+`last_rx_*`（字段序已按 handler 核对：`origin=#52, hop=#53, hop_limit=#54, flags=#55`，UInt64 占两位）：
+四板全部 `origin=0, hop=3, hop_limit=5`，flags 仅 136/137/138/140 微差。**结论**：`last_rx_*` 是"最后一帧"
+锁存（`rx.c:573-578`），在环上会被后续帧覆盖，不能直接当"本板位置"用——hop 交叉校验必须改成
+**按 origin 的聚合**（例如每 origin 的最小 hop / hop 直方图），或在 flight engine 真正 active 时读
+逐槽过程映像；仅凭单次 `last_rx_hop_count` 无法证明环序。这一条把 S1-6 从"接一个字段"改成了
+"先补一个聚合量"。
+
+
 **为什么自组稳、P0T 不稳（第四条结论）**：自组的稳定性来自"不做测量、幂等收敛"——USB 不在环里、
 10 kHz 每秒上万次独立判决、认成功要求 `RESIDENT|SEEDED|ORIGIN|HOP|REQUIRED|SEQUENCE|IDENTITY`
 七位闭环（`tdma_pio_spi_ring_adapter.h:42-56`、`rx.c:550-581`）、错误自愈不升级、启动零决策
