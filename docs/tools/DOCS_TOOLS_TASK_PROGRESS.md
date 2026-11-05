@@ -12,6 +12,15 @@ Last updated: 2026-11-05
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261105-020：DPLL 外部优先 / 内部 fallback 编排（待台架验证）
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`、`VDC-VERIFY-001`。按用户 2026-11-05 决策：**检测到示波器先做外部；外部通过就结束、不再做内部；外部失败（含枚举失败）切内部；二者任一通过即签发凭证**。
+- **选择逻辑**：`--monitor` 改为 `auto|scope|internal`，默认 `auto`；`auto/scope` 都从 `p3_bench.json` 派生 `force_internal=false`，step27 检测；`present=true` 先外部，`present=false` 直接内部，`present=null` 记 `unknown` 后走内部 fallback。
+- **凭证字段**：`dpll_qualification=SCOPE_PASS|INTERNAL_FALLBACK|INTERNAL_ONLY`、`dpll_external_attempt{status,error,attempt_dir}`、`dpll_scope_fallback`；外部失败时 discovery 保留 `present=true` 并加 `fallback_internal=true`，不伪装成外部通过。
+- **校验**：`validate_receipt_record` 接受 `SCOPE_PASS`（必须 scope=true + external PASS）、`INTERNAL_FALLBACK`（必须 fallback/unknown + external FAIL/UNKNOWN + internal health）、`INTERNAL_ONLY`（必须 scope=false）；外部成功路径不调用内部 capture。
+- **验证（仅 host）**：workflow 51 passed；acceptance/DPLL 定向 335 passed；未动台架。**FULL 凭证尚未重签**，需其他会话按新流程上板验证后再提交。
+- 残余：外部失败分类目前对所有 `AcceptanceError` fallback；硬件安全类（过流/短路/restore 失败）尚未单独拦截；`--require-scope` 严格模式未实现。
+
 ### TOOLS-PROGRESS-20261105-019：out/ 两份已入库草稿迁入 docs/
 
 - TODO task ID：`TOOLS-CHECK-001`。用户 2026-11-05 决定：「迁移到 docs」（取代 018 里"维持现状"的残余）。

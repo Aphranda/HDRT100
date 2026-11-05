@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_TODO.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/storage/SD_TODO.md`
-Last updated: 2026-10-29
+Last updated: 2026-11-05
 
 本文只跟踪 Flash v2 的实现、迁移和验证。架构语义以 `HAOFV_FLASH_ARCHITECTURE.md` 为准；
 v1 OTA 历史设计已迁入 `docs/legacy/ota/`；当前 OTA 域状态与证据分别由
@@ -660,6 +660,10 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M4-04 DHRT100 样板 factory migration（物理 gate）
 
+> 2026-11-05 用户裁定：factory migration、四板 P3 FULL、A/B/revert/Recovery 已有历史记录，
+> 不再重开旧验证；真实掉电矩阵因台架能力限制不纳入本轮门禁。下面保留原始子项清单作审计，
+> 不因历史完成而删除。
+
 #### 已完成部分
 
 - [x] v2 candidate 已能在隔离 preset 下生成并通过布局/链接检查；factory artifact 保持
@@ -677,11 +681,35 @@ TODO 只保留可独立验收的状态项和证据索引。
 - [ ] 恢复 TDMA/Calibration 单板 persona，确认 PIO/DMA/IO owner 未被 Flash 重构破坏。
 - [ ] 执行 v1 rollback drill，证明 artifact/runbook 可恢复。
 
+### M4-05 V1 legacy freeze（生命周期）
+
+状态：`DONE`（功能参考已归档；V1 runtime/factory baseline 保留）。
+
+- [x] V1 标记为 `ARCHIVED-REFERENCE + RECOVERY-BASELINE`，规则见
+  `docs/ota/OTA_V1_LEGACY_PLAYBOOK.md`。
+- [x] 停止把 V1 校准/引导档结果作为 V2 依据；V1 缺少独立 `CALIBRATION_NVS`。
+- [x] 保留 V1 factory artifact、checksum、`last_recoverable_commit` 和 BOOTSEL runbook，
+  不删除、不覆盖。
+
+### M4-06 V1 runtime/build retirement（生命周期）
+
+状态：`DONE`（V1 代码/构建入口归档为 legacy/reference；factory/runbook 只读保留）。
+
+- [x] 四板 factory migration、四板 P3 FULL、V2 A/B/revert/Recovery：按用户 2026-11-05
+  裁定的历史记录视为已完成，不再重开旧验证。
+- [x] 真实掉电矩阵：台架无法执行，用户明确从本轮退役门禁移除；不得写成“已通过”。
+- [x] 产品回退决策：用户 2026-11-05 明确“不用等产品回退决策”，该门禁取消。
+- [x] V1 代码/构建入口归档为 legacy/reference；不再作为正常开发入口，源文件保留。
+- [x] V1 factory artifact、checksum、`last_recoverable_commit` 和 BOOTSEL runbook 继续只读保留；
+  未删除、未覆盖。
+- [x] C11/Registry 仅作为 V2 激活门禁，不再阻塞 V1 归档。
+
 ### M4 退出门禁
 
 - [ ] `ARCH-OTASTREAM-01` 的五类本地 transport、durable offset 和 resume 证据齐全。
 - [ ] DHRT100 在 v2 上完成 A/B/revert/Recovery 和关键 store 重启验证。
 - [ ] 迁移/回退报告归档，未留下依赖 v1 offset 的隐式工具路径。
+- [x] V1 runtime/build retirement（M4-06）完成：V1 代码/构建入口已归档，factory/runbook 只读保留。
 
 ## 八、M5 TDMA 流式 OTA
 

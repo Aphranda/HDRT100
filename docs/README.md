@@ -111,6 +111,7 @@ docs/
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 域 owner、OtaAO/OtaFB/OtaVector、BCB selection 和 Boot 交接；跨域 Flash 语义服从 `arch/HAOFV_FLASH_ARCHITECTURE.md`。 |
 | OTA/OPS | `ota/OTA_OPERATIONS_PLAYBOOK.md` | OTA 日常操作：单板/四板刷写、失败分类、恢复与证据留档。 |
+| OTA/V1 | `ota/OTA_V1_LEGACY_PLAYBOOK.md` | V1 compat 已归档/恢复基线：不再作为功能参考，保留 factory 回退。 |
 | OTA | `ota/OTA_TDMA_STREAM_PLAN.md` | TDMA 流式 OTA（M5）里程碑计划：目标/前提、三个决策门、夜次编排、任务表与硬门禁（2026-10-29 重规划，Draft）。 |
 | SD | `storage/SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
 | LOG | `storage/LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |

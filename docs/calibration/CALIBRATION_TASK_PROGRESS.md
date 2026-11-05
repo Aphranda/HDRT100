@@ -10,6 +10,225 @@ Last updated: 2026-11-05
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261105-044 - M1 板端对表扫描：执行器跑通、检测未收敛
+
+**本轮新增**（bench 开关 `PROJECT_TDMA_GUIDE_SCAN`，默认 OFF；产品镜像行为不变）：
+
+- 纯逻辑 `components/tdma/{inc,src}/tdma_guide_scan.*`：12 对表（`N×(N−1)`）、按本地 slot
+  派生 `DRIVER/RECEIVER/IDLE`、活动位图、单闭环聚合（`NO_ACTIVITY/OPEN_CHAIN/BRANCH/
+  DUPLICATE_EDGE/MULTI_LOOP`）；host 用例 `tests/unit/test_tdma_guide_scan.c` +
+  `tests/python/test_tdma_guide_scan.py`（7 组，覆盖反向环与 anchor 旋转）。
+- boot 执行器第二段 `app_guide_scan_service()`：自组完成后进暗窗，12 个 5 s 时隙，每时隙
+  `STOP → 2 节点拓扑 + bring-up 拓扑 → 等 applied==config → PROBE 10 → ARM(带 stopped
+  屏障) → TRAIN 512 → START → 接收窗轮询 → STOP`；收尾清 probe 并重放冻结 boot 步骤恢复
+  4 节点环。
+- 只读出口 `SYSTem:TDMA:GUIDE:SCAN?`（22 字段：state/pair/role/位图/observed/skipped/
+  failures/fail_phase/arm_*/trials_*/max_late_ms/stall_ms/帧字增量）。
+
+**实板结果**（build `out/build/m1-scan`；日志 `out/m1-scan/run-20261105-13*.txt`）：
+
+- 执行器四板一致：`trials_started=12`、`trials_armed=6`、`skipped=0`、`failures=0`、
+  `max_late_ms=0`、`stall_ms ≤ 23`；收尾后 `RING:STATus?` `enabled=1 node_count=4`、
+  `BOOT:PLAN?` `half_ring=0`（环恢复）。
+- 检测**未收敛**：严格阈值（`Δframes≥10 或 Δwords≥8`，与宿主 P0T 同量级）下只有 NO.3 报
+  1 条（bit 11，`frames_delta=0`、`words_delta=15`）；放宽到"任一计数变化"时曾出现 2/4 条，
+  且两轮命中的 pair 不同（`(1,2)` vs `(3,2)`）→ 不得写成 M1 通过。
+
+**三个实测根因（已修，写进 playbook §9.19）**：
+
+1. 相位推进条件为"相位号 ≤ FINISH"，而 SETTLE 编号 10 大于当时 FINISH 8 → 状态机在 SETTLE
+   永久停住，`trials_armed=0`、`skipped=6`、一个 ARM 都没发出；
+2. `trial_start_ms` 只在 resync 分支前移、FINISH 不前移 → 第 0 对之后所有相位同时过期，
+   一次服务调用连续跑完 STOP/TOPOLOGY/ARM，等于没有 settle/arm 预算；
+3. 2 节点拓扑只下 refmem 拓扑、没下 `tdma_runtime_owner_set_bringup_topology(2,0)` →
+   up/down group 与 flight map 缺失，暗窗后环恢复不了（`node_count=0`、`half_ring=1`）。
+
+**未完成**：接收侧检测的可重复性；跨板位图聚合（单口 Q 段）未实现；join-TX 抑制门仍缺。
+**下一步**：先用宿主 `--adjacency-only` 在同一 build 上取一次 12 对基线，确认板端本地驱动的
+探针是否真产生 ≥10 帧，再决定延长 burst（probe phase/START 提前）还是改判据；不要继续盲调时隙。
+
+**提交状态（本条目写入时）**：代码已 `git add` 且 `check-staged` 通过（receipt build
+`20261105055647`、scope `DPLL60_JOINT`、sources=983），但整仓 pre-commit 被并行 OTA 会话的
+未跟踪文件 `tools/ota_keys/ensure_debug_key.py`（工具治理判“unregistered file”）阻断，因此本批
+代码与文档**尚未提交**。解除方式：该会话提交/登记该工具，或用户裁定归属后按其分类补登
+`tools/tool_workflow_triage.json`；不要用 `--no-verify` 绕过。
+
+**台架状态（本条目写入时）**：四板已从 bench 镜像（v2 + AUTOFORM + SCAN）刷回标准 v1 构建
+（`out/build/dpll60-latest/DHRT100_FACTORY.uf2`），板号已重写 NO.1..4，dpll60 凭证通过
+（`out/m1-scan/dpll60-r2`）。要复跑 M1，需按 §9.18 重刷 bench 构建并重写板号。
+
+**续（同会话第 2 轮，2026-11-05 下午）——检测根因再收窄**：
+- **宿主基线**：`calibration_ring_topology.py --adjacency-only --no-assign`（v1 标准镜像、同四板）
+  12 对里 4 对检出，每对 `rx_words 9844–11235`、`rx_frames=0`；环序 NO.1→NO.2→NO.3→NO.4
+  （`out/m1-scan/p0t-host-baseline/summary.json`）。**真检出是上万字**，板端 0–15 字是噪声。
+- **probe persona 门**：`tdma_pio_spi_ring_adapter_tx.c:351-356` 要求
+  `topology_probe_mode && !(flags & BRINGUP_NO_CAL)`；引导档恒带该 flag，暗窗内必须先清。
+  `tdma_service_set_bringup_no_cal`（`tdma_service.c:519-540`）要求 `config_seq==applied`，
+  只能在 SETTLE 后调用；放在拓扑写入后实测四板 `fail_phase=1`、`trials_armed=0`。
+- **仍未解决**：清标志后四板仍是 0–9 字，burst 未出现；两板在 900 ms 的拓扑写入处抢跑
+  （`fail_phase=1`）。下一步按宿主次序复刻"一次 STAGe/APPLy/PROBe 前导 + 每对只改拓扑"，
+  再判断 operating profile 是否被每对的 foundation profile 重写。
+- **凭证**：本轮最后一次源码改动后已重跑 dpll60（`out/m1-scan/dpll60-r4`，build
+  `20261105063447`，`check-staged` OK，sources=983）；提交仍被并行 OTA 会话的
+  `tools/ota_keys/ensure_debug_key.py` 阻断（该路径属冻结 legacy 根，登记也不能清，
+  须由该会话把它移到 `tools/ota/ota_keys/` 并登记）。
+
+**凭证路径的坑（本轮新增）**：`workflow_steps.py dpll60` 默认用 `pico2-release` 预设（**v1_compat**），
+而 bench 镜像是 **v2_candidate**；v1 包的 run offset 与 v2 分区不符，OTA 在第二个 `STREAM:DATA`
+处静默失败（裸 `SCPI_RES_ERR` 不写信道 → 300 s 超时，**不是** `erase failed: state=9`）。处置：
+先把四板刷回同一地图的镜像再跑；`--flash picotool` 不产生可提交凭证。
+
+**续（同会话第 3 轮，2026-11-05 15:00）——决定性读数是 TX**：
+
+- 按宿主前导补了"暗窗开头一次性 `stage/apply level 7`"（宿主 `--level` 默认 7 = 10 MHz/1 ms，
+  不是引导档 23/10 kHz），并把 prelude 改成带 settle 屏障的状态机（`fail_phase=102` 是屏障超时，
+  实测 NO.4 在 `OPMode?` 上停在 staged=7/active=23）。
+- 新增两个只读字段 `tx_delta`、`sample_started` 后，四板读数：接收侧
+  `sample_started=1`、`frames_delta=0`、`words_delta=0..8`（噪声），而 **`tx_delta=0`**。
+- 即：ARM/START 都被接受、接收侧在跑，但**驱动板一个帧都没发**；宿主同一四板每对是
+  `rx_words≈1e4`。所以问题不再是"阈值"或"对齐"，而是 probe 模式下 TX 根本没启动；
+  下一步按 TX 路径的每一个门（probe 标志、BRINGUP_NO_CAL、data_enabled、flight engine、
+  PIO/DMA 使能、driver/receiver 槽位）逐项对照宿主次序。
+- 凭证：源码在本轮又改动，`dpll60-r4` 已过期；提交被同一外部文件阻断，故未重跑。
+
+**续（同会话第 3 轮末，2026-11-05 15:20）——去掉 TRAIN 后有了真 burst，但邻接仍不对**：
+
+- **TRAIN 是有害的**：`RING:TRAIN` 把 PIO persona 换成 `CLOCK_COARSE`、卸掉 `FLIGHT_ORIGIN`，
+  只有"训练后强制 STOP + 重新 ARM"才恢复（`tdma_pio_spi_phys_arm.c:828-943`、
+  `tdma_ring_runtime.c:770-778`）；宿主 `--adjacency-only` 正是**不训练**的
+  （`calibration_ring_topology.py:309-313`）。删掉训练调用后，驱动窗内
+  `tx_delta=330–406` 帧、接收侧出现 `words_delta=314`（此前只有 0–9 的噪声）。
+- **新增逐对证据出口** `SYST:TDMA:GUIDE:PAIR? <i>`（role/frames/words/tx），一轮即得 12 对全表。
+  实测（`out/m1-scan/run-20261105-151902.txt`）：
+  - 驱动侧 12/12 正常（330–406 帧）；
+  - 期望的 4 条环边**全部为 0**：NO.1 收 NO.4 = 0、NO.4 收 NO.3/NO.2/NO.1 = 0、NO.3 收 NO.2 = 0；
+  - 唯一非零接收是 NO.3 收 NO.4（对 11，314 字，**非宿主测出的环边**），且 NO.4 在自己
+    驱动的对 11 也收到 370 字（自环/对端转发）。
+- 结论收敛到：**2 节点配对下两板的 RX/TX 方向与物理环不一致**（或两板对同一对的时隙没对齐），
+  不是阈值、不是 TX、不是判据。下一步：在逐对记录里加"本对窗口相对 epoch 的起止时间戳"，
+  先证明四板确实在同一对同一时刻，再查 2 节点拓扑的 slot0/slot1 与物理 IN/OUT 的对应。
+
+**续（第 4 轮，2026-11-05 15:35）——对齐与配置已证清白，故障收窄到"只有第一对能收"**：
+
+- `SYST:TDMA:GUIDE:PAIR? <i>` 现在返回 `role,frames,words,tx,packed_state,start_offset_ms`；
+  `packed_state` = `node_count | local<<8 | ref<<16 | enabled<<24 | started<<25 | gap<<26`。
+- **对齐**：四板每对的 `start_offset_ms` 都是 `0,5000,…,55000`，逐对一致 → 时隙对齐成立。
+- **配置**：驱动板 `state=50331650`（node=2/local=0/ref=0/enabled=1/started=1），
+  接收板 `50331906`（local=1）→ 2 节点拓扑、角色、START 全部正确。
+- **故障**（`out/m1-scan/run-20261105-153408.txt`）：
+  - 物理环 1→2→3→4→1 的 4 条边，只有 **pair 0（1→2）** 收到（`words=5671`）；
+  - pair 4（2→3）、pair 8（3→4）、pair 9（4→1）接收侧全 0，尽管驱动侧 tx=332–403；
+  - 非边 pair 11（4→3）两侧各有 217/354 字 → 假阳性。
+- 也就是说：**驱动 12/12 都在 10 MHz 发帧，接收侧只有整轮第一次 ARM 的那一对真正武装了 RX**。
+  首选假设：后续每对的 ARM 复用了上一对遗留的 RX 武装状态（未强制重装 RX 几何）；
+  下一轮实验：SETTLE 里除 `applied==config` 外再要求 `adapter_started==0`（证明上一对的
+  adapter 已完全退休）后才重新 ARM。
+
+**续（第 5 轮，2026-11-05 15:42）——adapter 退休屏障排除，RX 武装"只生效一次"成立**：
+
+- SETTLE 加 `adapter_started==0` 后结果不变（说明上一对确实退休了）：pair 0 的接收侧
+  `words=32742`，pair 4/8/9 仍全 0；非边 pair 11 仍是 217/225/352 量级假阳性。
+- 结论升级为：**整轮只有第一次 ARM 真正武装了接收侧**；同一块板（NO.2）第 0 对收 32742 字、
+  第 7 对（同为 slot 1 接收）收 0，排除了"配置/角色/对齐"。
+- 代码线索：`tdma_rx_prepare_request()` 只在 `TDMA_RX_PREPARE_IDLE` 时接受
+  （`tdma_rx_prepare.c:12-19`），READY 未被消费时后续请求被拒；`tdma_pio_spi_ring_adapter_tx.c:574`
+  只在 stop 路径 `cancel` 它。下一轮先验证"第 2 对起 `rx_preparation` 是否停在 READY"，
+  再决定是消费/复位该 job 还是每对强制 cancel+request。
+
+**续（第 5 轮，2026-11-05 15:50）——宿主仍是 4/4，板端次序改动后结果反而变得不确定**：
+
+- **台架健康复核**：把 bench 镜像刷回四板后，宿主 `--adjacency-only` 仍 4/4 检出
+  （`words 10914/12840/13696/12412`，环序 1→2→3→4，`out/m1-scan/p0t-host-recheck`）。
+  也就是说**同一固件、同一台架，宿主次序稳定成功**，差异只在编排。
+- 按宿主"先接收侧、后驱动侧"把驱动 START 延后到 3700 ms 后：NO.1 在 WAIT_RING 超时
+  （`fail_phase=100`），NO.2 反而报 3 条（bits 0/7/10，其中 7/10 不是环边），且三次接收窗的
+  `words` 都是**同一个 346**（与本板发送计数同量级）→ 更像本板自环/固定伪影，不是对端突发。
+- 三次运行（pair0=32742 / pair0=5671 / 本次 346×3）结果互不相同 ⇒ **固定相位表 + 无握手**
+  的编排在 ARM/START 竞态下不确定。宿主的做法是**每步确认**（ARM 接收→查 started→ARM 驱动→
+  查 started→基线快照→START 接收→START 驱动）。
+- 下一轮改法：把"每对执行"改成**带确认的串行状态机**（每步 poll 到目标快照再进下一步），
+  而不是同一张毫秒相位表；必要时用"驱动侧先等接收侧 beacon/RX 活动或超时"做自同步。
+
+**续（第 6 轮，2026-11-05 16:05）——`PAIR?` 增加 service_delta / adapter_last_error，出现两个强信号**：
+
+- `adapter_last_error=3`（`TX_FAILED`）只出现在**每块板的第一个驱动对**（NO.1 对 0、NO.2 对 3、
+  NO.3 对 6、NO.4 对 9），此后都是 0；接收对恒为 0。
+- 唯一成功收到 burst 的那一对（NO.2 对 0，`words=8560`）`service_delta=1`；所有失败对
+  `service_delta≈500–700`。也就是说：**adapter service 一旦在窗口内高频运行，原始 RX 累积就没了**；
+  service 几乎不跑时，ARM 留下的原始捕获反而能收到 burst。
+- 解释方向：ARM 走 probe 分支后 PIO 处于"原始探针捕获"，而 ring service 一旦开始跑，
+  会用正常 flight 路径重配/消费 RX DMA（`tx_count` 仍增长，说明 service 在发但不收）。
+- 下一轮最小实验：**只 START 驱动侧，接收侧保持 `data_enabled=0`**（service 不跑，保留 ARM
+  的原始捕获），看是否稳定出现上万字；若成立，再决定接收侧是否需要在采样后再 START 一次。
+
+**续（第 7 轮，2026-11-05 16:10）——"不 START 接收侧"被证伪**：
+
+- 实测（`out/m1-scan/run-20261105-161103.txt`）：接收侧不 START 时 `service_delta=0`
+  （service 确实没跑），但**`words` 全为 0**——ARM 只开硬件抓取，不 START 就连原始 DMA 也不会累积。
+  因此上一轮"service 运行吃掉 burst"的相关性是巧合，`START` 是接收侧的必要条件。
+- 已把接收侧 START 恢复（代码回到上一形态并加注释说明反证）。
+- 结论：M1 的失败仍只在"START 之后 RX 是否真的解码/累积"这一层，且随运行次序不确定；
+  继续盲调时隙的收益已很低。② 的正测试需要一个真实 TRN-03 matrix——本仓库当前 `out/` 里
+  **没有任何 `trn03-matrix.json`**，只能用完整 TRN-02 链现生成（约 30–40 min）。
+
+**续（第 8 轮，2026-11-05 16:30）——用户提示"有内部逻辑分析仪"，已定位其 SCPI 面**：
+
+- 面：`REALtime:IO:ANALyzer:STATe?`（20 字段，当前全 0=idle）、`:ARM <mask>,<period_ns>,<max>,<timeout_us>,<overwrite>`、
+  `:EDGE:ARM`、`:STOP`、`:BURSt:ARM/STATe?/SAVE/EXPort?`（`middleware/scpi_port/src/scpi_realtime_io_commands.c:500-620`）。
+- **`ARM` 在引导环运行期间一律被拒**（`-200 Execution error`，四板、两种镜像都如此）：它过
+  `scpi_port_reject_if_run_forbidden(TRIGGER_CONFIG)`，与运行中的 TDMA/VDC 资源冲突。
+  结论：LA 必须在**暗窗内由固件本地 arm**（`sync_io_logic_analyzer_request_arm()`），不能靠
+  主机在开机后 arm。
+- 待确认：LA persona 的 `gpio_read_mask` 是否覆盖 TDMA 环的 TX/RX 线；以及原始采样记录的读回路径
+  （`STATe?` 只给计数/速率，记录需要 burst/export 或本地拷贝）。
+- 台架已恢复：四板刷回 bench 镜像 `20261105081130`、板号 NO.1..4、`BOOT:PLAN?` 正常
+  （NO.1 START_REF、其余 LISTEN）。
+
+**续（第 9 轮，2026-11-05 16:45）——内部 LA 可用，之前 `-200` 是参数超限**：
+
+- 根因：`SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS=256`（`sync_io_logic_analyzer.h:128`），我先前传
+  `max_records=8192` 被 `config_valid` 直接拒绝。改成 `ARM 0,100,256,5000000,1` 后**立即被接受**，
+  且**引导环运行时也能 arm**（不需要暗窗）。
+- `STATe?` 20 字段（`scpi_realtime_io_commands.c` 的 `scpi_cmd_analyzer_state_q`）：
+  initialized/active/state/mode/end_reason/`capture_sequence`/`produced_records`/`consumed_records`/
+  `dropped_records`/`overrun_count`/`data_crc32`/manager_* 等；实测 raw 采样（100 ns、256 记录）
+  时 `produced_records=1136`、`dropped=323499`（10 kHz 环下丢样正常）。
+- LA persona 的读掩码包含 TDMA pad：`gpio_read_mask = MAIN_INPUT | MAIN_OUTPUT | TDMA_PAD`
+  （`sync_io_persona_resources.c:127-129`），所以它**能看见环线电平**。
+- 限制：每次最多 256 条记录（100 ns 下 25.6 µs），`STATe?` 只给计数，**没有记录读回路径**；
+  要用它判定"burst 是否到接收侧引脚"，需要 (a) 触发式捕获 + (b) 记录导出（`BURSt:EXPort?` 或
+  固件本地拷贝）。这是下一轮的具体工作。
+
+**续（第 10 轮，2026-11-05 16:50）——LA 计数/CRC 不能当作判据**：
+
+- 在 pair 4 的"安静段 vs 突发段"各 arm 一次 raw 捕获（256×100 ns），读 `STATe?`：
+  NO.3 的 `data_crc32` 三次分别是 `87381027 / 213403322 / 1660605473`——**安静段与突发段都不同**，
+  因为捕获是自由运行且含全部 pad 位，CRC 不构成判据。
+- NO.4 第二次 arm 后 `state=3`、`end_reason=3`，再下一次整组归零（LA 停止/复位），说明
+  反复 arm 会改变 LA 生命周期；要做判定必须**一次成功的触发式捕获 + 记录导出**，
+  不能靠计数/CRC 近似。
+- 结论：M1 的"接收侧引脚是否看到 burst"仍未判定；LA 是可用工具，但需要
+  (a) 明确 TDMA pad 的位号，(b) 触发式捕获，(c) 记录读回，三者都在下一阶段补齐。
+
+**续（第 11 轮，2026-11-05 17:00）——TX_FAILED 的代码定位与工作保全**：
+
+- `TX_FAILED` 是 **phys 层拒绝一次 TX 提交**的结果（`tdma_pio_spi_ring_adapter_tx.c:745-762`；
+  `phys_tx_retryable` 为假才置错）。它只在每板第一个驱动对出现，之后 adapter 接受提交
+  （`tx_count` 增长、error=0），说明**驱动侧后续确实在发**；失败在**接收侧的捕获路径**。
+- 工作保全：`git stash create` + `refs/wip/m1-scan-20261105` = `ce22a6ce`（不改工作区、不丢改动），
+  供下次会话在解除提交阻断后对比/提交。
+
+**续（第 12 轮，2026-11-05 17:20）——M1 接受路径改为 10 kHz 自组（用户裁定）**：
+
+- 新出口 `SYSTem:TDMA:BOOT:TOPology?` → `accepted,reason`（0/1 无快照或环未启用、2 半环、
+  4 收不到前驱、6 引导步骤未完成）；判据**不含** join 标志（实测从板 `join_timeout=1` 仍成环）。
+- 实板（bench `out/build/m1-self`，`GUIDE_SCAN=OFF`）：
+  - 正：四板同启 → 四板 `1,0`，`enabled=1 node_count=4 up=1 down=1`、tx/rx 增长；
+  - 负：停 NO.2、同步重启其余三块 → 三块 `0,2` 且 `half_ring=1`，被停板 `0,3`；
+  - 恢复：四板重启 → 四板 `1,0`。
+- 邻接矩阵（§9.19/9.20 的对表扫描）降级为 **provisioning 专用**；`CAL-GUIDE-11` 随之改口径。
+- 台架：四板运行 `out/build/m1-self` 镜像（bench），NO.1..4，环已自组。
+
 ## CAL-TASK-20261105-043 - 交接：日间 M0 收口，新会话入口
 
 **已完成并入库**（提交 `4458cff3`、`0777e5b6`、`44631607`、`5d4105dd`）：

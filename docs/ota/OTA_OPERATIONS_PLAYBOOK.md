@@ -122,6 +122,32 @@ out/build/ota-<run-id>/DHRT100_UPDATE.pkg
 out/build/ota-<run-id>/generated/project_build_info.c
 ```
 
+### 4.1.1 调试自动签名包
+
+调试阶段可用专门的自动签名 preset，不需要手工准备 key/config：
+
+```powershell
+cmake --preset pico2-v2-debug
+cmake --build out/build/pico2-v2-debug --target DHRT100_UPDATE
+```
+
+它会：
+
+- 若无本地 debug key，则在 `out/keys/` 生成；
+- 若有则复用，保证同一调试身份；
+- 在 **build tree** 生成 `generated/ota_public_keys.debug.json`；
+- 用 `v2_debug` profile + `security_counter` 自动签名；
+- 生成 `DHRT100_V2_CANDIDATE_UPDATE.pkg` 及其 signature。
+
+边界：
+
+```text
+debug_only：只能用于台架调试；
+private key 不进源码库；
+build-local public config 不替代生产 key registry；
+生产包仍必须走独立 production/HSM signer。
+```
+
 ### 4.2 选包检查
 
 发包前必须确认：
@@ -237,6 +263,88 @@ python tools/hardware_acceptance/night_preflight.py `
 | `STREAM:STAT?` 停在 READY/FAILED 且 token 旧 | 上一次 session 未清 | `SYST:OTA:STREAM:ABORt 0`，reset，`*IDN?` 恢复后再 OPEN |
 | `BUILD?` 仍是旧值 | 包/目标槽/commit 不对 | 保留 `timing.json`，查 `slot?`/`res?`；单板重试，不重复四板 |
 
+### 7.1 案例：单板在第一个 durable block 失败（2026-11-05）
+
+现场：
+
+```text
+package = out/build/v2-guide/DHRT100_V2_CANDIDATE_UPDATE.pkg
+build   = 20261105020832
+CAP     = 4096,7,2     (V2)
+target  = slot 2
+```
+
+四板同时 OTA：COM3/COM4/COM5 成功，COM6/NO.4 失败；单独重试 COM6 仍复现。
+
+COM6 时序：
+
+```text
+source=0, state=6, durable=512, token=5002, error=5
+```
+
+解码：
+
+- `state=6` = FAILED；
+- `durable=512`；
+- `token=5002` = **`5000 + POTA_STREAM_RESULT_INVALID_STATE`**（精确的 stream 服务结果）；
+- `error=5` = `POTA_STREAM_INGRESS_SESSION`（泛化字段，不能当根因）；
+- 因此它不是“manifest/security 错”，也不是“已经证明目标 Flash 物理写坏”；更接近 **session/core 状态时序不对**：DATA 在擦除/状态切换完成前被处理。
+
+失败后只读查询：
+
+```text
+SLOT?        -> 1,0,1,0,0        active=1, target=2, pending=0
+JOUR?        -> 1,0,18,...       old full checkpoint from previous session
+FT?          -> 0,0,...          zero after reset; NOT failure-time evidence
+RES?         -> "NONE"
+BCB?         -> 1,1,1,1,0,...    valid
+READ:CAL:TRAIN:STAG:PERS? -> "TRN03NVS",0,0,0,1,...  (empty, not active)
+SYST:RESource? -> 130,0,"-","-"  (no training conflict)
+```
+
+判断：
+
+- 包/签名/OPEN/CAP 正常，不是 manifest 或 map 不匹配；
+- 校准/guide store 没有处于 active 状态，不是“引导档写坏 OTA”；
+- `5002=INVALID_STATE` 指向**首块/擦除状态时序**，不是 CRC/签名；
+- 同一包在另外三块板通过，说明优先排查**该板的 session/Flash/旧 journal 状态**，但不能仅凭 `FT?=0` 断定硬件 Flash 坏；
+- `STREAM:STAT? 6,0,0,0,0` 的 `source=6` 是“无活动 source”的哨兵，`state=0` 才是 IDLE；不要把它误读成“有残留会话”。
+
+处理顺序：
+
+1. **不要立刻重跑四板**；先只处理 COM6。
+2. 失败后、reset 前抓：
+   ```text
+   SYST:OTA:STREAM:STAT?
+   SYST:OTA:STREAM:ERASE?
+   SYST:OTA:PROG?
+   SYST:OTA:JOUR?
+   SYST:OTA:FT?
+   SYST:OTA:RES?
+   SYST:ERR?
+   ```
+3. `SYST:OTA:STREAM:ABORt 0` → reset → 等重枚举 → 单板重试一次。
+4. 仍复现：
+   - 先确认失败板确实运行了**当前候选 build**；`BUILD?` 仍是旧值时，先解决“为什么没更新”，不要把旧固件的行为当成新包缺陷；
+   - 检查 `STREAM:ERASE?` 是否在 DATA 前真正完成；`5002` 时重点看 host 是否在擦除结束前发了 DATA；
+   - 保留 `timing.json`、`JOUR?`、`FT?` 原始输出；
+   - 再将板标为 **board-local OTA suspect**；不要用四板重跑掩盖单板状态问题。
+5. `picotool` 进不了 BOOTSEL 时：
+   - 先试 `SYST:BOOT:BOOTSel`（若当前固件支持）；
+   - 换 USB 口/线/主机，确认不是 hub/端口/驱动；
+   - 仍失败才把 boot ROM/USB 通路列为硬件可疑。
+6. 只有单板恢复并通过 `BUILD?` 读回后，才重新跑四板。
+
+经验：
+
+```text
+四板里只有一块在第一个 durable block 失败
+  -> 先当 board-local 状态/时序问题，不要先改包/改协议；
+  -> 5002=INVALID_STATE，5=SESSION 泛化码，两者不能混；
+  -> FT? 必须在 reset 前抓；reset 后的 0 不是证据；
+  -> 不要用四板重跑掩盖单板故障。
+```
+
 ## 8. 失败恢复顺序
 
 ```text
@@ -257,6 +365,15 @@ python tools/hardware_acceptance/night_preflight.py `
 - 只写 **app 槽**的 UF2/镜像；
 - 不要写 bootloader/BCB/calibration；
 - 写完先 `*IDN?` + `BUILD?`，再决定是否 OTA。
+
+`OTA_workflow.py --method picotool` 现在按目标序列号选择 BOOTSEL 设备，不再用全局
+`picotool info` 误认另一块板；每块板有：
+
+- `--command-timeout`：单个 picotool 子进程上限；
+- `--bootsel-timeout`：等待该板进入 BOOTSEL 的上限；
+- workflow 侧 wall-clock 上限：单板卡死不会拖住整个 step 4。
+
+失败时先看 `flash-picotool/<serial>.txt` 和 `*.timeout.txt`，不要直接重跑四板。
 
 ### 8.2 factory UF2
 

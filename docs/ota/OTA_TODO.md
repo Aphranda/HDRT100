@@ -4,7 +4,7 @@ Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_TODO.md`
 Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TASK_PROGRESS.md`, `docs/arch/HAOFV_FLASH_TODO.md`
-Last updated: 2026-11-04
+Last updated: 2026-11-05
 
 本文维护 OTA 域当前主线、稳定任务 ID、状态和退出门禁。历史完成清单与单次验证快照已迁入 `docs/legacy/ota/`；实现证据只追加到 `OTA_TASK_PROGRESS.md`。
 
@@ -40,6 +40,12 @@ Last updated: 2026-11-04
 ## 当前主线
 
 将 OTA pending 路径收敛为符合 HAOFV 的单 owner、非阻塞 FB、显式 selection、固定 workspace、Flash intent/completion 和 Vector snapshot 流程。公共 SCPI 状态保持兼容，内部逐步移除同步扫描、hidden hint、现场查询和临时 fault 语义混放。
+
+> V1 compat 自 2026-11-05 起已归档为 `ARCHIVED-REFERENCE + RECOVERY-BASELINE`。V1 没有独立
+> `CALIBRATION_NVS`，其校准/引导档结果不得外推到 V2；factory migration、四板 P3 FULL、
+> A/B/revert/Recovery 按历史记录完成，真实掉电矩阵按用户裁定不纳入本轮门禁。V1 factory/runbook
+> 只读保留，代码/构建入口归档为 legacy/reference；产品回退决策不再是归档门禁。规则见
+> `docs/ota/OTA_V1_LEGACY_PLAYBOOK.md`，记录见 `docs/arch/HAOFV_FLASH_TODO.md` M4-06。
 
 ## 里程碑总览
 

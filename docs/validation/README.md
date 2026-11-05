@@ -4,7 +4,7 @@ Status: Active
 Domain: VALIDATION
 Canonical: `docs/validation/README.md`
 Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-11-04
+Last updated: 2026-11-05
 
 本目录是 HIL、验证方法、任务进度及闭环验证记录的入口。工具身份、登记、依赖、生命周期与交接治理统一见 [工具域架构](../tools/DOCS_TOOLS_ARCHITECTURE.md)；具体工具操作说明仍与根目录 `tools/` 实现相邻，业务资格判据仍归原业务域。
 

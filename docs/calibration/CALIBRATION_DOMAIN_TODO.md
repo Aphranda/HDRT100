@@ -273,6 +273,7 @@ v1 方案经两份独立只读审查判 `REJECT`，结论与逐条处置见
 | CAL-GUIDE-08 | S 段：STOP 下逐 link staging + generation/CRC/freshness 校验 + ARM 门禁 | `PENDING` | 缺任一 link 整轮 STOPPED；10 MHz 起环；P3 |
 | CAL-GUIDE-09 | 目录 7 类（RING STOP/ARM/START/BRINGup/TRAIN、OPMode）+ `allowed_states/required_capabilities/idempotent` 执行侧校验 + `param_kind: ref` | `PENDING` | 目录版本 + 负测；`CAL_START` 等既有枚举补目录行 |
 | CAL-GUIDE-10 | 10 kHz 相位 WCET/迟到/IRQ 实测；SD 写时延上界 | `PENDING` | 同源码实测；`T_trial` ≥ 锁存 + 落盘上界，否则不得开启 R 段 |
+| CAL-GUIDE-11 | M1 拓扑接受：以 10 kHz 自组为判据（`SYST:TDMA:BOOT:TOPology?` = accepted/reason；缺板即半环拒绝）；12 对邻接矩阵降为 provisioning 专用 | `IN PROGRESS` | 正/负/恢复三态已实测（四板 `1,0`；停一块后三块 `0,2`+`half_ring=1`；全启恢复 `1,0`）；**待 P3 凭证与提交**（凭证过期、提交被外部文件阻断） |
 
 **批次。** B1 文档（本表 + playbook + 核验单）；B2 `CAL-GUIDE-04`（TDMA 域）；B3
 `CAL-GUIDE-03/09`（REFMEM 域）；B4 `CAL-GUIDE-02/05/06`（CAL 域）；B5 `CAL-GUIDE-07`（REFMEM/CONSOLE）；

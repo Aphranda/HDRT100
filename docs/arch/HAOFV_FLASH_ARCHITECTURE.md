@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`
-Last updated: 2026-09-06
+Last updated: 2026-11-05
 
 本文档是 RP2350_TRIG 板载 QSPI Flash 的跨域 canonical。它定义 FlashMap、App/Boot writer、
 掉电事务、Boot/Direct A/B、OTA、关键配置、Calibration、VDC、System Pack、RefMem package、
@@ -456,6 +456,22 @@ release 固件不提供任意 offset erase/program。validation destructive comm
 
 App 不自动识别并搬迁旧 offset；未知 map 进入 Recovery。迁移报告记录每个 region hash、旧/新
 identity、Boot result 和可恢复 artifact。
+
+### 9.1.1 V1 生命周期（2026-11-05）
+
+V1 compat 自本日起进入 **ARCHIVED-REFERENCE + RECOVERY-BASELINE**：
+
+- 不再作为新功能、校准或引导档的验证目标；
+- V1 缺少独立 `CALIBRATION_NVS`，其校准/引导档结果不能外推到 V2；
+- V1 factory artifact、checksum、`last_recoverable_commit` 和 BOOTSEL runbook 继续保留，
+  不得删除或覆盖；
+- factory migration、四板 P3 FULL、A/B/revert/Recovery 按历史记录视为已完成；真实掉电矩阵
+  按用户 2026-11-05 裁定不纳入本轮退役门禁，也不得写成已通过；
+- V1 代码/构建入口已归档为 legacy/reference，不再作为正常开发入口；源文件保留，
+  factory/runbook 只读保留；产品回退决策不再作为归档门禁。
+
+操作规则见 `docs/ota/OTA_V1_LEGACY_PLAYBOOK.md`；归档记录见
+`docs/arch/HAOFV_FLASH_TODO.md` 的 M4-06。
 
 ### 9.2 发布完成条件
 

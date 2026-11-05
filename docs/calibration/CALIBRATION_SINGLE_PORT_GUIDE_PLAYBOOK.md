@@ -764,6 +764,131 @@ foreach ($s in @('0010071E65B5CB38','FB276192BEF9CCE1','2BD5090FE009FA2A','A1E54
 **注意**：整片擦除会清板号（NO.0），刷完需 `SYSTem:BOARD:NO <n>` 逐板写回；本 runbook 用普通
 `picotool load`（不 `--full-erase`），保留板号与标定。
 
+### 9.19 M1 P0T 板端对表扫描（实现 + 实板状态）
+
+**裁定（2026-11-05，用户）：M1 的拓扑接受改用 10 kHz 自组，邻接矩阵只保留为 provisioning 工具。**
+理由与证据：自组本身要求每块板只从自己的前驱收到帧（`down_running=1`）且四板同时在线，
+少一块板就会置 `half_ring=1` 并 STOP——这已经是"物理线序与引导档拓扑一致"的证明，不需要
+12 对有向探针再证一次。下面 §9.19–9.20 的对表扫描因此只用于"尚无持久引导档、需要重新分配
+slot/NO"的场景。
+
+接受判据（新增只读出口 `SYSTem:TDMA:BOOT:TOPology?` → `accepted,reason`）：
+
+| 返回 | 含义 |
+|---|---|
+| `1,0` | 引导步骤完成、环 enabled 且 `node_count` 与档一致、`down_running=1`、无 `half_ring` |
+| `0,1/3` | 无快照 / 环未启用（含暗窗、STOP、刚重启） |
+| `0,2` | 半环窗口已判 `half_ring=1` |
+| `0,4` | 本板收不到前驱（缺板邻居或线序不符） |
+
+实板证据（bench 镜像 `out/build/m1-self`，`PROJECT_TDMA_GUIDE_SCAN=OFF`）：
+
+- **正**：四板同时上电 → 四板 `1,0`，`RING:STATus?` `enabled=1 node_count=4 up=1 down=1`、tx/rx 增长；
+- **负**：停 NO.2 后同步重启其余三块 → 三块 `0,2`（`BOOT:PLAN?` `half_ring=1`），被停板 `0,3`；
+- **恢复**：四板全部重启 → 四板回到 `1,0`。
+- 附带发现：从板 `join_timeout=1` 仍可形成完整环（`join_frame_seen` 只是证据，不作否决项），
+  因此接受判据**不含** join 标志。
+
+M1 的第一段实现：引导环自组完成后，四板**不接主机命令**各自走完 12 个有向对的探针，
+每板只发布"我作为接收者听到了哪些对"。执行器与纯逻辑分离：
+
+| 组件 | 落点 | 内容 |
+|---|---|---|
+| 纯逻辑 | `components/tdma/{inc,src}/tdma_guide_scan.*` | 12 对表（`N×(N−1)`，driver 升序/receiver 升序）、按本地 slot 派生 `DRIVER/RECEIVER/IDLE`、活动位图、单闭环聚合与五种拒绝码 |
+| 执行器 | `application/src/app.c` `app_guide_scan_service()` | boot 步骤完成后进暗窗，12 个 5 s 时隙；每时隙 `STOP → 2 节点拓扑(+bring-up topology) → 等 applied==config → PROBE 10 → ARM(带 stopped 屏障) → TRAIN 512 → START → 接收窗轮询 → STOP`；最后清 probe 并重放冻结 boot 步骤恢复 4 节点环 |
+| 读回 | `SYSTem:TDMA:GUIDE:SCAN?` | 22 字段：state/pair/role/node/slot/位图/observed/skipped/failures/fail_phase/arm_result/arm_attempts/arm_gap/staged_enabled/trials_started/trials_armed/max_late_ms/stall_ms/frames_delta/words_delta |
+| 构建开关 | `PROJECT_TDMA_GUIDE_SCAN`（默认 OFF） | 只在 bench 构建（同时开 `AUTOFORM`）生效；产品镜像仍是普通引导 |
+
+**时隙对齐**：epoch 取 `reset + 12.5 s`（四板同步重启，boot 时间差 ≈0.1 s），而不是"本板首次
+看到环上流量"——后者在协调板与从板之间相差 1–2 个环周期（10 kHz 下 0.6–1.2 s），会把相邻时隙
+的突发算到本对头上。每个时隙的相位偏移在 `k_guide_phase_ms`，接收窗 `3400–4700 ms`。
+
+**判据**：每板 `observed_low` 只应含本板作为接收者的 3 对；四板并集应恰为物理环的 4 条有向边；
+`trials_started=12`、`trials_armed=6`、`skipped=0`、`stall_ms` 无秒级；恢复后
+`SYST:TDMA:RING:STATus?` 为 `enabled=1 node_count=4`，`BOOT:PLAN?` 的 `half_ring=0`。
+
+**已实现事实（写给下一位）**：
+
+- 相位的推进条件是"相位号 ≤ FINISH"，因此 **FINISH 的编号必须是最大**；把 SETTLE 放在
+  9/10 而没有同步抬高 FINISH，会让状态机在 SETTLE 永久停住（实测 `trials_started=12`、
+  `trials_armed=0`、`skipped=6`，一个 ARM 都没发出）。
+- 时隙锚点（`trial_start_ms`）必须在 FINISH 里随 index 前移；否则第 0 对之后所有相位都在
+  "已过期"状态，STOP/TOPOLOGY/ARM 会在一次服务调用里连续跑完，等于没有 settle/arm 预算。
+- 2 节点拓扑要同时下 **refmem 拓扑**与 `tdma_runtime_owner_set_bringup_topology(2,0)`：
+  up/down group 与 flight map 来自后者；只下前者时环永远恢复不起来（实测重启后
+  `node_count=0` 且 `half_ring=1`）。
+- ARM 必须按宿主的屏障语义重试：先证明 `enabled=0 && adapter_started=0 &&
+  applied==config`，否则重发 STOP 再等；带 gap 直接连发 ARM 会被判 `result=8`。
+- `CAL:TRAINing:STAGe:CLEar` 只在进暗窗前做一次；恢复时不重做（ARM 会读标定门）。
+- 判据须用与宿主相同的量级：`Δframes ≥ 10 或 Δwords ≥ 8`；"任一计数变化"会把相邻时隙的
+  尾帧或串扰算成邻接。
+
+**宿主基线（同一台架，v1 标准镜像，2026-11-05）**：`calibration_ring_topology.py
+--adjacency-only --no-assign` 12 对里 4 对检出，每对 `rx_words ≈ 9.8k–11.2k`、`rx_frames=0`、
+`rx_edges=0`；环序 NO.1→NO.2→NO.3→NO.4。也就是说"真检出"是**上万字**的量级，板端 0–15 字是
+噪声，而不是"阈值太严"。
+
+**probe persona 的安装条件（本轮新增事实）**：`tdma_pio_spi_ring_adapter_tx.c:351-356` 只在
+`topology_probe_mode && (ring.flags & BRINGUP_NO_CAL) == 0` 时把 flight engine 停掉、走原始
+探针路径；而引导档总是带 `BRINGUP_NO_CAL`。清标志的 `tdma_service_set_bringup_no_cal`
+（`tdma_service.c:519-540`）又要求 `config_seq == applied_config_seq` 且 staged 已启用，
+因此只能在 `SETTLE` 之后、`ARM` 之前调用（放在拓扑写入之后会恒返回 false，实测四板
+`fail_phase=1`、`trials_armed=0`）。
+
+**当前状态**：清了该标志后，四板依旧是 0–9 字（噪声级），probe burst 仍未出现；两板还在
+`TOPOLOGY`（900 ms）处抢跑失败。下一步应先复刻宿主的"一次 `OPMode:STAGe`+`APPLy`+`PROBe`
+前导、每对只改拓扑"的次序，再判断是 operating profile 被每对的 foundation profile 重写，
+还是 `START` 后需要更长驻留。
+
+### 9.20 M1 板端探测 vs 宿主：已知差异清单（2026-11-05 收口）
+
+宿主 `calibration_ring_topology.py --adjacency-only` 在同一 bench 镜像、同一四板上稳定 4/4
+（每对 `rx_words` 约 1.0–1.4 万），板端执行器同一套 API 只偶发命中。逐条差异如下，按已排除/未排除标注：
+
+| # | 差异 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 宿主不训练；板端原先每对调 `RING:TRAIN` | **已排除（改成不训练）** | 去掉后 TX 从 0 变成 330–406 帧、接收偶发 5671/32742 字 |
+| 2 | 宿主电平 level 7；板端原先用引导档 23（10 kHz） | **已排除（加 PRELUDE 一次性 apply 7）** | 改后驱动仍是 10 MHz 量级帧率 |
+| 3 | 时隙对齐（四板同一对同一时刻） | **已排除** | `GUIDE:PAIR?` 的 `start_offset` 四板全为 `0,5000,…` |
+| 4 | 2 节点拓扑/角色配置 | **已排除** | `packed_state`：驱动 50331650、接收 50331906（node=2/ref=0/en=1/started=1） |
+| 5 | 上一对 adapter 未退休 | **已排除** | SETTLE 加 `adapter_started==0` 后结果不变 |
+| 6 | 驱动 START 与接收 START 的先后 | **未成立为充分条件** | 加 300 ms 领先后反而出现 NO.1 WAIT_RING 超时、接收侧只剩固定 346 字伪影 |
+| 7 | 每对前重下拓扑 | **已排除** | 强制每对都调 setter，结果不变 |
+| 8 | 无跨板握手（宿主每步都确认，板端只有固定毫秒相位） | **未排除（当前首选）** | 三次运行三种结果：32742 / 5671 / 346×3 |
+| 9 | `rx_preparation` job 停在 READY 导致后续 ARM 不再请求 RX 武装 | **未排除** | `tdma_rx_prepare.c:12-19` 只接受 IDLE；`tdma_pio_spi_ring_adapter_tx.c:574` 只在 stop 时 cancel |
+| 10 | beacon 长度 ≠ ARM 时 `flight_physical_byte_count` | **未排除** | `tdma_pio_spi_phys_flight_io.c:61-70` 返回 BAD_ARGUMENT，arm/START 仍成功 |
+
+**建议顺序**：先查 #9（读 `rx_preparation` 状态，或每对强制 cancel+request 再 arm），再查 #8
+（把每对改成带确认的串行状态机），最后查 #10（对比 `last_error` 与 ARM 时的字节数）。
+
+### 9.21 S 段开机决策（实现，未上板）
+
+`tdma_boot_stage.{h,c}` 是纯决策：输入"是否有已提交 stage + stage 的 `profile_crc32` +
+目录里各 level 的 `profile_crc32`"，输出 `NONE / STAGE(level) / REJECT`。规则是 fail-closed：
+映射不到 level 就保持引导档，不拿 stage 里的数字猜。用例 `tests/unit/test_tdma_boot_stage.c`
+（5 组：无 stage、命中、CRC 不匹配、零 CRC/空目录/level 0、NULL 输出）。
+
+`app.c` 在 bench 开关 `PROJECT_TDMA_GUIDE_STAGE_BOOT`（**默认 OFF**）下，于载入引导档后调用
+`app_guide_stage_boot_override()`：命中时把 `profile_level` 换成 stage 对应 level 并清掉
+`BRINGUP_NO_CAL`（让 ARM 走标定门），未命中保持 10 kHz。
+
+**状态**：纯逻辑已 host 验证；wiring 只在开关打开时编译进去，**尚未有实板正/负证据**——台架当前
+`READ:CALibration:TRAINing:STAGe:PERSistence?` 四板均为 `persisted_valid=0`（无已提交 stage）。
+正测试需要一个真实 TRN-03 stage（由 TRN-02 证据生成），负测试可在无 stage 时验证"仍按 10 kHz 起环"。
+
+**S 段实板测试步骤（待 matrix 就绪后执行）**：
+
+1. 完整验收链产出 `trn03-matrix.json`（`workflow_steps.py run` 的 21 步）；
+2. 刷 bench 镜像变体 `PROJECT_TDMA_GUIDE_STAGE_BOOT=ON`（其余同 `m1-self`：v2 + AUTOFORM、
+   `GUIDE_SCAN=OFF`），逐板写回 `SYST:BOARD:NO`；
+3. `trn03_stage.py --board-id <NO.1..4 串口序> --config <matrix> --commit`，
+   复核 `READ:CALibration:TRAINing:STAGe:PERSistence?` 为 `persisted_valid=1, loaded=1, reject=0`；
+4. 同步重启四板 → 期望 `SYST:TDMA:OPMode?` 的活动档 = matrix 的 level（不是 23）、
+   `BOOT:TOPology?` = `1,0`、`RING:STATus?` `enabled=1 node_count=4`；
+5. 负测试：`trn03_stage.py --clear` 后重启 → 活动档回到 23、`BOOT:TOPology?` 仍 `1,0`。
+
+
+
 
 
 
