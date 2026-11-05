@@ -202,6 +202,17 @@ static struct {
  * level；映射不到就保持引导档（fail-closed，不猜）。 */
 static void app_guide_stage_boot_override(void)
 {
+    /* The persisted record itself is the boot-level authority: `loaded` is set
+     * later by the context-bound restore path, so requiring it here would race
+     * the boot (measured 2026-11-05: one of four boards loaded in time and the
+     * rest fell back, leaving a mixed-level ring). A record from another
+     * topology/profile is rejected by the ARM gate and by the store's context
+     * check at restore time; a pre-boot CRC cross-check is a follow-up. */
+    calibration_training_store_status_t status;
+    calibration_manager_get_training_store_status(&status);
+    if (status.persisted_valid == 0u) {
+        return;
+    }
     tdma_ring_calibration_stage_t stage;
     if (!calibration_training_store_get_stage(&stage)) {
         return;
