@@ -1698,6 +1698,10 @@ bool app_guide_scan_get_pair(uint32_t index,
 #define APP_CTRQS_P2_CODED_MS 9000u
 #define APP_CTRQS_P2_STOP_MS 6000u
 #define APP_CTRQS_P2_REF_DELAY_MS 1500u
+#define APP_CTRQS_ACTION_P3 3u
+#define APP_CTRQS_P3_STEP_MS 6000u
+#define APP_CTRQS_P3_REF_DELAY_MS 300u
+#define APP_CTRQS_P3_MAX_REPEATS 4u
 
 typedef enum {
     APP_CTRQS_IDLE = 0,
@@ -1712,6 +1716,8 @@ typedef enum {
     APP_CTRQS_P2_STOP,
     APP_CTRQS_P2_WAIT,
     APP_CTRQS_P2_CODED_STOP,
+    APP_CTRQS_P3_PREP,
+    APP_CTRQS_P3_RUN,
     APP_CTRQS_RESTORE_WAIT,
     APP_CTRQS_REBUILD,
     APP_CTRQS_Q,
@@ -1756,6 +1762,19 @@ typedef struct {
     uint32_t p2_ref_start_ms;
     bool p2_started;
     bool p2_fwd_seen;
+    /* P3 (per-link bidirectional ranging): links are derived from the ring
+     * topology, so the C segment only carries the first link and the repeated
+     * per-link parameters. */
+    uint32_t p3_start_link;
+    uint32_t p3_signal_group;
+    uint32_t p3_pulse_count;
+    uint32_t p3_capture_words;
+    uint32_t p3_repeats;
+    uint32_t p3_baud_hz;
+    uint32_t p3_tolerance_per_mille;
+    uint32_t p3_trial;
+    uint64_t p3_trial_t0_ms;
+    bool p3_started;
     uint32_t hard_fail_reason;
     uint64_t stop_try_ms;
     guide_action_progress_t progress;
@@ -2006,6 +2025,38 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
                      s_ctrqs.p2_level != 0u;
         s_ctrqs.trials = 1u;
         s_ctrqs.slot_ms = plan->window_ms;
+    } else if (plan->action_id == APP_CTRQS_ACTION_P3) {
+        /* P3 candidate layout (v2): start_link, signal_group, pulse_count,
+         * capture_words, repeats_per_link; threshold_low = baud_hz and
+         * threshold_high = frequency tolerance in per-mille.  Links are
+         * derived from the ring topology: link L = source L, destination
+         * (L+1)%N, so the C segment never has to carry a link table. */
+        s_ctrqs.p3_start_link = plan->candidates[0];
+        s_ctrqs.p3_signal_group = plan->candidates[1];
+        s_ctrqs.p3_pulse_count = plan->candidates[2];
+        s_ctrqs.p3_capture_words = plan->candidates[3];
+        s_ctrqs.p3_repeats = plan->candidates[4];
+        s_ctrqs.p3_baud_hz = plan->threshold_low;
+        s_ctrqs.p3_tolerance_per_mille =
+            plan->threshold_high != 0u ? plan->threshold_high : 5000u;
+        plan_valid = plan_valid && plan->candidate_count == 5u &&
+                     s_ctrqs.p3_signal_group <= 1u &&
+                     s_ctrqs.p3_pulse_count >= 1u &&
+                     s_ctrqs.p3_pulse_count <= 4096u &&
+                     s_ctrqs.p3_capture_words >= 1u &&
+                     s_ctrqs.p3_capture_words <= 1024u &&
+                     s_ctrqs.p3_repeats >= 1u &&
+                     s_ctrqs.p3_repeats <= APP_CTRQS_P3_MAX_REPEATS &&
+                     s_ctrqs.p3_baud_hz >= 1000000u &&
+                     s_ctrqs.p3_baud_hz <= 50000000u &&
+                     s_ctrqs.p3_start_link < nodes &&
+                     s_ctrqs.p3_tolerance_per_mille <= 50000u;
+        s_ctrqs.trials =
+            (uint32_t)PROJECT_TDMA_GUIDE_NODES * s_ctrqs.p3_repeats;
+        s_ctrqs.slot_ms = plan->window_ms / s_ctrqs.trials;
+        if (s_ctrqs.slot_ms < 1000u) {
+            s_ctrqs.slot_ms = 1000u;
+        }
     } else {
         plan_valid = false;
     }
@@ -2116,9 +2167,116 @@ static void app_ctrqs_trial(void)
     app_ctrqs_publish();
 }
 
-static void app_ctrqs_service(void)
+/* --- P3 (per-link bidirectional ranging) ----------------------------------
+ * The links are derived from the ring topology: link L = source L, destination
+ * (L+1)%N, L = 0..N-1.  Each board derives its own role per trial from its
+ * local slot, so no board needs a link table from the C segment. */
+static bool app_ctrqs_p3_evaluate(const calibration_manager_p3_snapshot_t *snap)
 {
-    const uint64_t now = app_ctrqs_now_ms();
+    const tdma_pio_spi_p3_snapshot_t *raw = &snap->raw;
+    if (raw->state != TDMA_PIO_SPI_P3_COMPLETE || snap->result_valid == 0u ||
+        (raw->flags & 0x0Fu) != 0x0Fu ||
+        raw->dma_overrun_count != 0u || raw->pio_stall_count != 0u ||
+        raw->baud_hz != s_ctrqs.p3_baud_hz) {
+        return false;
+    }
+    const uint64_t period_ns = UINT64_C(1000000000) / s_ctrqs.p3_baud_hz;
+    const uint64_t measured_ns =
+        (uint64_t)raw->clock_high_ns + (uint64_t)raw->clock_low_ns;
+    const uint64_t delta_ns = measured_ns > period_ns
+                                  ? measured_ns - period_ns
+                                  : period_ns - measured_ns;
+    return delta_ns * 1000ull <=
+           (uint64_t)s_ctrqs.p3_tolerance_per_mille * period_ns;
+}
+
+static void app_ctrqs_p3_advance(bool passed, uint64_t now)
+{
+    const uint32_t bit = 1u << s_ctrqs.p3_trial;
+    if (passed) {
+        s_ctrqs.progress.passed_mask |= bit;
+    } else {
+        s_ctrqs.progress.failed_mask |= bit;
+    }
+    s_ctrqs.progress.trials_done++;
+    s_ctrqs.progress.deepest_trial = s_ctrqs.p3_trial;
+    s_ctrqs.p3_trial++;
+    app_ctrqs_publish();
+    if (s_ctrqs.p3_trial >= s_ctrqs.trials) {
+        app_ctrqs_finalize();
+        return;
+    }
+    s_ctrqs.p3_started = false;
+    s_ctrqs.p3_trial_t0_ms =
+        s_ctrqs.t0_ms + (uint64_t)s_ctrqs.p3_trial * s_ctrqs.slot_ms;
+    s_ctrqs.deadline_ms = s_ctrqs.p3_trial_t0_ms + APP_CTRQS_P3_STEP_MS;
+    (void)now;
+}
+
+static void app_ctrqs_p3_step(uint64_t now)
+{
+    const uint32_t nodes = (uint32_t)PROJECT_TDMA_GUIDE_NODES;
+    if (nodes < 2u) {
+        app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+        return;
+    }
+    const uint32_t link =
+        (s_ctrqs.p3_start_link + (s_ctrqs.p3_trial / s_ctrqs.p3_repeats)) % nodes;
+    const uint32_t source = link;
+    const uint32_t destination = (link + 1u) % nodes;
+    const bool is_responder = s_ctrqs.local_slot == destination;
+    const bool is_initiator = s_ctrqs.local_slot == source;
+    if (!is_responder && !is_initiator) {
+        /* This board owns neither end of the current link: mark the trial as a
+         * no-op pass and move on.  It reports no hardware evidence. */
+        app_ctrqs_p3_advance(true, now);
+        return;
+    }
+    if (now >= s_ctrqs.deadline_ms) {
+        if (s_ctrqs.p3_started) {
+            calibration_manager_stop_p3();
+        }
+        app_ctrqs_p3_advance(false, now);
+        return;
+    }
+    if (now < s_ctrqs.p3_trial_t0_ms) {
+        return;
+    }
+    if (!s_ctrqs.p3_started) {
+        const uint64_t start_ms = is_responder
+                                      ? s_ctrqs.p3_trial_t0_ms
+                                      : s_ctrqs.p3_trial_t0_ms +
+                                            APP_CTRQS_P3_REF_DELAY_MS;
+        if (now < start_ms) {
+            return;
+        }
+        if (!calibration_manager_request_p3(
+                is_responder ? TDMA_PIO_SPI_P3_ROLE_RESPONDER
+                             : TDMA_PIO_SPI_P3_ROLE_INITIATOR,
+                s_ctrqs.p3_baud_hz, s_ctrqs.p3_pulse_count,
+                s_ctrqs.p3_capture_words, s_ctrqs.plan.generation,
+                s_ctrqs.p3_signal_group)) {
+            app_ctrqs_abort(
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            return;
+        }
+        s_ctrqs.p3_started = true;
+        return;
+    }
+    calibration_manager_p3_snapshot_t snap;
+    if (!calibration_manager_get_p3_snapshot(&snap)) {
+        return;
+    }
+    if (snap.raw.state == TDMA_PIO_SPI_P3_COMPLETE ||
+        snap.raw.state == TDMA_PIO_SPI_P3_ERROR) {
+        const bool passed = app_ctrqs_p3_evaluate(&snap);
+        calibration_manager_stop_p3();
+        app_ctrqs_p3_advance(passed, now);
+    }
+}
+
+static void app_ctrqs_service(void)
+{    const uint64_t now = app_ctrqs_now_ms();
     switch (s_ctrqs.state) {
     case APP_CTRQS_IDLE: {
         guide_action_plan_t plan;
@@ -2135,7 +2293,9 @@ static void app_ctrqs_service(void)
             s_ctrqs.state =
                 (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_P2)
                     ? APP_CTRQS_P2_PREP
-                    : APP_CTRQS_STOP;
+                    : (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_P3)
+                          ? APP_CTRQS_P3_PREP
+                          : APP_CTRQS_STOP;
             s_ctrqs.deadline_ms = now + APP_CTRQS_STOP_MS;
         }
         return;
@@ -2441,6 +2601,23 @@ static void app_ctrqs_service(void)
         app_ctrqs_finalize();
         return;
     }
+    case APP_CTRQS_P3_PREP:
+        if (!app_ctrqs_ring_torn_down()) {
+            app_ctrqs_stop_throttled(now);
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            }
+            return;
+        }
+        s_ctrqs.p3_trial = 0u;
+        s_ctrqs.p3_started = false;
+        s_ctrqs.p3_trial_t0_ms = s_ctrqs.t0_ms;
+        s_ctrqs.deadline_ms = s_ctrqs.p3_trial_t0_ms + APP_CTRQS_P3_STEP_MS;
+        s_ctrqs.state = APP_CTRQS_P3_RUN;
+        return;
+    case APP_CTRQS_P3_RUN:
+        app_ctrqs_p3_step(now);
+        return;
     case APP_CTRQS_RESTORE_WAIT:
         if (s_boot_guide_done && s_boot_fail_step == 0u) {
             if (app_ctrqs_restore_formed()) {
