@@ -1159,11 +1159,11 @@ REFMEM 参数池本来就是"调用方持有 region 的纯存储"，已经覆盖
 | REFMEM 命令面/信封/ACK | `components/distributed_refmem/src/refmem_command.c`、`refmem_cmd_*`、`distributed_refmem_*` | 自建第二套命令帧/第二 ACK |
 | 大载荷/参数存储 | `refmem_param_pool.[ch]`（3 slot×1024 B，含 `command_seq`/`epoch`/CRC 校验） | 自建 slot/ledger/环形缓冲 |
 | 触发会话生命周期（C/T/R） | `refmem_trigger_session.[ch]`（IDLE→CONFIGURED→ARMED→RUNNING→STOPPING…） | 自建 CTRQS 相位机（本次已撤回） |
-| CRC-32/ISO-HDLC（含 raw 寄存器变体） | `components/algo/inc/algo_checksum.h`：`algo_crc32_iso_hdlc_update/_compute`（zlib 语义）、`algo_crc32_raw_update`（原始寄存器，seed 与终结由调用点显式给出）；golden `"123456789"→0xCBF43926`，raw 从 0 起 → `0x2DFD2D88` | 自写第二份按位/查表 CRC-32；raw 与 zlib 两种约定混用而不注明 |
-| CRC-16/CCITT-FALSE | 同一头文件：`algo_crc16_ccitt_false_update/_compute`（inline，poly 0x1021 / init 0xFFFF）；golden `0x29B1` | 自写第二份 CCITT；改多项式或初值 |
-| FNV-1a 32 | 同一头文件：`algo_fnv1a32_update/_bytes/_str/_u32_le/_word`；golden `"123456789"→0xBB86B11C`。**注意**：`refmem_param_pool_crc`、`refmem_vector_fast_crc32` 是 FNV-1a，不是 CRC | 自写 FNV；继续用 `*_crc` 命名指代 FNV |
+| CRC-32/ISO-HDLC（含 raw 寄存器变体） | `components/algo/inc/algo_checksum.h`：`algo_crc32_iso_hdlc_update/_compute`（zlib 语义）、`algo_crc32_raw_update`（原始寄存器，seed 与终结由调用点显式给出）；golden check value（算法定义常量，由 `tests/python/test_algo_checksum.py` 固定）：`"123456789"→0xCBF43926`，raw 从 0 起 → `0x2DFD2D88` | 自写第二份按位/查表 CRC-32；raw 与 zlib 两种约定混用而不注明 |
+| CRC-16/CCITT-FALSE | 同一头文件：`algo_crc16_ccitt_false_update/_compute`（inline，poly 0x1021 / init 0xFFFF）；golden check value `0x29B1`（同一测试固定） | 自写第二份 CCITT；改多项式或初值 |
+| FNV-1a 32 | 同一头文件：`algo_fnv1a32_update/_bytes/_str/_u32_le/_word`；golden check value `0xBB86B11C`（同一测试固定）。**注意**：`refmem_param_pool_crc`、`refmem_vector_fast_crc32` 是 FNV-1a，不是 CRC | 自写 FNV；继续用 `*_crc` 命名指代 FNV |
 | 协议专用 CRC | MODBUS `rs485_modbus_crc16`（0xA001/0xFFFF）、CRC-8 `calibration_clk_marker_crc8`（0x07/0x00）、BiSS `biss_crc_*`（配置化） | 把不同参数合并成一个入口；自造多项式 |
-| 字节序打包 | LE16/LE32 wire helper（现状各域重复 ~30 处，应收敛为单一 inline 头，见审计 `out/audit/ALGORITHM_REUSE_AUDIT_20261105.md`） | 新增第四份 `put_u32/get_u32` |
+| 字节序打包 | LE16/LE32 wire helper（现状各域各自实现，未收敛；审计快照见 `out/audit/ALGORITHM_REUSE_AUDIT_20261105.md`，非事实源。目标是单一 inline 头） | 新增第四份 `put_u32/get_u32` |
 | popcount / 饱和运算 | `vdc_domain_increment_saturating`、`sync_io_model_saturate_u64_to_u32` 暂为域内实现 | 新增第三份 popcount/饱和 |
 | 时间坐标换算 | `vdc_timer1_ticks_to_ns` / `vdc_timer1_ns_to_ticks`（`vdc_timer1_coordinate.h`） | 各域自写 ns/ticks 换算 |
 | flash 提交 | core0 `FlashTransactionAO`（`flash_transaction.h`）+ `calibration_training_store_commit` | 业务侧直接 raw flash / 自建 journal |
