@@ -1786,6 +1786,19 @@ static bool app_ctrqs_ring_quiescent(void)
            ring.applied_config_seq == ring.config_seq;
 }
 
+/* The coded persona only reprograms SCK; DATA/CS pin directions are inherited
+ * from phys->armed, which the ring teardown clears.  The host tool waits for
+ * ring_node_count==0 before starting coded, so require the same full teardown
+ * instead of just enabled==0/adapter_started==0. */
+static bool app_ctrqs_ring_torn_down(void)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return tdma_runtime_owner_get_ring_snapshot(&ring) &&
+           ring.enabled == 0u && ring.adapter_started == 0u &&
+           ring.node_count == 0u &&
+           ring.applied_config_seq == ring.config_seq;
+}
+
 /* tdma_ring_runtime_configure() bumps config_seq on every call, including the
  * NULL STOP (tdma_ring_runtime.c).  Issuing STOP from the 1 ms service tick
  * therefore keeps applied_config_seq chasing config_seq forever and the
@@ -2231,7 +2244,7 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_P2_PREP:
         if (s_ctrqs.p2_prep_step == 0u) {
-            if (!app_ctrqs_ring_quiescent()) {
+            if (!app_ctrqs_ring_torn_down()) {
                 app_ctrqs_stop_throttled(now);
                 if (now >= s_ctrqs.deadline_ms) {
                     app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
@@ -2294,7 +2307,7 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_P2_STOP:
         app_ctrqs_stop_throttled(now);
-        if (!app_ctrqs_ring_quiescent()) {
+        if (!app_ctrqs_ring_torn_down()) {
             if (now >= s_ctrqs.deadline_ms) {
                 app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
             }
@@ -2317,10 +2330,10 @@ static void app_ctrqs_service(void)
                 now < s_ctrqs.p2_ref_start_ms) {
                 return;
             }
-            if (!calibration_manager_request_clk_coded(
+            if (!calibration_manager_request_clk_coded_at_epoch(
                     s_ctrqs.p2_codebook, s_ctrqs.p2_min_lag,
                     s_ctrqs.p2_max_lag, s_ctrqs.p2_max_distance,
-                    s_ctrqs.p2_min_margin)) {
+                    s_ctrqs.p2_min_margin, s_ctrqs.plan.generation)) {
                 app_ctrqs_abort(
                     (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
                 return;
@@ -2363,8 +2376,18 @@ static void app_ctrqs_service(void)
             }
             app_ctrqs_publish();
         } else {
+            /* A follower's manager state stays CLOCK_COARSE by design; a
+             * matching sequence with the coarse flag proves its request was
+             * accepted (the raw forward SM is the TDMA layer's own evidence). */
+            const bool coded_started =
+                coded.state == CALIBRATION_CLK_CODED_CLOCK_COARSE &&
+                (coded.flags &
+                 CALIBRATION_CLK_CODED_FLAG_COARSE_BRACKET_VALID) != 0u &&
+                (s_ctrqs.plan.generation == 0u ||
+                 coded.train_sequence == s_ctrqs.plan.generation);
             if (!s_ctrqs.p2_fwd_seen &&
-                (coded.state == CALIBRATION_CLK_CODED_CLOCK_CODED ||
+                (coded_started ||
+                 coded.state == CALIBRATION_CLK_CODED_CLOCK_CODED ||
                  coded.state == CALIBRATION_CLK_CODED_ACCEPTED)) {
                 s_ctrqs.p2_fwd_seen = true;
             }

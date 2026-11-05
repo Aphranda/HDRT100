@@ -4098,12 +4098,13 @@ bool calibration_manager_start_clk_coded(
     return true;
 }
 
-bool calibration_manager_request_clk_coded(
+bool calibration_manager_request_clk_coded_at_epoch(
     uint32_t codebook_id,
     uint32_t min_lag_sample,
     uint32_t max_lag_sample,
     uint32_t max_best_distance,
-    uint32_t min_margin)
+    uint32_t min_margin,
+    uint32_t epoch)
 {
     tdma_ring_runtime_snapshot_t ring;
     tdma_service_ring_runtime_config_t staged;
@@ -4126,13 +4127,16 @@ bool calibration_manager_request_clk_coded(
 
     uint32_t sequence = s_clk_coded_request_sequence + 1u;
     if (sequence == 0u) sequence = 1u;
+    /* A C-segment epoch keeps every board on the same marker identity; 0 keeps
+     * the legacy per-board counter used by the host tool. */
+    const uint32_t identity = epoch != 0u ? epoch : sequence;
     const calibration_clk_coded_request_t request = {
         .board_unique_id = board_unique_id,
         .build_id = calibration_manager_build_id_value(g_project_build_id),
         .local_node = staged.local_slot_id,
-        .train_epoch = sequence & UINT8_MAX,
-        .train_sequence = sequence,
-        .calibration_generation = sequence,
+        .train_epoch = identity & UINT8_MAX,
+        .train_sequence = identity,
+        .calibration_generation = identity,
         .topology_generation = calibration_manager_topology_generation(&staged),
         .topology_crc32 = staged.ring_profile_crc32,
         .profile_crc32 = staged.operating_profile_crc32,
@@ -4154,6 +4158,18 @@ bool calibration_manager_request_clk_coded(
     }
     s_clk_coded_request_sequence = sequence;
     return true;
+}
+
+bool calibration_manager_request_clk_coded(
+    uint32_t codebook_id,
+    uint32_t min_lag_sample,
+    uint32_t max_lag_sample,
+    uint32_t max_best_distance,
+    uint32_t min_margin)
+{
+    return calibration_manager_request_clk_coded_at_epoch(
+        codebook_id, min_lag_sample, max_lag_sample, max_best_distance,
+        min_margin, 0u);
 }
 
 void calibration_manager_stop_clk_coded(void)

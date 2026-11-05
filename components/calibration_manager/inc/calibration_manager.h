@@ -146,6 +146,16 @@ bool calibration_manager_request_clk_coded(
     uint32_t max_lag_sample,
     uint32_t max_best_distance,
     uint32_t min_margin);
+/* Same request with an explicit shared marker epoch (C segment); epoch 0 keeps
+ * the legacy per-board sequence used by the host tool, matching the explicit
+ * epoch/sequence arguments of calibration_manager_request_marker_training(). */
+bool calibration_manager_request_clk_coded_at_epoch(
+    uint32_t codebook_id,
+    uint32_t min_lag_sample,
+    uint32_t max_lag_sample,
+    uint32_t max_best_distance,
+    uint32_t min_margin,
+    uint32_t epoch);
 void calibration_manager_stop_clk_coded(void);
 bool calibration_manager_request_marker_training(
     uint32_t codebook_id,
