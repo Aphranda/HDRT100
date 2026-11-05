@@ -10,6 +10,43 @@ Last updated: 2026-11-05
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261105-043 - 交接：日间 M0 收口，新会话入口
+
+**已完成并入库**（提交 `4458cff3`、`0777e5b6`、`44631607`、`5d4105dd`）：
+
+- WP-1/B7：引导档记录/存储（v2 CALIBRATION_NVS 子区）/决策/7 步序列 + `calibration_stage_derive`；
+- boot 执行器：`app_guide_boot_service()`（可续跑，3 s 预热 + 30 s 窗口），
+  `BOOT:PLAN?` 18 字段只读出口；
+- M0 实测：四板无主机命令上电自组 10 kHz（up/down=1、tx/rx 增长、`fail_step=0`），
+  缺一块板时 `half_ring=1` 并 STOP，四板齐全不误杀；
+- P3 凭证：build `20261105035001` `PASS_WITH_WARNINGS`（sources=981，trials=8），host 77 passed；
+- 复跑 runbook：playbook §9.18；实测表：§9.17。
+
+**未完成（不得写成已完成）**：
+
+- ① 单口全链 P0T→TRN-00→01→02→03 自动运行；
+- ② TRN-03 per-link staging 过 ARM 门禁拉起 10 MHz 环；
+- 无 join-TX 抑制门（从板 START 即发送）；从板 `reason=5 PAYLOAD_STARVATION` 语义待说明。
+
+**台架当前状态**：四板运行 P3 构建（**不含** `PROJECT_TDMA_GUIDE_AUTOFORM`，`BOOT:PLAN?` 为 NONE）；
+要复现自组按 §9.18 重刷 `out/build/v2-guide/DHRT100_V2_CANDIDATE_FACTORY.uf2`。
+板号已写回 NO.1..NO.4（整片擦除曾抹成 NO.0）。
+
+**踩过的坑（新会话必读）**：
+
+1. LISTEN 必须**立即 START**：ARM 只开硬件抓取，`data_enabled`（START）才让 adapter service 跑；
+   "听到再 START"会死锁。
+2. ARM 必须走 `distributed_refmem_tdma_ring_arm()`：它先配默认 flight map；直连
+   `tdma_service_ring_arm` 会被物理层以 `OWNER_FLIGHT_MAP(17)` 拒绝。
+3. v2 factory UP2 声明 `full_erase_required: true`；`picotool load` 不擦 OTA_JOURNAL，
+   残留 journal 跨启动重放 → 串口 OTA 第一步 `erase failed: state=9`。整片擦除可清，但会抹板号。
+4. `run` 的 step 计划必须含 step 6（在线 build 回读），否则 step 24 会因 OTA 前快照误判 build mismatch。
+5. 工作区仍有并行会话的 12 条 OTA 文档/工具改动未提交（`tools/ota_keys/*`、`docs/ota/*`、
+   `tools/ota/OTA_workflow.py`、`tools/picotool_flash/picotool_flash.py`），不要误并入本域提交。
+
+**下一步顺序**：① 把 C/T/R 段（§2 的 C/T/R）接进 boot 执行器 → 四板单口全链；
+② TRN-03 staging + ARM 门禁（M5）→ 10 MHz 环；③ 补 join-TX 抑制门与缺槽 bitmap 语义。
+
 ## CAL-TASK-20261105-042 - M0 上电自组成功（四板 10 kHz，无主机命令）
 
 - **build**：`20261105031331`（v2 候选 + `PROJECT_TDMA_GUIDE_AUTOFORM=ON`，slot=NO-1、nodes=4、level=23）。
