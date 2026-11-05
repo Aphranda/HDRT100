@@ -1159,7 +1159,13 @@ REFMEM 参数池本来就是"调用方持有 region 的纯存储"，已经覆盖
 | REFMEM 命令面/信封/ACK | `components/distributed_refmem/src/refmem_command.c`、`refmem_cmd_*`、`distributed_refmem_*` | 自建第二套命令帧/第二 ACK |
 | 大载荷/参数存储 | `refmem_param_pool.[ch]`（3 slot×1024 B，含 `command_seq`/`epoch`/CRC 校验） | 自建 slot/ledger/环形缓冲 |
 | 触发会话生命周期（C/T/R） | `refmem_trigger_session.[ch]`（IDLE→CONFIGURED→ARMED→RUNNING→STOPPING…） | 自建 CTRQS 相位机（本次已撤回） |
-| CRC | 按域复用现成实现：参数池 `refmem_param_pool_crc`、帧 `transport_crc32`、镜像 `FLASH_JOB_VERIFY_IMAGE_CRC` | **自写 CRC 算法或自造多项式** |
+| CRC-32/ISO-HDLC（含 raw 寄存器变体） | `components/algo/inc/algo_checksum.h`：`algo_crc32_iso_hdlc_update/_compute`（zlib 语义）、`algo_crc32_raw_update`（原始寄存器，seed 与终结由调用点显式给出）；golden `"123456789"→0xCBF43926`，raw 从 0 起 → `0x2DFD2D88` | 自写第二份按位/查表 CRC-32；raw 与 zlib 两种约定混用而不注明 |
+| CRC-16/CCITT-FALSE | 同一头文件：`algo_crc16_ccitt_false_update/_compute`（inline，poly 0x1021 / init 0xFFFF）；golden `0x29B1` | 自写第二份 CCITT；改多项式或初值 |
+| FNV-1a 32 | 同一头文件：`algo_fnv1a32_update/_bytes/_str/_u32_le/_word`；golden `"123456789"→0xBB86B11C`。**注意**：`refmem_param_pool_crc`、`refmem_vector_fast_crc32` 是 FNV-1a，不是 CRC | 自写 FNV；继续用 `*_crc` 命名指代 FNV |
+| 协议专用 CRC | MODBUS `rs485_modbus_crc16`（0xA001/0xFFFF）、CRC-8 `calibration_clk_marker_crc8`（0x07/0x00）、BiSS `biss_crc_*`（配置化） | 把不同参数合并成一个入口；自造多项式 |
+| 字节序打包 | LE16/LE32 wire helper（现状各域重复 ~30 处，应收敛为单一 inline 头，见审计 `out/audit/ALGORITHM_REUSE_AUDIT_20261105.md`） | 新增第四份 `put_u32/get_u32` |
+| popcount / 饱和运算 | `vdc_domain_increment_saturating`、`sync_io_model_saturate_u64_to_u32` 暂为域内实现 | 新增第三份 popcount/饱和 |
+| 时间坐标换算 | `vdc_timer1_ticks_to_ns` / `vdc_timer1_ns_to_ticks`（`vdc_timer1_coordinate.h`） | 各域自写 ns/ticks 换算 |
 | flash 提交 | core0 `FlashTransactionAO`（`flash_transaction.h`）+ `calibration_training_store_commit` | 业务侧直接 raw flash / 自建 journal |
 | boot 计划与档位 | `tdma_boot_plan`、`tdma_boot_profile_store`、`tdma_boot_stage` | 另写一套开机决策 |
 | 训练/标定判定 | `calibration_training_{marker,sck,data}`、`calibration_clk_{marker,coded}`、`calibration_link_p3` | 在引导执行器里重写判定 |
@@ -1182,16 +1188,24 @@ REFMEM 参数池本来就是"调用方持有 region 的纯存储"，已经覆盖
 → `components/distributed_refmem/inc/refmem_command_catalog.h` 与 `src/refmem_command_catalog_table.c`、`out/refmem/SCPI_REFMEM_CATALOG.csv`。
 `refmem_command_type_t` 枚举仍**手写**在 `refmem_command.h`，新增命令要两处同时改（枚举 + YAML）再生成。
 
-**重复算法合并约定**：另一会话正在落 `components/algo/algo_checksum.[ch]`（"one implementation per
-algorithm"，CRC-32/ISO-HDLC）。合并完成后：
+**重复算法合并（已落地）**：`components/algo/inc/algo_checksum.h` 是工程内已迁移校验站点的唯一实现
+（header-only：CRC-32/ISO-HDLC 含 raw 寄存器变体、CRC-16/CCITT-FALSE、FNV-1a 的 bytes/str/u32_le/word
+四种喂入）。golden 见 `tests/python/test_algo_checksum.py`。规则：
 
-1. `refmem_param_pool_crc` 内部的 FNV 必须改为调用共享实现，不得保留第二份；
-2. 计划身份测试（`tests/python/test_guide_action_plan.py`）改为对齐共享实现，仍要保证"同字节同值、异内容异值"；
-3. 任何新代码不得自带 CRC/校验和实现（见 §9.27）。
+1. `refmem_param_pool_crc` 已改为调用 `algo_fnv1a32_bytes`，不得恢复第二份；
+2. 计划身份测试（`tests/python/test_guide_action_plan.py`）继续保证"同字节同值、异内容异值"，值不变；
+3. 任何新代码不得自带 CRC/校验和/FNV 实现；数值必须与上述 golden 对齐；
+4. 迁移必须逐字节等价（值进 Flash、线上帧与会话身份）；raw 与 zlib 两种约定不得混用。
 
-**并发纪律（实测教训）**：另一会话在改 `components/**` 或 `config/**` 时**不要跑硬件验收**——
-本轮 P3 即因源码在验收期间变化而失败（`source changed while hardware acceptance was running`）。
-验收必须等两边改动都落地后**一次覆盖**（我的命令面扩展 + 对方的算法合并），避免各跑一次浪费台架时间。
+**例外（保留但必须注释）**：`tdma_transport_crc32_update` 是 core1/DMA 窗口的 SRAM nibble 表性能特化，
+数值与 `algo_crc32_iso_hdlc_compute` 相同；不得再新增第二份性能特化。`third_party/portable_ota` 的
+`pota_crc32` 是 `ota_crc32_*` 适配器的底层内核（第三方库，不属工程重复实现）。
+
+**并发纪律（实测教训）**：另一会话在改 `components/**`、`config/**` 或构建文件时**不要跑硬件验收**——
+验收期间源码变化会让指纹失效（`source changed while hardware acceptance was running`）。验收必须等
+两边改动都落地后**一次覆盖**（命令面扩展 + 算法合并）。本轮另暴露 `p3_dpll_short.validate_summary`
+对工作流注入字段做精确等值的自检缺陷，已在 `tools/hardware_acceptance/p3_dpll_short.py` 修复（只忽略
+工作流注记字段，任何证据字段被改仍拒绝），需随接受会话提交并复核。
 
 
 
