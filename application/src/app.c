@@ -1695,9 +1695,9 @@ bool app_guide_scan_get_pair(uint32_t index,
 #define APP_CTRQS_ACTION_P1 1u
 #define APP_CTRQS_ACTION_P2 2u
 #define APP_CTRQS_P2_STEP_MS 5000u
-#define APP_CTRQS_P2_CODED_MS 6000u
+#define APP_CTRQS_P2_CODED_MS 9000u
 #define APP_CTRQS_P2_STOP_MS 6000u
-#define APP_CTRQS_P2_REF_DELAY_MS 120u
+#define APP_CTRQS_P2_REF_DELAY_MS 1500u
 
 typedef enum {
     APP_CTRQS_IDLE = 0,
