@@ -225,6 +225,7 @@ scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_boot_plan_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_guide_scan_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_boot_topology_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_ring_rxslot_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_guide_pair_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_config_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_record_arm(scpi_t *context);
@@ -570,6 +571,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:BOOT:PLAN?", .callback = scpi_cmd_system_tdma_boot_plan_q}, \
     {.pattern = "SYSTem:TDMA:GUIDE:SCAN?", .callback = scpi_cmd_system_tdma_guide_scan_q}, \
     {.pattern = "SYSTem:TDMA:BOOT:TOPology?", .callback = scpi_cmd_system_tdma_boot_topology_q}, \
+    {.pattern = "SYSTem:TDMA:RING:RXSLOT?", .callback = scpi_cmd_system_tdma_ring_rxslot_q}, \
     {.pattern = "SYSTem:TDMA:GUIDE:PAIR?", .callback = scpi_cmd_system_tdma_guide_pair_q}, \
     {.pattern = "SYSTem:TDMA:RING:CONFig?", .callback = scpi_cmd_system_tdma_ring_config_q}, \
     {.pattern = "SYSTem:TDMA:RECord:ARM", .callback = scpi_cmd_system_tdma_record_arm}, \

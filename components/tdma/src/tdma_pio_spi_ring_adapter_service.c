@@ -842,6 +842,10 @@ bool tdma_pio_spi_ring_adapter_try_get_snapshot(
         snapshot->diagnostic_burst_launched = adapter->diagnostic_burst_launched;
         snapshot->diagnostic_burst_valid = adapter->diagnostic_burst_valid;
         snapshot->rx_count = adapter->rx_count;
+    snapshot->rx_slot_mask = adapter->rx_slot_mask;
+    for (size_t slot = 0u; slot < TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX; slot++) {
+        snapshot->rx_slot_count[slot] = adapter->rx_slot_count[slot];
+    }
         snapshot->rx_bad_count = adapter->rx_bad_count;
         snapshot->rx_transport_bad_count = adapter->rx_transport_bad_count;
         snapshot->rx_schedule_bad_count = adapter->rx_schedule_bad_count;

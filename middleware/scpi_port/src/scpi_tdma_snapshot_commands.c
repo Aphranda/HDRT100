@@ -1304,6 +1304,22 @@ scpi_result_t scpi_cmd_system_tdma_guide_pair_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_rxslot_q(scpi_t *context)
+{
+    tdma_pio_spi_ring_adapter_t *adapter = tdma_runtime_owner_get_ring_adapter();
+    tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+    if (adapter == NULL ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &snapshot)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_RXSLOT");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.rx_slot_mask);
+    for (size_t slot = 0u; slot < TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX; slot++) {
+        SCPI_ResultUInt32(context, snapshot.rx_slot_count[slot]);
+    }
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_boot_topology_q(scpi_t *context)
 {
     uint32_t reason = 0u;

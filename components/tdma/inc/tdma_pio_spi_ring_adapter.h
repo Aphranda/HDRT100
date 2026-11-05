@@ -79,6 +79,8 @@ typedef enum {
 #define TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_SEQUENCE_MISMATCH (1u << 8u)
 #define TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_IDENTITY_MISMATCH (1u << 9u)
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH 8u
+/* Per-origin-slot accepted RX accounting (live adjacency evidence). */
+#define TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH 8u
 
@@ -455,6 +457,9 @@ typedef struct {
     uint32_t diagnostic_burst_valid;
     uint32_t rx_count;
     uint32_t rx_bad_count;
+    /* Which origin slots this board actually hears: bit i = slot i accepted. */
+    uint32_t rx_slot_mask;
+    uint32_t rx_slot_count[TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX];
     uint32_t rx_transport_bad_count;
     uint32_t rx_schedule_bad_count;
     uint32_t rx_profile_bad_count;
@@ -681,6 +686,9 @@ typedef struct {
     uint32_t diagnostic_burst_valid;
     uint32_t rx_count;
     uint32_t rx_bad_count;
+    /* Which origin slots this board actually hears: bit i = slot i accepted. */
+    uint32_t rx_slot_mask;
+    uint32_t rx_slot_count[TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX];
     uint32_t rx_transport_bad_count;
     uint32_t rx_schedule_bad_count;
     uint32_t rx_profile_bad_count;
