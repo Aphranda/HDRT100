@@ -522,7 +522,8 @@ def wait_preparation_stopped(board: Board, args: argparse.Namespace,
 def preparation_action(board: Board, label: str, command: str,
                        args: argparse.Namespace, actions: list[dict[str, object]],
                        expected: list[int] | None = None,
-                       profile_level: int | None = None) -> None:
+                       profile_level: int | None = None,
+                       accept_lost_ack: bool = False) -> None:
     drained: list[str] = []
     evidence = {"board": board.address, "command": label, "scpi": command,
                 "errors_drained_before": drained, "passed": False}
@@ -534,10 +535,22 @@ def preparation_action(board: Board, label: str, command: str,
     drained.extend(drain_errors(board, args))
     response = board_command(board, command, args)
     evidence["response"] = response
+    disposition = response.strip().strip('"')
+    # USB CDC can lose a STOP reply after the firmware already consumed the
+    # intent.  This call site is always followed by wait_preparation_stopped(),
+    # which is the authoritative barrier (enabled==0, adapter_started==0,
+    # config==applied), so the documented disposition may be promoted for STOP
+    # only - the same auditable rule as calibration_ring_topology._stop_pair_board.
+    lost_stop_ack = (
+        accept_lost_ack and command.upper().endswith("TDMA:RING:STOP") and
+        disposition == "OK(no payload; verified by state readback)")
+    if lost_stop_ack:
+        evidence["ack_disposition"] = disposition
     error = board_command(board, "SYSTem:ERR?", args)
     evidence["error_after"] = error
     if (not error_is_clear(error) or response == "<timeout>" or
-            response.startswith("OK(no payload") or not response):
+            (response.startswith("OK(no payload") and not lost_stop_ack) or
+            not response):
         # Name the cause while it is still readable. The TDMA service publishes its
         # refusal reason through the seat-mount diagnostic channel (its last_reject
         # field: 111..117 are the stopped-state/metadata gates, 131..137 the retired
@@ -558,7 +571,7 @@ def preparation_action(board: Board, label: str, command: str,
                 profile_level is not None and
                 (len(actual) != 6 or actual[0] != profile_level)):
             raise RuntimeError(f"{board.address}: {label} result mismatch")
-    elif response.strip('"') != "OK":
+    elif disposition != "OK" and not lost_stop_ack:
         raise RuntimeError(f"{board.address}: {label} invalid acknowledgement")
     evidence["passed"] = True
 
@@ -570,7 +583,8 @@ def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[st
         node, board = item
         actions: list[dict[str, object]] = []
         try:
-            preparation_action(board, "STOP", "SYSTem:TDMA:RING:STOP", args, actions)
+            preparation_action(board, "STOP", "SYSTem:TDMA:RING:STOP", args,
+                               actions, accept_lost_ack=True)
             wait_preparation_stopped(board, args, actions)
             active_level = active_operating_level(board, args)
             actions.append({"board": board.address, "command": "OPMODE_READBACK",

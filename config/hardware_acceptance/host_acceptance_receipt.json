@@ -5,6 +5,7 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
+    "tests/python/test_calibration_marker_train.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
@@ -14,29 +15,30 @@
     "no:cacheprovider"
   ],
   "paths": [
+    "tests/python/test_calibration_marker_train.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 8.906,
+  "duration_s": 9.953,
   "returncode": 0,
   "summary": {
-    "passed": 77,
+    "passed": 119,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "77 passed in 8.12s",
+  "summary_line": "119 passed in 9.53s",
   "tail": [
-    "........................................................................ [ 93%]",
-    ".....                                                                    [100%]",
-    "77 passed in 8.12s"
+    "........................................................................ [ 60%]",
+    "...............................................                          [100%]",
+    "119 passed in 9.53s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "78d373d0b56da15a8997ce39a19635bb1a815a90ab101ae8503902197c039b28",
+  "fingerprint": "494d1d4e178dfa06230841654801ddc6b629a0c39773074af4bedfbb305afbc6",
   "file_count": 1161,
-  "working_fingerprint": "78d373d0b56da15a8997ce39a19635bb1a815a90ab101ae8503902197c039b28",
-  "started_at_utc": "2026-11-05T16:10:14.494529+00:00"
+  "working_fingerprint": "494d1d4e178dfa06230841654801ddc6b629a0c39773074af4bedfbb305afbc6",
+  "started_at_utc": "2026-11-05T17:26:31.779417+00:00"
 }

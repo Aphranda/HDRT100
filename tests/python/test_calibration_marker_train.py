@@ -76,6 +76,10 @@ def test_training_preparation_stages_topology_without_flight_arm(
         return "OK"
 
     monkeypatch.setattr(marker_train, "board_command", fake_command)
+    # drain_errors() is imported into this module's globals but resolves
+    # board_command in its own module, so stub the call itself.
+    monkeypatch.setattr(marker_train, "drain_errors",
+                        lambda board, args: ['0,"No error"'])
     monkeypatch.setattr(marker_train.time, "sleep", lambda seconds: None)
     actions = prepare_ring(
         ordered, argparse.Namespace(reference_node=0, level=7, gap=0.0, arm_wait=1.0))
@@ -88,7 +92,7 @@ def test_training_preparation_stages_topology_without_flight_arm(
             if row["command"] == "BOARD_NO_READBACK"] == [1, 2, 3, 4]
 
 
-@pytest.mark.parametrize("failure", [None, "opmode", "rejected", "timeout", "wrong_tuple", "stop_pending", "late_stop"])
+@pytest.mark.parametrize("failure", [None, "opmode", "rejected", "timeout", "wrong_tuple", "stop_pending", "late_stop", "lost_stop_ack"])
 def test_preparation_waits_for_owner_and_retains_failures(monkeypatch, failure):
     board = Board("COM3", "board-0", "idn", "build")
     clock = [0.0]
@@ -104,6 +108,8 @@ def test_preparation_waits_for_owner_and_retains_failures(monkeypatch, failure):
                 return '-200,"TDMA_RING_TOPOLOGY"'
             return '0,"No error"'
         if text == "SYSTem:TDMA:RING:STOP":
+            if failure == "lost_stop_ack":
+                return "OK(no payload; verified by state readback)"
             return "OK"
         if text == "SYSTem:TDMA:RING:STATus?":
             clock[0] += 1.1 if failure == "late_stop" else 0.1
@@ -134,15 +140,20 @@ def test_preparation_waits_for_owner_and_retains_failures(monkeypatch, failure):
         raise AssertionError(text)
 
     monkeypatch.setattr(marker_train, "board_command", command)
+    monkeypatch.setattr(marker_train, "drain_errors",
+                        lambda board, args: ['0,"No error"'])
     monkeypatch.setattr(marker_train.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(marker_train.time, "sleep", lambda _: None)
     args = argparse.Namespace(reference_node=0, level=7, gap=0, arm_wait=1)
-    if failure in {None, "opmode"}:
+    if failure in {None, "opmode", "lost_stop_ack"}:
         actions = prepare_ring([board], args)
         snapshots = [row for row in actions if row["command"] == "STOPPED_READBACK"]
         assert [len(row["samples"]) for row in snapshots] == (
             [2, 2, 2] if failure == "opmode" else [2, 2])
         assert all(row["passed"] for row in snapshots)
+        if failure == "lost_stop_ack":
+            stop = next(row for row in actions if row["command"] == "STOP")
+            assert stop["ack_disposition"].startswith("OK(no payload")
     else:
         with pytest.raises(marker_train.RingPreparationError) as caught:
             prepare_ring([board], args)
