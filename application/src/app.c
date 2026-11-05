@@ -1778,6 +1778,14 @@ static void app_ctrqs_publish(void)
     (void)app_cal_guide_publish_progress(&s_ctrqs.progress, s_ctrqs.epoch);
 }
 
+/* The bench diagnostic ring mirrors the P3 TDMA step (diagnostic_continue):
+ * set_tdma_ring_topology() rebuilds the staged config and clears the flag, so
+ * re-assert it after every staging.  Product sessions never set it. */
+static void app_ctrqs_ring_diagnostic_after_topo(void)
+{
+    (void)tdma_runtime_owner_set_ring_diagnostic_mode(true);
+}
+
 static bool app_ctrqs_ring_quiescent(void)
 {
     tdma_ring_runtime_snapshot_t ring;
@@ -2145,6 +2153,7 @@ static void app_ctrqs_service(void)
         if (distributed_refmem_set_tdma_ring_topology(
                 s_ctrqs.local_slot, s_ctrqs.ref_slot,
                 (uint32_t)PROJECT_TDMA_GUIDE_NODES)) {
+            app_ctrqs_ring_diagnostic_after_topo();
             s_ctrqs.state = APP_CTRQS_ARM;
             s_ctrqs.deadline_ms = now + APP_CTRQS_ARM_MS;
             /* Followers arm first; the reference releases the ring start last,
@@ -2277,6 +2286,7 @@ static void app_ctrqs_service(void)
             }
             return;
         }
+        app_ctrqs_ring_diagnostic_after_topo();
         s_ctrqs.state = APP_CTRQS_P2_ARM;
         s_ctrqs.deadline_ms = now + APP_CTRQS_P2_STEP_MS;
         s_ctrqs.arm_try_ms = (s_ctrqs.local_slot == s_ctrqs.ref_slot)
@@ -2477,6 +2487,7 @@ static void app_ctrqs_service(void)
                 }
                 return;
             }
+            app_ctrqs_ring_diagnostic_after_topo();
             s_ctrqs.rebuild_topo_done = true;
             s_ctrqs.arm_try_ms = (uint32_t)now + 300u;
             return;
