@@ -529,6 +529,28 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 **被取代的实验**（已存档，勿合入）：`refs/wip/m61-hold`（延迟收工）、
 `refs/wip/m61-lastframe-gate`（末帧上线门 + hold）。两者都只解决"晚到"，不解决"没有协商"。
 
+**2026-11-07 01:2x 设计修订（用户指示：参考 T2 FREEZE 的操作）**：
+
+- **维护通道实测是单源广播**：参考板 `RING:PHASE?` 的 `recv=0`（收不到自己），跟随板只收到
+  slot 0（参考板），四板互相收不到——因为只有 origin 会发射维护帧。所以"四板互发 phase"
+  这条路线在该通道上不成立；已存档 `refs/wip/m61-phase-msg`（含模块、SCPI 与执行器接线）。
+- **T2 FREEZE 的协商形态可复用**（`components/sync_trigger/src/trigger_t2_runtime.c`）：
+  origin 用 `distributed_refmem_stage_position_descriptor(FREEZE, target_mask)` 下发描述符，
+  按片重发（`T2_FREEZE_RESEND_SLICES`），跟随者冻结后由
+  `distributed_refmem_note_position_frozen(run_id, active, frozen_mask)` 记录，
+  **每个 process image 都回报一次**；origin 用
+  `distributed_refmem_position_freeze_acked(run_id, target_mask)` 收齐 ack 掩码。
+  这条回报路径是每环回到达的，比维护通道（1 chunk/环回）快两个数量级。
+- **环状态协商改用同一形态**：origin 下发"环阶段"描述符（phase+round+run_id），跟随者应用并
+  每帧回报，origin 收齐 ack 掩码后才推进；预期四板推进差 ≈1–2 个环回（10 kHz 0.6–1.2 s）。
+- **待冻结点**：① 扩展 `TRIGGER_POSITION_STAGE_*` 增加 RING_PHASE（单机制，但要动描述符契约
+  与 T2 校验 `trigger_position_descriptor.h:199-210`），还是新增同形态的环阶段描述符通道
+  （不污染 T2 语义）；② phase/round 在 position 镜像里的字节位置与版本；③ 谁做 origin
+  （当前是 CTCQS 的 ref_slot）。
+- **夜间作业注意（重要）**：本会话期间检出**并发会话**在改树（`docs/console/*`、
+  `tests/python/test_trigger_debug_*`、`tools/domains/trigger/*`）。按 §2.8，并发会话改源码时
+  禁止跑验收；夜间每轮开跑 P3 前必须先 `git status` 确认无他人未提交的源码改动。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
