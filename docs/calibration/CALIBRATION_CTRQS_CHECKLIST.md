@@ -239,6 +239,21 @@ reconcile COMPLETE、ladder_index=3）。关键修复：P3 停止后必须等 `p
    需要把 P2 的“成环档位”和“测量档位”分离（成环走 guide 档 + BRINGUP，停环后再 apply 测量档）。
 5. 验收：level 23 四板起环后，把 P1–T3 全链复验到引导档；只有 T3 的 S 允许 `ARM → START 10 MHz`。
 
+**2026-11-06 日间收尾快照（10 kHz）**：
+
+- 已通：level 23 + BRINGUP 起环；参考板单板 P1 完成 4 trials（epoch 244）；跟随板 epoch 241 也完成
+  4 trials；速率缩放（t0/ARM/FORWARD/slot）已入库（`3bc8299d`/`fec92c17`/`0ef00a67`）。
+- **关键卡点**：10 kHz 下 REFMEM 命令面（catalog 50/51）跨板交付不可用——`CONFig 84` 发出 74 s 后
+  COM4 的 gen 仍 83；trigger 出现分钟级延迟（244 晚于 245 到达），四板 epoch 错位。
+- 根因链：`distributed_refmem_control_submit()` 远程路径 = `ring_transport_ready()` +
+  `refmem_cmd_load_submit_fragments()` 入队；fragment 经 `tdma_maintenance_runtime_submit()` **单次提交、
+  失败不重试**（`refmem_cmd_load.c:200-212`）；50/51 的 catalog `timeout_us=0` → 无 issuer deadline
+  （`:241-249`）。10 kHz 下丢一帧即“命令永不送达”。
+- 下一步：给 fragment 有界重试 + 50/51 按环周期缩放的 `timeout_us`，或改用“提交后四板读回确认”的
+  显式同步；之后四板 P1→P2→P3@10 kHz、P2 成环/测量分离、T0–T2、S 语义与 M6。
+- 操作约束（实测）：CONFig 后先读回四板 `PLAN?` gen 一致再 trigger；trigger 后读回四板 epoch 一致；
+  四板窗口未结束时发新命令会 -200。
+
 **T0 布局 v2 草案（待实现验证）**：T0 是 marker/residence 训练，身份字段（epoch/sequence/
 marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候选改为
 `origin_node, codebook, link_base_delay_ns, offset_sample_count, repeats`；
