@@ -557,7 +557,6 @@ set(PROJECT_APP_SOURCES
     components/distributed_refmem/src/distributed_refmem_position_state.c
     components/distributed_refmem/src/distributed_refmem_position.c
         components/distributed_refmem/src/refmem_trigger_session.c
-        components/distributed_refmem/src/refmem_action_registry.c
         components/distributed_refmem/src/refmem_control_route.c
         components/distributed_refmem/src/refmem_domain_config.c
         components/distributed_refmem/src/refmem_control_submit.c
