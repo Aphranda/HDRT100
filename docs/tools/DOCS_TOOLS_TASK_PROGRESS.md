@@ -4,13 +4,21 @@ Status: Active
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`
 Related: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`, `docs/tools/DOCS_TOOLS_TODO.md`, `docs/check/DOCS_REGRESSION_PLAN.md`
-Last updated: 2026-11-05
+Last updated: 2026-11-06
 
 ## 文档接口
 
 本文只记录实施与验证事实，任务状态以 TODO 为准，治理语义以 Architecture 为准。每条记录引用稳定任务 ID，使用唯一 `TOOLS-PROGRESS-YYYYMMDD-NNN`，最新记录在上；轮转遵循文档自回归 C14/C15，历史失败和原始证据不得丢失。
 
 ## 当前 checkpoint
+
+### TOOLS-PROGRESS-20261106-001：P0T TDMA 状态页读超时修复（1.0 s → 3 s + READ_TIMEOUT）
+
+- TODO task ID：`TOOLS-P3-DPLL-SHORT-001`。触发：2026-11-06 最新 P0T 间歇失败；`p3-batch2e-r2` step8 FAIL 42.3 s，前一轮 `r3` step8 OK 42.9 s 但有一次 NO.1→NO.3 `-200 TDMA_RING_START` recovery。
+- **r2 精确定位**：pair 11 `NO.4 → NO.2`；START 两次 OK，失败在 activity 快照。`raw.tdma='<timeout>'`、`field count 1 != 151`、tdma 全 `-1`；同串口 `PHYS?` 返回真实 109 字段、`*IDN?` 正常 ⇒ **TDMA 状态页读超时，不是板子状态或畸形页**。r2 26 次 activity 快照中 4 次超时（约 15%），pair 11 连续两次超时；r3 同 argv/build 0 次超时。
+- **修复**：`workflow_steps.py` step8 `topology_timeout_s` 从 1.0 改为 `max(2.0, serial_timeout_s)`（当前 3.0）；`_pair_snapshot` 将 `raw='<timeout>'` 分类为 `READ_TIMEOUT` 并记录 `elapsed_ms`，仅 READ_TIMEOUT 允许第 3 次观测，其他 malformed 仍只重试一次；保留 `--short-open`、`--gap 0.2`、`--pair-wait 0.5`，不接受 `-1` 为成功。
+- **验证（仅 host）**：拓扑 91 passed；P0T/acceptance 278 passed；host 门禁 219 passed。未动台架。代码提交 `a5cd763c`。
+- **残余**：超时尾部延迟仍按“host/CDC 1–2 s 抖动”假设处理，尚无可复跑的 per-read timing 证据；需其他会话用新 3 s 预算上板验证。r3 的 START 拒绝是独立 admission 事件，不能靠放大读超时解决。
 
 ### TOOLS-PROGRESS-20261105-020：DPLL 外部优先 / 内部 fallback 编排（待台架验证）
 

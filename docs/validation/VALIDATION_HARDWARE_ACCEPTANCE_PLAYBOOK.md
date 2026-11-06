@@ -4,7 +4,7 @@ Status: Active
 Domain: VALIDATION
 Canonical: `docs/validation/VALIDATION_HARDWARE_ACCEPTANCE_PLAYBOOK.md`
 Related: `AGENTS.md`, `docs/validation/README.md`, `docs/validation/P3_FLOW.html`, `config/hardware_acceptance/p3_bench.json`
-Last updated: 2026-11-05
+Last updated: 2026-11-06
 
 本手册给**其他会话/操作者**使用，目标是避免“命令跑错、台架被并发占用、把 QUICK 当 FULL、把瞬态当硬件故障”导致验收反复失败。参数与路径是 2026-11-05 的**运行快照**，不是事实源；以 `config/hardware_acceptance/p3_bench.json`、`CMakePresets.json` 和 `check-staged` 的当前输出为准。
 
@@ -84,6 +84,7 @@ python tools/hardware_acceptance/hardware_acceptance_workflow.py `
 |---|---|---|---|
 | build 链接 `.bss will not fit` / `RAM overflowed` | 用了默认 `pico2-release`，不是 V2 preset | 加 `--preset pico2-v2-factory-candidate` 重跑 | 改 heap / 换回旧 build 硬刷 |
 | step 8 `START <timeout>` 或 `-200 TDMA_RING_START` | 复位后 START 准入瞬态（50 ms 窗口） | 先重跑 `--steps 8-36`；现 P0T gap 已强制 ≥100 ms | 立刻全板下电/清环/重写 BOARD:NO；把 timeout 当成功 |
+| step 8 `snapshot malformed` / TDMA 页 `<timeout>` | 1.0 s 读超时截断 151 字段页（PHYS/IDN 正常） | 现 P0T timeout 已恢复 `max(2s, serial_timeout)=3s`，并分类 `READ_TIMEOUT`；重跑 `--steps 8-36` | 把 `-1` 当有效、把超时改回 1 s、或为此 factory reflash |
 | step 29 NO.3/4 无脉冲、`STARVED`、12/12 scope missed | 可能是示波器/触发/窗口问题，不一定是板子 | 新流程会自动切内部；若内部也失败，再查 roles/`OUTPut:RUN?` 后重跑 `--steps 29-36` | 直接 factory reflash；把 fallback 当 SCOPE_PASS |
 | OTA 某板 `0,6,512,5002,5` / `FLASH:JOB?` 超时 | 该板 flash journal/事务卡死 | 读 `STREAM:INIT?/STAT?/JOUR?/TXN?/BCB:HEALTH?`；保留证据，评估 factory reflash | 反复重试 OTA；未获用户同意就全擦 |
 | receipt 是 `QUICK_DIAGNOSTIC` | 续跑没带 `--profile full`，step0 冻了 QUICK | 开新 FULL run（或用 `--reuse-flashed`） | 手改 receipt 的 profile/scope |
