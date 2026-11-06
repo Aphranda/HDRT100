@@ -605,6 +605,18 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 结论：M6.1 的剩余工作收敛为两件：① 把窗口的停环/起环改成环序号对齐（消息在环上发出）；
   ② 收尾 rebuild 也走同一对齐，避免"参考板独自重建 → 14"。
 
+**2026-11-07 04:2x P1 四板首次全绿（build `20261106200959`，`94a6ba91`）**：
+
+- **第 1 轮：四板全部 `prog_status=1, trials_done=4, passed_mask=0xF, failed_mask=0,
+  prog_reason=0, reconcile=1`**（gen 460 / epoch 560）——M6.1 判据首次整套满足。
+- **第 2 轮（gen 461 / epoch 561）**：三块跟随板仍全绿；参考板 `abort_site=6(TRIAL)`、
+  `trials_done=1`、`passed=0x1`、`reason=11`——即再次出现"某个 trial 的训练没在一个 slot 内
+  完成"。这是参考板侧仅剩的抖动。
+- 达成全绿的三个条件（本提交）：① 跟随板驻留 60 s 且到期视为完成；② 跟随板完成判定先于
+  FORWARD 的通用 deadline；③ rebuild 预算 60 s（否则先到的板把收尾判成 14）。
+- **M6.1 状态**：1/2 连续通过，仍 **OPEN**；下一步压参考板 trial 的 slot 抖动
+  （候选：10 kHz 下把 C 段 cycle ladder 从 {4,16} 降到 {4,8}，或按实测放宽 slot）。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
