@@ -1770,6 +1770,8 @@ typedef struct {
     uint32_t train_base_seq;
     bool train_pending;
     bool forward_armed;
+    /* Arm/start refusals retried inside this round (see APP_CTRQS_ARM_RETRIES). */
+    uint32_t arm_tries;
     /* Pre-window ring identity, captured before the first STOP so the close
      * path can rebuild the same ring even when the image has no boot plan. */
     uint32_t restore_node_count;
@@ -2003,6 +2005,10 @@ static void app_ctrqs_abort(uint32_t reason)
  * boards that already applied the broadcast (16-52 s measured at 10 kHz), so
  * the local t0-based deadline cannot gate a follower. */
 #define APP_CTRQS_FOLLOWER_PHASE_WAIT_MS 90000u
+/* The arm/start handshake is flaky at a low-rate profile (measured on the
+ * bench: the reference's START occasionally returns -200 and succeeds on a
+ * retry), so a negotiated sequence must retry it rather than fail the round. */
+#define APP_CTRQS_ARM_RETRIES 4u
 
 static void app_ctrqs_publish_phase(uint8_t phase)
 {
@@ -2942,6 +2948,17 @@ static void app_ctrqs_service(void)
                 tdma_runtime_owner_get_ring_snapshot(&forward_ring);
             if (have_ring && forward_ring.adapter_last_error != 0u &&
                 forward_ring.enabled == 0u) {
+                /* The arm/start handshake is known to be flaky at a low-rate
+                 * profile (the bench retries it), and a negotiated sequence
+                 * makes it more likely that this board arms while the others
+                 * are between phases.  Retry inside the window budget instead
+                 * of failing the whole round on the first refusal. */
+                if (now < s_ctrqs.deadline_ms) {
+                    s_ctrqs.arm_tries++;
+                    s_ctrqs.arm_try_ms = (uint32_t)now + 300u;
+                    s_ctrqs.state = APP_CTRQS_ARM;
+                    return;
+                }
                 /* The adapter start itself failed (ADAPTER_START_FAILED):
                  * waiting longer cannot help, so surface the code now. */
                 app_ctrqs_abort(
