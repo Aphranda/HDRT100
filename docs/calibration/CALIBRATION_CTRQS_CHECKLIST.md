@@ -9,37 +9,47 @@ Last updated: 2026-11-06
 ## 0. 新会话交接摘要（先读这一节）
 
 **当前结论**：七动作阶梯 **P1→P2→P3→T0→T1→T2→T3 已在 10 MHz 档四板全部跑通**（夜间目标 M1–M5）；
-**10 kHz 引导档**单板/跟随板均已通过 P1（4 trials），但**四板命令面在 10 kHz 下交付不可用**，
-因此四板 10 kHz 全链与 M6 设计档位收口未完成。两个夜间/日间目标均已到轮次上限（40/60）。
+**10 kHz 引导档**的命令面已修好并实板验证（CONFig 51 s、TRIGger 78 s 四板一致），
+四板 P1 在 10 kHz 下 **三块跟随板 COMPLETE、参考板 TIMEOUT**（连续 2 次），
+因此四板 10 kHz 全链与 M6 设计档位收口仍未完成。
 
-**唯一关键阻塞（先修这个）**：10 kHz 下 REFMEM catalog 50/51 的跨板交付失败/极慢。
-- 实测：`CONFig 84` 发出后 74 s，COM4 的 `PLAN?` gen 仍为 83；trigger 出现分钟级延迟（244 晚于 245 到达）。
-- 根因：`distributed_refmem_control_submit()` 远程路径只入队（`refmem_control_submit.c:62-76`）；
-  fragment 经 `tdma_maintenance_runtime_submit()` **单次提交、失败不重试**（`refmem_cmd_load.c:200-212`）；
-  catalog 50/51 的 `timeout_us=0` → 无 issuer deadline（`refmem_cmd_load.c:241-249`）。
-- 修复点：fragment 有界重试（按环周期节拍）+ 50/51 rate-scaled deadline（或 submit 时按
-  `cycle_period` 覆盖 `snapshot.timeout_us`）+ 可选“四板读回 gen/epoch 一致”确认。
+**已修正的根因（推翻旧交接的"丢包/无重试"判断）**：10 kHz 下命令面不是丢失而是**吞吐**——
+维护通道每环回只送 1 个 10 B chunk，一条 216 B 的 GUIDE CONFig 需要 54 chunk
+（= 7 个维护帧，实测 49–51 s），目标板在最后一 chunk 后的同一环回**同时**应用（无板间错位）。
+旧判断的三处瑕疵：维护层本身有每帧 3 次重试与按环周期缩放的 ACK 预算；分片路径此前确实
+没有 arm deadline；`s_pending_*` 逐步队列是从未启用的死代码。
+
+**已修并入库**（`5a2a4849`）：`tdma_maintenance_runtime_delivery_budget_ms()` 按
+`feedback_timeout_ns` 推导投递预算（10 kHz ≈57 s、10 MHz 亚秒）；分片路径 arm issuer deadline；
+required ACK 位未齐时做**一次有界重放**（同 `command_seq`、新 fragment `frame_seq`，目标侧按 seq 幂等，
+重放前要求维护队列/ACK 槽静默），仍失败则 `TIMED_OUT` 失败关闭；删除死队列。
+P3 凭证 build `20261106101617`（PASS，0 ERROR/1 WARN）。实板复测含一次真实丢帧重放。
+
+**当前唯一阻塞**：参考板（NO.1/slot 0）P1 窗口 `progress_status=2, trials_done=0,
+reason=11(TIMEOUT), reconcile=3`，跟随板同期 `COMPLETE, trials=4, deepest=3`；
+同一 build 连续两次完全一致（旧文档记为"偶发、重触发即成功"，前提已变）。
+按 §7.4 已开只读子代理交叉分析，未裁决前不得改动该路径。
 
 **已完成并可直接复用**：
 - 10 MHz 七动作全链（四板）：`48b51f5c`（T3 复用 REBUILD 成环路径），证据见 §4 与 `f616ecef`。
 - 低速率引导环：`TOPO → RING:BRINGUP 1 → ARM → START`（BRINGUP 必须在静默屏障后设置；
-  T3/10 MHz 不得设置）——`fec92c17`/`ef...`。
+  T3/10 MHz 不得设置）。
 - 速率缩放：`app_ctrqs_staged_period_ms()`/`app_ctrqs_scaled_ms()`、t0=6 s+80×period、
   FORWARD formed 驱动（`3bc8299d`/`fec92c17`/`0ef00a67`）。
-- 10 kHz P1：参考板 epoch 244、跟随板 epoch 241 均 4 trials COMPLETE（单板级）。
+- 10 kHz 四板 P1 的 C/T 段：菜单见 §7.1，含确认协议与实测耗时。
 
 **新会话第一步建议**：
-1. 先读本文 §2 硬约束、§6.1 动作布局、§7 台架注意；跑一次 P3 复位台架（`workflow_steps.py run
-   --preset pico2-v2-factory-candidate --tdma-only --reuse-topology out/HardwareAcceptance/20261105/p3-222113/p0t-topology/summary.json`）。
-2. 修命令面交付（上述 3 处），用受控测量验证 10 kHz 下 CONFig/trigger 秒级四板一致。
-3. 再跑四板 10 kHz P1→P2（成环/测量分离）→P3→T0–T2；最后 S 语义与 M6。
-4. 工作树有一处非本目标的未提交改动 `docs/tdma/TDMA_DOMAIN_TODO.md`（并发会话痕迹），勿误提交。
+1. 读本文 §2 硬约束、§5 残余、§6.1 动作布局、§7.1 复现配方。
+2. 先处理参考板 P1 TIMEOUT（§5 残余 4），再跑四板 10 kHz P1→P2（成环/测量分离）→P3→T0–T2；
+   最后 S 语义与 M6。
+3. 工作树里 `docs/validation/P3_FLOW.html` 的未提交改动属并发会话，勿误提交。
 
 **关键命令/字段**（详见 §6/§7）：
 `SYST:TDMA:GUIDE:CONFig <action>,<crc>,<gen>,<level>,<window>,<trials>,<count>,<c0..4>,<lo>,<hi>`；
 `TRIGger <action>,<epoch>`；`PLAN?` 共 22 字段（9 计划 + 13 执行器/Q/S 只读）。
-操作约束：CONFig 后先读回四板 `PLAN?` gen 一致再 trigger；trigger 后读回四板 epoch 一致；
-四板窗口未结束时发新命令会 -200（命令面依赖环 running + 四板 ACK）。
+操作约束：CONFig 后**等四板 `PLAN?` gen 一致再 trigger**（10 kHz 预算 ≥60 s）；trigger 后
+**等四板 epoch 一致**（10 kHz 预算 ≥120 s）；四板窗口未结束时发新命令会 -200。
+**飞行中重发会重置目标侧重装**（新 `command_seq` → 新 frame_seq），这是"74 s 后仍是旧 gen"的最可能人为原因。
 
 ## 1. 目标（完成定义）
 
@@ -84,6 +94,7 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 | `dab5e8b6` | `calibration_manager_restore_training_stage()`（从持久 store 重 stage）+ P2 prep 同序 clear |
 | `21d50a37` | coded 请求共享 epoch（C 段 `plan.generation`）+ P2 全拆环门 + follower 接受判据 |
 | `aca13990` | 引导窗口每次 TOPO 后重设 `TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE`（P1/P2/REBUILD） |
+| `5a2a4849` | 分片命令面按环周期 arm deadline + 有界重放（10 kHz 命令面可用；见 §0） |
 
 ## 4. 现状（2026-11-06 03:10 快照，非事实源）
 
@@ -167,8 +178,12 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 3. **B3（S 段会话关闭来源）——已解决**：R 窗口关闭且复环完成后
    `!calibration_manager_training_offline_active_core1()`；幂等键为 store 的
    `calibration_generation` 与当前 stage 相同则 SKIP。
-4. **残余**：参考板窗口偶发 FORWARD 超时（`reason=TIMEOUT`，trials=0），跟随板正常；
-   窗口自恢复成功后可重触发。未定位确定性根因，按残余记录。
+4. **残余（OPEN，2026-11-06 升级为阻塞）**：参考板窗口 FORWARD 超时（`reason=11=TIMEOUT`，
+   `trials_done=0`，`reconcile=3`），跟随板正常 `COMPLETE`。旧记录为"偶发、自恢复后可重触发"，
+   但 build `20261106101617` 上 **连续 2 次完全一致**（gen 210/epoch 310、gen 211/epoch 311；
+   参考板 ctrqs 0→5→6→27→0，t≈39.7 s 落 TIMEOUT；跟随板同刻 `trials=4, deepest=3`）。
+   按 §7.4 已开只读子代理交叉分析（未裁决前不得改该路径）。复验判据：同一 build 上参考板
+   P1 连续 2 次 `progress_status=1, trials_done=4`。
 5. **B4（低速引导环未接通）——未解决**：§1 的 10 kHz 引导环尚未与标准环路径匹配：
    level 23 可 apply，但 `RING:ARM` 四板全 `-200`；需要 10 kHz 档位对应的校准 stage
    （TRN-00/01/02/03 at level 23）或让 `set_tdma_ring_topology` 接受低速率档。当前 P1/P2
@@ -334,5 +349,11 @@ SYST:TDMA:GUIDE:TRIGger 1,<epoch>
 实测时间预算（10 kHz）：窗口 t0 = 6 s + 80×150 ms = 18 s；P1 slot=5.3 s（16 cycles×2×150 ms+0.5）；
 4 trials 约 21 s；恢复另计。P1 计划可用 window=4000（执行器会自动放大 slot）。
 
-已验证结果：参考板 epoch 244、跟随板 epoch 241 均 `COMPLETE, trials_done=4`；四板同时通过仍需先解决
-§0 的命令面交付问题。
+**2026-11-06 实测（build `20261106101617`，四板，`5a2a4849` 之后的命令面）**：
+
+- `CONFig` 四板 gen 一致：**51.0 s**；`TRIGger` 四板 epoch 一致：**78.3 s**（含一次维护帧丢失后的
+  有界重放；无丢失时约 20 s）。两者都远慢于 10 MHz，属维护通道吞吐（1 chunk/环回），不是故障。
+- 确认协议（必须）：CONFig 后轮询四板 `PLAN?` 第 4 字段（gen）一致再 trigger，预算 ≥60 s；
+  trigger 后轮询第 9 字段（epoch）一致再继续，预算 ≥120 s。
+- 失效率：本轮 2 次 P1 中参考板 2 次 TIMEOUT、跟随板 2 次 COMPLETE；命令面本身 0 次丢失
+  （issuer `ack_fail` 增长后均由重放补齐，四板 gen/epoch 最终一致）。
