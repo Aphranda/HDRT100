@@ -2114,7 +2114,14 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         /* The same trial needs cycles x cycle_period of wall time, so the slot
          * must follow the applied profile instead of a 10 MHz-sized constant.
          * The C window stays a lower-bound budget; the executor extends the
-         * slot when the carrier is slower (10 kHz is 150x the 10 MHz period). */
+         * slot when the carrier is slower (10 kHz is 150x the 10 MHz period).
+         *
+         * Measured on the 10 kHz profile: a 4-cycle burst reported tx_done at
+         * 2.06 s, i.e. ~3.4 x cycle_period per cycle, not the 2 x this estimate
+         * used to assume -- so a 16-cycle trial needed ~8 s against a 5.3 s
+         * slot and always aborted at the slot edge.  5 x leaves room for the
+         * return path on top of the burst; the high-rate profiles keep their
+         * window-derived slot because 5 x 1 ms x 16 stays far below it. */
         tdma_service_ring_runtime_config_t staged_p1;
         if (tdma_runtime_owner_get_staged_ring_config(&staged_p1) &&
             staged_p1.cycle_period_ns != 0u) {
@@ -2125,7 +2132,7 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
                 }
             }
             const uint64_t need_ms =
-                ((uint64_t)max_cycles * 2ull * staged_p1.cycle_period_ns +
+                ((uint64_t)max_cycles * 5ull * staged_p1.cycle_period_ns +
                  UINT64_C(999999)) /
                     UINT64_C(1000000) +
                 UINT64_C(500);
