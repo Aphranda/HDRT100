@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-11-05
+Last updated: 2026-11-06
 
 ## 文档接口与状态规则
 
@@ -88,6 +88,39 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 **4 节点边界。** 节点数固定为 2..4；N>4 由 `slot_min(N)` 与 ring 准入拒绝，不生成 8 节点 catalog，也不承诺 8 节点镜像/台架。参数可配置仅指 baud、slot、guard 量子、turnaround、loop_delay 与超时，不包含节点数扩容。
 
 **完成定义。** 仅当 M1–M5 全绿、M7 收口，目标才可标完成；M2/M4/M5 的 P3 与 HIL 未闭合前不得标完成，目标保持进行中。M3 已获用户批准（2026-11-04，方案 B）。8 节点里程碑已按用户裁定删除，不再是完成条件。
+
+### 转发提速（2026-11-06 用户裁定）
+
+**裁定。** 暂不切换到「本地重建」路线（去掉逐沿转发、各节点本地数拍），先把现有 `SCK 驱动 SCK` 转发结构的性能与证据做扎实；重建列为备选，只有 SPEED-00..03 无法达到目标时才立项。执行顺序固定：P0 测量（SPEED-00）→ P1 准入（SPEED-01）→ 窗口判据（SPEED-02）→ P2 结构（SPEED-03）→ 档位收口（SPEED-04）。
+
+**现状结论**（快照，非事实源；证据 `out/HardwareAcceptance/20261029/hawf-115728/`、`out/baud_structure_matrix.png`）：
+
+- 转发相位 = 线延迟（P3 半程）+ 出沿流水线。门限在 target=11 拍时判「不可准入」；但物理差额落在 −2～+4 ns 之间，取决于「出沿 → 下一个 WAIT」的真实拍数（1/2/3 三种读法都能从同一份源码讲通），**必须先由 SPEED-00 实测才能定论**。
+- 25/30 MHz 所需相位（线延迟 10 拍）已大于半周期（5 拍 / 4 拍），逐沿转发在该结构上不可能——与判据常数无关。
+- 另有一条**与相位独立**的门：follower 字节尾部（`TDMA_PIO_SPI_PROCESS_BYTE_REARM_CYCLES`、`TDMA_PIO_SPI_RAW_BYTE_REARM_CYCLES`）。25 MHz 下最小 12 / 13 拍已超整周期 10 拍，任何相位都过不了；按此单独反推的上限是 process ≤ 20.8 MHz、raw ≤ 19.2 MHz。
+- PHY 不是瓶颈：2026-08 单板差分回环 15/20/25 MHz 全过（25 MHz 60 s 零坏帧），30 MHz 在 2 ms 档严格短窗通过、1 ms 档仍有坏帧。四板 flight 环与单板回环是两种运输结构，不可互相替代。
+
+**前置事实（2026-11-06 三方独立复核；动代码前必读）**：
+
+1. `TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES` **不是纯指令数**：源码可数出「上升沿后 0–1 条、下降沿后 1–2 条」，常数 2 至少含 1 拍流水/同步，真实值待测——**不得直接改成 1**。
+2. host 与固件的 DATA 判据曾给出**相反结论**（25 MHz、低相位时宿主按 `D + 5` 放行、固件按 `max(D+2, high) + 7/8` 拒绝）。2026-11-06 起 host 改为按 role 分支的字节通路式，并逐链路记录 raw-persona 界（`diagnostic_replay_gates.data_rearm_bounds`）。
+3. MARK/CS 的 delay 字段**不减 2**、SCK 减 2，故同存储值下 MARK 比 SCK 晚 2 拍；staging 数字**不可跨信号相减**。
+4. PIO 指令内存：process-follower + observer 布局下 **TX 32/32、RX 32/32 全满**；任何「加 SM / 加指令」的重构在 `pio_can_add_program` 就 fail-closed，必须先净减。
+5. `path_delay_baseline_divisor` 存在 2（41 ns）与 3（27 ns）两条基线；41 ns 覆盖哪一段物理尚未冻结，改它会整体平移相位。
+
+| ID | 任务 | 状态 | 交付物 / 退出门禁 |
+|---|---|---|---|
+| TDMA-SPEED-00 | P0 测量：出沿返回拍数 / 占空比 / 眼宽 | IN PROGRESS | 同一 follower 用双通道示波器抓 `rx_sck` 与 `tx_sck`，把 target 从 8 逐拍升到 12（`--node-sck-offset-samples` 配 `--diagnostic-continue`），每点 ≥100 帧；抓同帧 SCK 高/低时间；同场扫 `data_phase` −2..+2。判读函数已落：`calibration_phase.measure_forward_scK()`（双通道原始采样 → rise/fall 延时 + duty）与 `classify_forward_sweep()`（跟踪段 → target 天花板 + A/B/C 分支），各有单测。**退出**：三个数落表（真实返回拍数、占空比、眼宽），并把 SPEED-01 收敛到 A/B/C 之一；代码侧 0 行（仅判读库）。 |
+| TDMA-SPEED-01 | P1 相位记账与 10 MHz 准入 | IN PROGRESS | (a) **已完成 2026-11-06**：host `validate_config` 的 DATA 判据按 role 分支（master `D+5`、follower `max(D+2, half)+process_byte_rearm`），并逐链路记录 raw-persona 界；旧式 `D+5` 会与固件给出相反结论。(b) 剩余：依 SPEED-00 三选一——A 常数 2→1（若真实返回=1）/ B 拆 rise-fall 字段 + 按沿常数（若 1/2）/ C 只做 offset 0（若 ≥3）。**2026-11-06 补充**：host 的 SCK 判据已补上"编码器下限（`sck >= FLIGHT_SCK_REARM_SAMPLES`）对参考节点同样生效"，与固件的全局 `sck < 2` 子句一致（此前参考 link 被整条豁免）。**退出**：10 MHz ARM 不再需要 diagnostic 旁路；host/固件判据逐条一致；TRN-01/02/03 重跑 + 60 s A/B。 |
+| TDMA-SPEED-02 | 眼宽证据与窗口判据 | IN PROGRESS | 每条链路每信号扫 offset（−3..+3，每点 ≥8 次，复用 `--node-sck-offset-samples` / `--node-data-offset-samples`）。**判读已落 2026-11-06**：`calibration_phase.classify_offset_window()` 把扫点表变成 `eye_left/right/width/center` 并给出 `usable` / `too_narrow` / `non_contiguous` / `coverage_incomplete` 判决（含单测）。**宿主侧接线同日完成**：`validate_config` 接受可选的 `links[i].offset_window`（`sck` / `data`），校验 `verdict=usable`、`width ≥ 2`、且 `chosen_offset_sample_count` 与矩阵实际 offset 一致；不带窗口的旧矩阵行为不变，窗口汇总进 `diagnostic_replay_gates.offset_windows`。剩余：staging 增加窗口字段（是否上板待定）与真实扫点数据。**退出**：10 MHz 四链路窗口可复现；窗口不足时输出「粒度不足」结论而非「参数未调好」。 |
+| TDMA-SPEED-03 | 字节尾部摊薄（P2） | PENDING | **前提更正（2026-11-06，查 SDK 2.2.0）**：[时序评审](TDMA_TIMING_REVIEW.md) T-01 提的 `mov rxfifo[]` **在本 ISA 不存在**——`pio_src_dest` 无 FIFO 项，`PIO_FIFO_JOIN_TXGET/TXPUT/PUTGET` 只是 FIFO 空间与处理器共享模式，不是新指令；逐字节的 `mov x,isr / push / mov isr,x / in null,24` 是**保留 ISR 供下一字节 token 解码**所必需，删不掉。因此本条重定为两条可选路：(a) 把边界工作跨 WAIT 前移，最多省 1–2 拍（7→5/6），25 MHz 恰好 10 拍、**零余量**；(b) 改 token 方案使 ISR 无需保留（工作量大、需重训）。**结论**：字节通路的结构上限——process 约 `max(4, ceil(P/2)) + 7 ≤ P` ⇒ P ≥ 14 拍 ⇒ **≈17.9 MHz**（若要求采样居中 D≈P/2，则 ≈13.9 MHz）；raw 同理 ≈15.6 MHz。**远低于 25 MHz**，所以 P2 的"25 MHz 有裕量"不可达，除非走 (b) 改 token 方案。**(a) 指令级复核（2026-11-06）**：第 8 bit 下降沿之后实际排 6 条（`mov pins,x` → `mov x,isr` → `push noblock` → `mov isr,x` → `in null,24` → `set y,6`），门限按 7 计；唯一可前移的是 `set y,6`（Y 在该点已不再使用）⇒ 真实尾部 5 条。此时 25 MHz 需 `max(D+2, ceil(P/2)) + 5 ≤ 10`（D ≤ 3）**且**门限常数同步 7→5，**仍是零余量**。故 (a) 只能换到"零余量 + 两个未验证常数"，不推荐。**退出**：(b) 给出机器证据，或正式把提速预算转到吞吐线（SPEED-05）。 |
+| TDMA-SPEED-04 | 提速档位判定与准入（P2） | PENDING | **口径更正（2026-11-06）**：档位可达性取决于实测线延迟，不能只靠 profile 静态判定，故拆为三层。①**静态结构下限**：半周期必须容纳「返回 2 + wait 1 + set 1 = 4 拍」⇒ baud > 31.25 MHz 结构不可行，可在 `tdma_operating_profile` 准入直接 fail closed（当前 catalog 的 35/40/45/50 MHz 属此列）。②**运行时可达性**：25/30 MHz 结构上可能，但所需相位（线延迟）大于半周期，只能由 stage/ARM 的 `PHASE_ADMISSION` 拒绝；需补可读的拒绝原因与只读回读。③`OPMode:CATalog?` 标注每档的静态可达性与「需标定确认」标记。**退出**：25/30 MHz 不再靠台架试错发现；拒绝路径有机器证据。 |
+| TDMA-SPEED-05 | 吞吐线（slot × 载荷，P2 备选主线） | PENDING | 不改相位结构，按「圈时 = slot × 节点数」提升吞吐。**静态核算（2026-11-06，快照）**：10 MHz 下每字节 0.8 µs，现帧 174 B ≈ 139 µs；slot 1000/500/375 µs 扣除走线后分别余 861/361/236 µs，帧长上限约 1243/618/462 B（按 5 µs 固定开销估）。4 节点圈时 4.0/2.0/1.5 ms ⇒ 现载荷吞吐 43.5/87/116 kB/s，而**线速上限约 312 kB/s（与 slot 无关，只由 0.8 µs/B 与节点数决定）**，即当前只跑到自身线速的 14 %。**结论**：吞吐主杠杆是"载荷 × slot"，不是 baud；但 slot 缩短的绑定项是 Core1 每槽服务时间——旧记录里单相位最大耗时曾达 2.396–2.930 ms（旧 build，快照），且 level 20 曾 ARM timeout，说明该数现无可信值。**第一步必须测"每槽服务时间"，不是改 slot 表。** **退出**：当前 build 的每槽服务时间落表 → 选定 slot/载荷组合 → 四板短窗 + CPU/IRQ 预算证据；失败则记录该档不可达的机器判据。 |
+| 备选（未立项） | 本地重建 local clock generation | — | 仅在 SPEED-00..03 无法达到目标时启动：帧触发 + 本地数拍，SCK 相位变成自由参数，代价是帧内晶振漂移（帧越短越小）与 VDC 纪律。对照见 `out/baud_structure_matrix.png` 第 ③ 段。 |
+
+**非目标。** 不改拓扑/节点数、不做 8 节点；不以放宽 `TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES` 的方式换「能过」；不把「拆 SM 处理字节边界」当第一步（无指令槽）。
+
+**批次与凭证。** SPEED-00 属台架（无代码）；SPEED-01(a)/02 属工具与 host（host 凭证）；SPEED-01(b) 视 A/B/C 而分属数据或固件；SPEED-03/04 属固件（需 P3）。每批单独提交，文档与代码分离。
 
 ### 实时预算、飞行与异步准备
 
