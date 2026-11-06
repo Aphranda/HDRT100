@@ -838,6 +838,7 @@ bool app_cal_guide_snapshot(app_cal_guide_snapshot_t *snapshot)
     snapshot->progress_reason = s_cal_guide_q.progress.reason;
     snapshot->passed_mask = s_cal_guide_q.progress.passed_mask;
     snapshot->failed_mask = s_cal_guide_q.progress.failed_mask;
+    snapshot->abort_site = app_cal_guide_abort_site();
     snapshot->reconcile_decision = (uint32_t)s_cal_guide_q.reconcile.decision;
     snapshot->reconcile_resume_trial = s_cal_guide_q.reconcile.resume_trial;
     snapshot->commit_decision = s_cal_guide_q.commit_decision;

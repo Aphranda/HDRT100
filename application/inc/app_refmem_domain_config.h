@@ -49,6 +49,9 @@ typedef struct {
      * story and the caller reads both. */
     uint32_t passed_mask;
     uint32_t failed_mask;
+    /* Executor state at the last abort (0 = none): distinguishes the coarse
+     * TIMEOUT/NOT_ONLINE_SAFE reasons by the phase that actually failed. */
+    uint32_t abort_site;
     uint32_t reconcile_decision;
     uint32_t reconcile_resume_trial;
     /* S segment: the commit gate decision, whether this action has a staged
@@ -62,6 +65,8 @@ typedef struct {
     uint32_t ladder_step;
 } app_cal_guide_snapshot_t;
 bool app_cal_guide_snapshot(app_cal_guide_snapshot_t *snapshot);
+/* Executor state at the last abort (0 = none), see snapshot.abort_site. */
+uint32_t app_cal_guide_abort_site(void);
 
 /* Q/S result store: the executor records the readback, reconcile decision, the
  * S commit gate and the ladder step so the single-port readback can expose

@@ -837,6 +837,10 @@ scpi_result_t scpi_cmd_system_tdma_guide_plan_q(scpi_t *context)
      * really passed reads these instead of trusting the status word. */
     SCPI_ResultUInt32(context, snapshot.passed_mask);
     SCPI_ResultUInt32(context, snapshot.failed_mask);
+    /* Executor state at the last abort (0 = none).  The coarse TIMEOUT /
+     * NOT_ONLINE_SAFE reasons share several sites, so this is what attributes
+     * a fast failure to the phase that rejected it. */
+    SCPI_ResultUInt32(context, snapshot.abort_site);
     return SCPI_RES_OK;
 }
 scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context)

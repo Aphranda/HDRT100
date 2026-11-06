@@ -1988,8 +1988,11 @@ static bool app_ctrqs_restore_formed(void)
 /* Abort the running window: keep the reason in the record, stop the ring and
  * let the frozen boot steps rebuild it.  Fail-closed: the action never reaches
  * Q with a masked failure. */
+static uint32_t s_ctrqs_abort_site;
+
 static void app_ctrqs_abort(uint32_t reason)
 {
+    s_ctrqs_abort_site = s_ctrqs.state;
     s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
     s_ctrqs.progress.reason = reason;
     app_ctrqs_publish();
@@ -2022,6 +2025,21 @@ static void app_ctrqs_publish_phase(uint8_t phase)
         return;
     }
     (void)tdma_ring_phase_publish(phase, (uint16_t)s_ctrqs.plan.generation);
+}
+
+/* Abort-site evidence.  `progress_reason` is intentionally coarse (several
+ * sites share TIMEOUT / NOT_ONLINE_SAFE), so a round that fails in under a
+ * second could not be attributed from the outside.  The executor state at the
+ * moment of the abort distinguishes them exactly (4=ARM, 5=FORWARD, 6=TRIAL,
+ * 26=RESTORE_WAIT, 27=REBUILD), and it is published as an appended PLAN? field
+ * instead of widening the reason enum. */
+static uint32_t s_ctrqs_abort_site;
+
+static void app_ctrqs_abort(uint32_t reason);
+
+uint32_t app_cal_guide_abort_site(void)
+{
+    return s_ctrqs_abort_site;
 }
 
 static void app_ctrqs_finalize(void);
