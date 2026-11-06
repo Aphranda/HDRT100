@@ -1873,6 +1873,15 @@ static void app_ctrqs_publish(void)
 static void app_ctrqs_ring_diagnostic_after_topo(void)
 {
     (void)tdma_runtime_owner_set_ring_diagnostic_mode(true);
+    /* The low-rate guide carrier (10 kHz / 100 kHz) has no calibrated phase
+     * table; it is started through the existing bring-up no-cal path.  The
+     * final T3 product start at 10 MHz must never use it. */
+    tdma_service_ring_runtime_config_t staged;
+    if (s_ctrqs.plan.action_id != APP_CTRQS_ACTION_T3 &&
+        tdma_runtime_owner_get_staged_ring_config(&staged) &&
+        staged.baud_hz != 0u && staged.baud_hz < 1000000u) {
+        (void)tdma_runtime_owner_set_bringup_no_cal(true);
+    }
 }
 
 static bool app_ctrqs_ring_quiescent(void)
