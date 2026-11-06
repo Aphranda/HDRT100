@@ -643,6 +643,22 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   不是 persona 问题。下一步给 ARM 路径加 reason 细分（哪一步被拒：quiescent / arm 结果 /
   adapter 错误），再决定修复。
 
+**2026-11-07 05:2x 0.2 s 状态探针（root cause 收敛，build `20261106211247`）**：
+
+- 探针（`guide_cmdplane_probe.py stateprobe`）在干净台架上抓到完整时间线：
+  `t=0.1s ctrqs=0` → **`t=65.5s ctrqs=1(FANOUT)`** → `t=66.4 ctrqs=4(ARM)` →
+  `t=67.1 ctrqs=6(TRIAL)` → `t=97.9 ctrqs=27(REBUILD)`。
+- 即：**参考板自己的 trigger 应用被"广播落地门"推迟了 65 s**（门等的是帧 ACK 排空，
+  而 10 kHz 下排空包含重传尾巴），它进 TRIAL 时跟随板的 60 s 驻留已经到期 →
+  参考板第一个 trial 就收不到返回（正是 `abort_site=6, trials=0`）。
+- 结论：剩余抖动的**唯一根因是 trigger 的投递时间**（160 B 命令帧 → 5 个维护帧 →
+  20–65 s），不是窗口预算、不是 persona、不是 rebuild 预算。修法与用户先前方向一致：
+  **把 trigger 也做成"缩小版"维护消息**（≤10 B，1 帧、约 1 个环回），四板据此几乎同刻
+  开窗；届时"广播落地门"可以整段删除。
+- 台架退化与恢复（记录备用）：连续跑数小时后出现 bring-up 失败/命令面停摆；恢复步骤为
+  四板 `SYST:BOOT:RESET` + `stage` + `up`，若仍异常则跑一次 P3（其初始化比手工更完整）。
+  本轮 P3 `p3-051235` 后恢复，随后 gen 610 四板全绿、gen 611 参考板再次失败。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
