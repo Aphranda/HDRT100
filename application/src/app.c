@@ -2003,6 +2003,15 @@ static void app_ctrqs_finalize(void)
          * partial trial count. */
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
         s_ctrqs.progress.reason = (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
+    } else if (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_P1 &&
+               s_ctrqs.progress.failed_mask != 0u) {
+        /* P1 admits a trial that ran but never saw the return, so the count
+         * alone no longer proves the round passed: a failed trial keeps
+         * failed_mask set and must not be reported (or laddered) as COMPLETE.
+         * Both masks are published through PLAN? so the caller can tell the
+         * difference instead of trusting the status word. */
+        s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
+        s_ctrqs.progress.reason = (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
     } else {
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_COMPLETE;
         s_ctrqs.progress.reason = 0u;
@@ -2111,17 +2120,12 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         if (s_ctrqs.slot_ms < 300u) {
             s_ctrqs.slot_ms = 300u;
         }
-        /* The same trial needs cycles x cycle_period of wall time, so the slot
-         * must follow the applied profile instead of a 10 MHz-sized constant.
-         * The C window stays a lower-bound budget; the executor extends the
-         * slot when the carrier is slower (10 kHz is 150x the 10 MHz period).
-         *
-         * Measured on the 10 kHz profile: a 4-cycle burst reported tx_done at
-         * 2.06 s, i.e. ~3.4 x cycle_period per cycle, not the 2 x this estimate
-         * used to assume -- so a 16-cycle trial needed ~8 s against a 5.3 s
-         * slot and always aborted at the slot edge.  5 x leaves room for the
-         * return path on top of the burst; the high-rate profiles keep their
-         * window-derived slot because 5 x 1 ms x 16 stays far below it. */
+        /* Empirical bound only: burst_duration is wire time
+         * (cycles / baud_hz), but the phys meters one bit per ring cycle, so
+         * the slot must scale with the profile instead of a 10 MHz constant.
+         * 2 x period per cycle is the original bound and is kept; a trial that
+         * still misses its slot is now recorded as a failed trial rather than
+         * aborting the window (see app_ctrqs_trial). */
         tdma_service_ring_runtime_config_t staged_p1;
         if (tdma_runtime_owner_get_staged_ring_config(&staged_p1) &&
             staged_p1.cycle_period_ns != 0u) {
@@ -2132,7 +2136,7 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
                 }
             }
             const uint64_t need_ms =
-                ((uint64_t)max_cycles * 5ull * staged_p1.cycle_period_ns +
+                ((uint64_t)max_cycles * 2ull * staged_p1.cycle_period_ns +
                  UINT64_C(999999)) /
                     UINT64_C(1000000) +
                 UINT64_C(500);
@@ -2316,6 +2320,27 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
     s_ctrqs.deadline_ms = now + APP_CTRQS_FANOUT_MS;
 }
 
+/* A trial that ran but produced no usable return is a failed trial, not a
+ * reason to abort the whole round.
+ *
+ * The reference only accepts RETURN_OVERLAP, and whether a return overlaps is a
+ * hardware ordering race (the burst program latches IRQ2 before it raises
+ * IRQ1), not something a longer deadline can repair.  Aborting on the first
+ * miss made trials_done unreachable at a low-rate profile, while the follower
+ * path has always recorded failed_mask and moved on.  The window therefore
+ * always completes its trial count and the masks tell the truth; finalize()
+ * refuses to report P1 COMPLETE while failed_mask is set. */
+static void app_ctrqs_trial_fail_and_advance(void)
+{
+    const uint32_t bit = 1u << s_ctrqs.trial;
+    s_ctrqs.progress.failed_mask |= bit;
+    s_ctrqs.progress.trials_done++;
+    s_ctrqs.progress.deepest_trial = s_ctrqs.trial;
+    s_ctrqs.trial++;
+    s_ctrqs.train_pending = false;
+    app_ctrqs_publish();
+}
+
 static void app_ctrqs_trial(void)
 {
     const uint64_t now = app_ctrqs_now_ms();
@@ -2365,13 +2390,13 @@ static void app_ctrqs_trial(void)
         return;
     }
     if (train.state == TDMA_PIO_SPI_CLK_TRAIN_ERROR) {
-        app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+        app_ctrqs_trial_fail_and_advance();
         return;
     }
     if (train.request_seq == s_ctrqs.train_base_seq ||
         train.state != TDMA_PIO_SPI_CLK_TRAIN_MASTER_COMPLETE) {
         if (now >= slot_start + s_ctrqs.slot_ms) {
-            app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+            app_ctrqs_trial_fail_and_advance();
         }
         return;
     }

@@ -44,6 +44,11 @@ typedef struct {
     uint32_t trials_done;
     uint32_t deepest_trial;
     uint32_t progress_reason;
+    /* Per-trial verdicts: bit N is trial N.  P1 reports COMPLETE only when
+     * failed_mask is clear, so the status word alone is no longer the whole
+     * story and the caller reads both. */
+    uint32_t passed_mask;
+    uint32_t failed_mask;
     uint32_t reconcile_decision;
     uint32_t reconcile_resume_trial;
     /* S segment: the commit gate decision, whether this action has a staged

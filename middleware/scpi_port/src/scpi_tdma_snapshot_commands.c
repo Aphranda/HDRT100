@@ -831,6 +831,11 @@ scpi_result_t scpi_cmd_system_tdma_guide_plan_q(scpi_t *context)
     /* Ladder: expected next action index (0 = P1) and the last advance step. */
     SCPI_ResultUInt32(context, snapshot.ladder_index);
     SCPI_ResultUInt32(context, snapshot.ladder_step);
+    /* Per-trial verdicts (appended): bit N is trial N.  P1 only reports
+     * COMPLETE with an empty failed_mask, so a caller that must know the round
+     * really passed reads these instead of trusting the status word. */
+    SCPI_ResultUInt32(context, snapshot.passed_mask);
+    SCPI_ResultUInt32(context, snapshot.failed_mask);
     return SCPI_RES_OK;
 }
 scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context)
