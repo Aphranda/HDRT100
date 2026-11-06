@@ -670,6 +670,9 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   等四板 gen 一致）→ `GUIDE:TRIGger`（epoch E）→ 等四板 `PLAN?` 终态。
 - 下一步 M6.2：四板阶梯索引与 S 代数一致——两轮已看到 `ladder_idx=1` 一致，但
   `ladder_step` 在第二轮为 0（同代数重复），需要确认"S 段代数幂等"在 10 kHz 下同样成立。
+- **残余（OPEN）**：第 3 次复跑（gen 622）参考板 `passed_mask=0xE, failed_mask=0x1`
+  ——4 个 trial 里仍有 1 个丢返回（跟随板全绿）。3 次里 2 次全绿、1 次单 trial 失败。
+  复验判据：连续 10 次四板全绿；未达标前 M6.1 的"稳定"只到"判据满足"这一级。
 
 ## 7. 台架与操作注意
 
