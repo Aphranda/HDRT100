@@ -2293,7 +2293,7 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
     /* One common schedule for all four boards: the trigger frame reaches them
      * within a ring cycle, so a fixed offset from receipt is a shared epoch. */
     s_ctrqs.t0_ms = now + APP_CTRQS_T0_OFFSET_MS +
-                    (uint64_t)10u * app_ctrqs_staged_period_ms();
+                    (uint64_t)40u * app_ctrqs_staged_period_ms();
     s_ctrqs.t_end_ms =
         s_ctrqs.t0_ms + ((uint64_t)s_ctrqs.trials * s_ctrqs.slot_ms);
     s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_RUNNING;
@@ -2849,9 +2849,15 @@ static void app_ctrqs_service(void)
         s_ctrqs.deadline_ms =
             now + app_ctrqs_scaled_ms(APP_CTRQS_FORWARD_MS, 6u);
         /* The shared trial epoch is anchored on the trigger receipt, so the
-         * forward barrier must stay open at least until that epoch. */
-        if (s_ctrqs.deadline_ms < s_ctrqs.t0_ms + 1000u) {
-            s_ctrqs.deadline_ms = s_ctrqs.t0_ms + 1000u;
+         * forward barrier must stay open at least until that epoch; at a slow
+         * carrier the adapter needs several ring cycles to report started, so
+         * the guard also scales with the cycle period. */
+        const uint64_t forward_guard =
+            (uint64_t)8u * app_ctrqs_staged_period_ms() + UINT64_C(1000);
+        if ((uint64_t)s_ctrqs.deadline_ms <
+            s_ctrqs.t0_ms + forward_guard) {
+            s_ctrqs.deadline_ms =
+                s_ctrqs.t0_ms + (uint32_t)forward_guard;
         }
         return;
     case APP_CTRQS_FORWARD: {
