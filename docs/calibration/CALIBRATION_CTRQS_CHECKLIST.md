@@ -107,6 +107,20 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 - 已实证：`RING:TOPology` 会重建 staged config 并清掉 `DIAGNOSTIC_CONTINUE`；手工起环要按
   `STOP → TOPO → DIAGnostic 1 → ARM → START`，且该 flag 只容忍“警告级”相位准入，裕量不足的板仍会 `-200`。
 
+**2026-11-06 08:0x B4 根因修正（子代理 `1aa51036` 交叉分析）**：
+
+- `adapter_last_error=6` **不是** phys `RESOURCE_CONFLICT`：phys 错误经环会 `0x100` 偏移
+  （ARM 的 263 = 0x100|PHASE_ADMISSION 即为证），phys RESOURCE_CONFLICT 会显示 262。
+- 6 = `TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT`（`ring_adapter.h:94`），仅两个产生点：
+  `tdma_pio_spi_ring_adapter_tx.c:363-373`（`tdma_flight_engine_expected_input_mask()` 为 false，
+  map 无 foreign 段，`tdma_flight_engine.c:730`）与 `:401-405`（receive-health 配置无效）。
+- 触发条件正是“清 stage 后的退化 process-image map”；与 10 kHz 分频（≈2083，16.8 定点内）、
+  SM claim、DMA/IRQ 无关。ARM 在 10 kHz 被拒（263）是 stale 10 MHz stage 的 profile 身份不匹配。
+- 修复选项：**（a）流程侧**——为引导档位（10 kHz/5 MHz）生成匹配 stage（TRN-00/01/02/03
+  在该 level 重跑 + `trn03_stage --commit`），保持“有 stage 才起环”；**（b）适配器侧**——允许
+  空 foreign-segment mask 的环用 phys 默认 payload 启动（放松 `tx.c:363-373` 的 gate），
+  需独立评估 process-image 安全边界。
+
 ## 5. 阻塞点状态
 
 1. **B1（inline 参数丢失）——已解决**：`a9fbe9ca` 把 C/T 改走
