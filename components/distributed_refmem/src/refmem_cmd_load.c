@@ -569,6 +569,19 @@ static bool refmem_cmd_load_emit_fragments(const uint8_t *frame,
     return submitted_frames > 0u;
 }
 
+bool refmem_cmd_load_transport_idle(void)
+{
+    /* True when every queued maintenance frame has been taken and
+     * frame-ACKed.  The issuer uses this as its "the broadcast landed" edge:
+     * the low-rate channel delivers the last chunk to all targets in the same
+     * ring revolution, and the last frame's ACK returns about one revolution
+     * after that, so this is the closest cheap approximation to the instant
+     * the targets applied the command. */
+    tdma_maintenance_runtime_diag_t diag;
+    tdma_maintenance_runtime_get_diag(&diag);
+    return diag.queue_depth == 0u && diag.tx_awaiting_ack == 0u;
+}
+
 bool refmem_cmd_load_submit_fragments(
     const refmem_command_snapshot_t *snapshot,
     const uint32_t *params)

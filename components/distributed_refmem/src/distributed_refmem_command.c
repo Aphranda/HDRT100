@@ -1,6 +1,7 @@
 #include "distributed_refmem_internal.h"
 
 #include "refmem_application_model.h"
+#include "refmem_cmd_load.h"
 #include "refmem_control_route.h"
 #include "refmem_domain_config.h"
 #include "refmem_lease_table.h"
@@ -201,6 +202,32 @@ void distributed_refmem_node_control_service(void)
      * (A record written by a remote source must still be consumed here.) */
     if ((snapshot.target_mask & (1u << local_slot)) == 0u) {
         return;
+    }
+
+    /* A command this node issued for remote targets executes here only after
+     * the broadcast has landed.
+     *
+     * The issuer's own record is written at submit time, but the maintenance
+     * stream is broadcast and paced by ring revolutions: at 10 kHz the targets
+     * finish reassembling tens of seconds later, so dispatching the local copy
+     * on submit starts this board's training window long before the ring's
+     * other boards have even seen the plan (measured 20-78 s of skew, with the
+     * reference always first and therefore always alone).  The last maintenance
+     * frame's ACK is the one instant all boards share -- every target has
+     * applied the command by then, and the ACK comes back about one ring
+     * revolution later -- so holding until the transport drains puts every
+     * window within roughly one revolution instead of one broadcast.
+     *
+     * The aggregate ACK bits are deliberately NOT the trigger: those replies
+     * travel the same slow path and arrive tens of seconds later (measured
+     * ~42 s at 10 kHz), which would make the issuer the last board instead of
+     * the first. */
+    if (snapshot.source_node == local_slot) {
+        const uint32_t remote_required =
+            snapshot.required_mask & ~(1u << local_slot);
+        if (remote_required != 0u && !refmem_cmd_load_transport_idle()) {
+            return; /* the wire copy is still being delivered */
+        }
     }
 
     refmem_command_request_t request;
