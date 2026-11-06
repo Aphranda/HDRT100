@@ -379,10 +379,16 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 - P1 的 slot 估算原来假设"一个 cycle 只花 2 个环回"；10 kHz 实测 4-cycle burst 的 `tx_done`
   在 2.06 s 才到（≈3.4×环周期/cycle），16-cycle trial 实需 ~8 s > 5.3 s slot，边界必 abort。
   改为 5×环周期后：参考板 `trials_done` 1 → **3**（4-cycle 与 16-cycle 各成功一次），跟随板仍 4/4。
-- **新的结构性观察**：参考板训练时三块跟随板 `RING:TRAIN:STATus?` 为 `state=1`（不在
-  `FORWARDING=2`），它们只在各自 FORWARD 段短暂进过 2；参考板成功的那几次恰好落在跟随板
-  处于 2 的窗口内。即"参考板每个 trial 都发一次 train，但跟随板不会为参考板的每次 trial
-  重新 arm forward persona"。
+- **结构性观察（2026-11-06 21:4x 更正）**：`TDMA_PIO_SPI_CLK_TRAIN_*` 枚举是
+  `0=IDLE, 1=FORWARDING, 2=MASTER_RUNNING, 3=MASTER_COMPLETE, 4=ERROR`
+  （`tdma_pio_spi_phys.h:195-201`）。因此参考板训练时跟随板 `state=1` **就是 FORWARDING**，
+  转发人设一直在位；本条先前把它记成"不在转发"是把 1 当成 IDLE 的误读，已更正。
+- 据此残余性质改变：跟随板在转发、参考板也能拿到 `RETURN_OVERLAP`，失败的是"返回在
+  `MASTER_RUNNING` 期间没能在截止时刻前被采纳"——返回截止在 arm 时按
+  `burst_duration_ns + 100 ms` 预算（`tdma_pio_spi_phys_arm.c:934-936`），而 10 kHz 的
+  `tx_done` 本身要到 ~2 s（4-cycle）之后，晚到的 return 一定会被
+  `state=4/RETURN_TIMEOUT`（`:979-982`）判掉。候选修复：把截止改为"观测到 `tx_done` 之后
+  `max(100 ms, k × cycle_period)`"，10 MHz 仍是 100 ms（零回归）。
 - 该项已按 §7.4 开只读子代理（`96f0340a`）复核状态机与回落原因；裁决前不改该路径。
 - 附带结论：P1 的 cycle ladder 不属于冻结契约——canonical host 工具是扫频（`calibration_clk_train.py`
   的 `pulse_start/pulse_limit/growth_factor`），`{4,16}` 只是交接配方里的取值，可按档位调整。
