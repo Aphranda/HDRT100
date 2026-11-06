@@ -178,12 +178,12 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 3. **B3（S 段会话关闭来源）——已解决**：R 窗口关闭且复环完成后
    `!calibration_manager_training_offline_active_core1()`；幂等键为 store 的
    `calibration_generation` 与当前 stage 相同则 SKIP。
-4. **残余（OPEN，2026-11-06 升级为阻塞）**：参考板窗口 FORWARD 超时（`reason=11=TIMEOUT`，
-   `trials_done=0`，`reconcile=3`），跟随板正常 `COMPLETE`。旧记录为"偶发、自恢复后可重触发"，
-   但 build `20261106101617` 上 **连续 2 次完全一致**（gen 210/epoch 310、gen 211/epoch 311；
-   参考板 ctrqs 0→5→6→27→0，t≈39.7 s 落 TIMEOUT；跟随板同刻 `trials=4, deepest=3`）。
-   按 §7.4 已开只读子代理交叉分析（未裁决前不得改该路径）。复验判据：同一 build 上参考板
-   P1 连续 2 次 `progress_status=1, trials_done=4`。
+4. **残余（OPEN，2026-11-06 升级为阻塞）**：参考板窗口超时（`reason=11=TIMEOUT`，`reconcile=3`），
+   跟随板稳定 `COMPLETE`。build `20261106101617` 上已观察到**两种模式**（详见 §6.2.1）：
+   (a) FORWARD 段 t0=18 s 时未成环 → 5→27 直接跳变、`trials=0/2`；(b) 进入 TRIAL 但整窗口
+   21.2 s 只完成 1 trial。跟随板只查 `FORWARDING` 人设、参考板必须等 `MASTER_COMPLETE`
+   （`app.c:2324-2370`），难度不对称是稳定现象。复验判据：同一 build 上参考板 P1 连续 2 次
+   `progress_status=1, trials_done=4`。
 5. **B4（低速引导环未接通）——未解决**：§1 的 10 kHz 引导环尚未与标准环路径匹配：
    level 23 可 apply，但 `RING:ARM` 四板全 `-200`；需要 10 kHz 档位对应的校准 stage
    （TRN-00/01/02/03 at level 23）或让 `set_tdma_ring_topology` 接受低速率档。当前 P1/P2
@@ -332,6 +332,31 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
   **飞行中不得重发**（新 `command_seq` → 新 frame_seq 会重置目标侧重组）。
 - 每个里程碑结案都要给出「命令序列 + 四板读数 + 产物路径」，不得只给结论。
 - 里程碑顺序不可跳：M6.1 未收口不得推进 M6.2（阶梯索引分叉正是 M6.1 的后果）。
+
+#### 6.2.1 M6.1 诊断记录（2026-11-06 19:0x，build `20261106101617`）
+
+**§7.4 交叉分析**：主会话结论（参考板 FORWARD 未成环）与只读子代理 `7a077e37` 结论
+（abort 更可能在 TRIAL 段 2361/2367）**部分相左**；实测在同一 build 上两种模式都出现过：
+
+| 轮次 | 参考板状态链（`PLAN?` 第 10 字段） | 结果 |
+|---|---|---|
+| 19:03 | 1(FANOUT) t=50.5 → 5(FORWARD) t=52.3 → **27(REBUILD) t=68.7** → 0 t=70.5 | 未经 TRIAL，t0=18 s 时未成环 → `reason=11`，`trials=2` |
+| 18:51 | 1 t=185.7 → 5 t=187.4 → **6(TRIAL) t=203.9 → 27 t=225.4** | 进 TRIAL 但整窗口 21.2 s 只完成 1 trial → `reason=11` |
+| 跟随板 | 1 → 5 → 6 → 27 → 0，`trials=4, deepest=4` | 稳定 COMPLETE |
+
+**采信与差异**：采信子代理的两条结构事实——(a) 参考板 P1 trial 必须等
+`tdma_pio_spi_clk_train_snapshot().state == MASTER_COMPLETE`（`app.c:2364-2370`），
+跟随板只查 `FORWARDING` 人设（`app.c:2324-2342`），两者难度不对称；
+(b) 训练返回超时是定值 100 ms（`TDMA_PIO_SPI_TRAIN_RETURN_TIMEOUT_NS`），而 10 kHz 环回
+`feedback_timeout = 150 ms × 4 = 600 ms`，形成/训练在 600 ms 尺度上必然吃紧。
+**差异**：子代理认为"`ctrqs=6` 证明已成环，故 FORWARD 超时定性大概率错"；实测 19:03 那轮
+证明了 FORWARD 未成环同样会发生（5→27 直接跳变），所以两种模式都要修，不能只按 TRIAL 段归因。
+
+**待取的判别证据**（一次即可）：ARM 后（禁止 START，`data_enabled=0`）在参考板发
+`SYST:TDMA:RING:TRAIN 4`，100 ms 轮询 `RING:TRAIN:STATus?` 30 次，直接读 `return_seen` /
+`tx_done_observed_timestamp_ns` / `return_observed_timestamp_ns`；若返回观测发生在
+>100 ms 且随后 `result=RETURN_TIMEOUT`，则定值超时成立，改为
+`max(100 ms, 4 × cycle_period)`（10 MHz 1 ms 周期仍取 100 ms，零回归）。
 
 ## 7. 台架与操作注意
 
