@@ -11,11 +11,7 @@ static tdma_seat_result_t result(tdma_seat_admission_t *seat, tdma_seat_result_t
 
 static bool same_identity(const tdma_seat_identity_t *a, const tdma_seat_identity_t *b)
 {
-    return a != NULL && b != NULL && a->epoch == b->epoch && a->cycle == b->cycle &&
-        a->config_generation == b->config_generation &&
-        a->profile_generation == b->profile_generation &&
-        a->binding_generation == b->binding_generation &&
-        a->priority_sequence == b->priority_sequence;
+    return tdma_seat_identity_equal(a, b);
 }
 
 bool tdma_seat_admission_init(tdma_seat_admission_t *seat)

@@ -86,22 +86,11 @@ static bool flash_execute(uint32_t operation,
         .retain = provider_retain,
         .release = provider_release,
     };
-    const flash_transaction_request_t request = {
-        .requester = FLASH_TRANSACTION_REQUESTER_CALIBRATION,
-        .partition_id =
-            FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_PARTITION_ID,
-        .operation = operation,
-        .relative_offset = relative_offset,
-        .length = length,
-        .data = data,
-        .provider_generation = generation,
-        .store_generation = store_generation,
-        .buffer_lease = operation == FLASH_TRANSACTION_OPERATION_PROGRAM
-                            ? &lease : NULL,
-        .completion_lease = flash_transaction_ao_get_completion_lease(),
-    };
-    flash_transaction_completion_t completion;
-    return flash_transaction_ao_execute(&request, &completion);
+    return flash_transaction_ao_execute_range(
+        FLASH_TRANSACTION_REQUESTER_CALIBRATION,
+        FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_PARTITION_ID,
+        operation, relative_offset, data, length, store_generation, generation,
+        operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? &lease : NULL);
 }
 
 static boot_profile_scan_t scan_sector(uint32_t sector)

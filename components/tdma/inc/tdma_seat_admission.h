@@ -68,6 +68,18 @@ typedef struct {
     uint32_t priority_sequence; /* Zero is valid on transport wrap. */
 } tdma_seat_identity_t;
 
+/* One identity comparison for both TUs that used to carry a private copy. */
+static inline bool tdma_seat_identity_equal(const tdma_seat_identity_t *a,
+                                            const tdma_seat_identity_t *b)
+{
+    return a != NULL && b != NULL && a->epoch == b->epoch &&
+           a->cycle == b->cycle &&
+           a->config_generation == b->config_generation &&
+           a->profile_generation == b->profile_generation &&
+           a->binding_generation == b->binding_generation &&
+           a->priority_sequence == b->priority_sequence;
+}
+
 typedef struct {
     uint64_t start_ns;
     uint64_t end_ns;

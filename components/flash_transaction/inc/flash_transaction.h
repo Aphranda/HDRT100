@@ -2,6 +2,7 @@
 #define FLASH_TRANSACTION_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "flash_deployment_map.h"
@@ -201,6 +202,41 @@ bool flash_transaction_ao_request_abort(uint32_t job_id);
 bool flash_transaction_ao_notify_provider_reset(uint32_t provider_generation);
 bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
                                   flash_transaction_completion_t *completion);
+
+/* Execute one range with the shared request/lease plumbing. The caller owns the
+ * provider lease (generation + retain/release); ERASE ignores it. Async submit
+ * and persistent-lease callers keep using the raw API above.
+ *
+ * Inline so host harnesses that compile a single store keep their existing
+ * `flash_transaction_ao_execute` stub and need no new link symbol. */
+static inline bool flash_transaction_ao_execute_range(
+    uint32_t requester,
+    uint32_t partition_id,
+    uint32_t operation,
+    uint32_t relative_offset,
+    const uint8_t *data,
+    uint32_t length,
+    uint32_t store_generation,
+    uint32_t provider_generation,
+    const flash_transaction_buffer_lease_t *buffer_lease)
+{
+    const flash_transaction_request_t request = {
+        .requester = requester,
+        .partition_id = partition_id,
+        .operation = operation,
+        .relative_offset = relative_offset,
+        .length = length,
+        .data = data,
+        .provider_generation = provider_generation,
+        .store_generation = store_generation,
+        .buffer_lease = operation == FLASH_TRANSACTION_OPERATION_PROGRAM
+                            ? buffer_lease
+                            : NULL,
+        .completion_lease = flash_transaction_ao_get_completion_lease(),
+    };
+    flash_transaction_completion_t completion;
+    return flash_transaction_ao_execute(&request, &completion);
+}
 
 /* Which COMPLETION failure site fired last (0 = none).  Diagnostic only. */
 uint32_t flash_transaction_completion_site(void);

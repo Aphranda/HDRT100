@@ -59,15 +59,11 @@ static bool flash_execute(uint32_t operation, uint32_t relative_offset,
     const flash_transaction_buffer_lease_t lease = {.data = data, .length = length,
         .generation = generation, .context = &s_provider_refs,
         .retain = provider_retain, .release = provider_release};
-    const flash_transaction_request_t request = {
-        .requester = FLASH_TRANSACTION_REQUESTER_SEAT_MOUNT,
-        .partition_id = FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_PARTITION_ID,
-        .operation = operation, .relative_offset = relative_offset, .length = length,
-        .data = data, .provider_generation = generation, .store_generation = store_generation,
-        .buffer_lease = operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? &lease : NULL,
-        .completion_lease = flash_transaction_ao_get_completion_lease()};
-    flash_transaction_completion_t completion;
-    return flash_transaction_ao_execute(&request, &completion);
+    return flash_transaction_ao_execute_range(
+        FLASH_TRANSACTION_REQUESTER_SEAT_MOUNT,
+        FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_PARTITION_ID,
+        operation, relative_offset, data, length, store_generation, generation,
+        operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? &lease : NULL);
 }
 
 static uint32_t sector_absolute_offset(uint32_t sector)

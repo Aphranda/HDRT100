@@ -129,22 +129,12 @@ static bool product_config_flash_execute(uint32_t operation,
         .retain = product_config_provider_retain,
         .release = product_config_provider_release,
     };
-    const flash_transaction_request_t request = {
-        .requester = FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG,
-        .partition_id = FLASH_DEPLOYMENT_MAP_PRODUCT_NVS_ID,
-        .operation = operation,
-        .relative_offset = relative_offset,
-        .length = length,
-        .data = data,
-        .provider_generation = provider_generation,
-        .store_generation = store_generation,
-        .buffer_lease = operation == FLASH_TRANSACTION_OPERATION_PROGRAM
-                            ? &lease
-                            : NULL,
-        .completion_lease = flash_transaction_ao_get_completion_lease(),
-    };
-    flash_transaction_completion_t completion;
-    return flash_transaction_ao_execute(&request, &completion);
+    return flash_transaction_ao_execute_range(
+        FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG,
+        FLASH_DEPLOYMENT_MAP_PRODUCT_NVS_ID,
+        operation, relative_offset, data, length, store_generation,
+        provider_generation,
+        operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? &lease : NULL);
 }
 
 static product_config_usb_mode_t product_config_default_usb_mode(void)

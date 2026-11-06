@@ -69,22 +69,11 @@ static bool execute(uint32_t operation, uint32_t flash_offset,
         .retain = provider_retain,
         .release = provider_release,
     };
-    const flash_transaction_request_t request = {
-        .requester = FLASH_TRANSACTION_REQUESTER_OTA_METADATA,
-        .partition_id = partition_id,
-        .operation = operation,
-        .relative_offset = relative_offset,
-        .length = (uint32_t)length,
-        .data = data,
-        .provider_generation = provider_generation,
-        .store_generation = s_provider_generation,
-        .buffer_lease = operation == FLASH_TRANSACTION_OPERATION_PROGRAM
-                            ? &lease
-                            : NULL,
-        .completion_lease = flash_transaction_ao_get_completion_lease(),
-    };
-    flash_transaction_completion_t completion;
-    return flash_transaction_ao_execute(&request, &completion);
+    return flash_transaction_ao_execute_range(
+        FLASH_TRANSACTION_REQUESTER_OTA_METADATA, partition_id,
+        operation, relative_offset, data, (uint32_t)length,
+        s_provider_generation, provider_generation,
+        operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? &lease : NULL);
 }
 
 static bool async_request_matches(uint32_t operation, uint32_t flash_offset,
