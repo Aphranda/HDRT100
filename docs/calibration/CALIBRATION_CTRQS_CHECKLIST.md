@@ -316,7 +316,7 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 
 | 里程碑 | 内容 | 完成判据 | 证据 | 依赖 |
 |---|---|---|---|---|
-| M6.1 | 参考板 P1 TIMEOUT 收口（10 kHz） | 同一 build 连续 2 次四板 P1 `progress_status=1, trials_done=4`、`reason=0` | 四板 `PLAN?` 前 15 字段 + `RING:STATUS?` | §7.4 交叉分析裁决（子代理 `7a077e37`） |
+| M6.1 | 参考板 P1 TIMEOUT 收口（10 kHz） | 同一 build 连续 2 次四板 P1 `progress_status=1`、`trials_done=4` **且 `passed_mask=0xF`、`failed_mask=0`** | 四板 `PLAN?` 前 15 字段 + 末 2 字段（mask）+ `RING:STATUS?` | §7.4 交叉分析裁决（子代理 `7a077e37`/`96f0340a`） |
 | M6.2 | 阶梯索引与代数一致 | 四板 `ladder_index` 相同；同动作同代数 S 只写一次；S 决策四板一致 | `PLAN?` 第 18–22 字段 + 提交证据 | M6.1 |
 | M6.3 | P2 成环档/测量档分离 | 成环走 level 23 + BRINGUP，停环后再 apply 测量档；四板 P2 `COMPLETE` | `PLAN?` + `RING:CONFIG?`（cycle_period/flags） | M6.2 |
 | M6.4 | P3 @10 kHz 四板 | 全部链路×重复通过，`COMPLETE` 且 `deepest_trial` 覆盖满 | `PLAN?` + P3 工具产物 | M6.3 |
@@ -389,6 +389,46 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
   `tx_done` 本身要到 ~2 s（4-cycle）之后，晚到的 return 一定会被
   `state=4/RETURN_TIMEOUT`（`:979-982`）判掉。候选修复：把截止改为"观测到 `tx_done` 之后
   `max(100 ms, k × cycle_period)`"，10 MHz 仍是 100 ms（零回归）。
+
+**2026-11-06 21:4x 子代理 `96f0340a` 复核结论（推翻上面两条候选的收益）**：
+
+- `tx_done_observed_timestamp_ns` 是**软件打戳**（`tdma_pio_spi_phys_arm.c:968-970`），
+  所以"2.06 s"只能证明首次服务观测晚了，不能证明 burst 时长；burst 恒为 `cycles/baud_hz`
+  （4-cycle @10 kHz = 400 µs）。据此 `56ea7598` 的 3.4×/cycle 前提不成立。
+- 返回判据是**硬件排序**：burst SM 在 `wait 0 irq 2` 之后才 `irq set 1`（`tdma_pio_spi.pio:48-58`），
+  因此"重叠"时 IRQ1 被扣住，之后任何轮询都读成 `RETURN_OVERLAP`；反之 burst 结束 IRQ2 仍 0
+  ⇒ IRQ1 置位，之后的返回只可能是 `NO_OVERLAP`。**改 deadline 无法把失败变成重叠**，
+  最多把 `TIMEOUT` 变成 `NO_OVERLAP`（仍不通过）。
+- 真正的结构缺陷在 app 侧：`app.c:2367-2370` 一次"无返回"就 abort 整轮，导致参考板
+  `trials_done` 永远到不了 4；而跟随板一直是"记 failed_mask 后继续"。
+- **假绿风险**：若只把失败改成继续，`finalize()`（`app.c:2000-2009`）只看
+  `trials_done == trials` 就报 COMPLETE，且 `PLAN?` 原本不输出 mask ⇒ 4 个 `NO_OVERLAP`
+  也会让"status=1 + trials=4"成立。故必须同时输出 mask 并把判据改为 `passed_mask=0xF`。
+
+**2026-11-06 21:5x 落地（待验证）**：`app_ctrqs_trial_fail_and_advance()`——参考板 trial 在
+`CLK_TRAIN_ERROR` 或 slot 到期时记 `failed_mask` 并推进到下一 trial（不再 abort 整轮）；
+`app_ctrqs_finalize()` 对 P1 额外要求 `failed_mask==0` 才报 COMPLETE；`PLAN?` 末尾追加
+`passed_mask`/`failed_mask` 两字段（前 22 字段位置不变）；slot 预算回到 2×（5× 的前提已证伪）。
+
+**2026-11-06 22:0x–22:3x 追记（P3 凭证 `p3-215141` = build `20261106135157`；
+`p3-223048` = build `20261106143103`）**：
+
+- 诚实语义已验证（`ebdae6d5`）：参考板 `trials_done` 首次稳定到 4，mask 显示
+  `passed=0x1, failed=0xE`，`prog_status=2`（不再假 COMPLETE）；跟随板 `0xF/0x0`。
+- **失败机理定案**：per-trial 训练快照显示只有 trial 0 得到 `RETURN_OVERLAP`，trial 1..3 全是
+  `return_seen=0`；而隔离实验（跟随板先各自 `RING:TRAIN 1` 进 FORWARDING，参考板连发 3 次
+  4-cycle train）**三次全部 `RETURN_OVERLAP`** ⇒ 物理层与 PIO 转发不是瓶颈。
+  对照时间线：跟随板在 t≈148.4 进 REBUILD 并 **DISARM**（train state 1→0），参考板当时仍在
+  TRIAL（直到 t≈164.9）⇒ **跟随板先收工，拆掉转发人设**，参考板后 3 个 trial 自然收不到返回。
+- **开窗对齐不可能靠投递边沿达成**（三种都试过，全部无效或有害）：
+  | 边沿 | 实测偏差 | 结论 |
+  |---|---|---|
+  | required ACK 聚合 | 参考板晚 42 s | 聚合走同一条慢路径 |
+  | 维护帧 ACK 排空 | 参考板晚 16 s | 仍晚于跟随板收工点 |
+  | 已发 chunk 计数 | 参考板早 52 s | 丢帧重传使"已发"领先"已达"，作废 |
+- 结论：窗口必须共享同一个起始时刻（或让跟随板在整轮结束前不拆转发人设）。前者是把
+  `t0` 从"本板 receipt"改为"环上共享时刻"（§6.1 C 段语义变更）；后者是一个较小的
+  follower 侧收工延迟，但只对 P1（跟随板贡献=人设）成立，P3/T1/T2 的逐链路动作仍需真对齐。
 - 该项已按 §7.4 开只读子代理（`96f0340a`）复核状态机与回落原因；裁决前不改该路径。
 - 附带结论：P1 的 cycle ladder 不属于冻结契约——canonical host 工具是扫频（`calibration_clk_train.py`
   的 `pulse_start/pulse_limit/growth_factor`），`{4,16}` 只是交接配方里的取值，可按档位调整。
