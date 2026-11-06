@@ -414,14 +414,15 @@ Last updated: 2026-10-19
 | 141 | `SYSTem:TDMA:RING:STOP` | 动作 | — | （待补） | `scpi_system_snapshot_commands.h` |
 | 142 | `SYSTem:TDMA:RING:LOG?` | 查询 | — | （待补） | `scpi_system_snapshot_commands.h` |
 | 143 | `SYSTem:TDMA:RING:LOG` | 设置 | <0\|1> | （待补） | `scpi_system_snapshot_commands.h` |
-| 144 | `SYSTem:CORE:VECTOR?` | 查询 | — | （待补） | `scpi_system_snapshot_commands.h` |
-| 145 | `SYSTem:PROTection:STATus?` | 查询 | — | （待补） | `scpi_system_snapshot_commands.h` |
-| 146 | `SYSTem:MODE:TABle?` | 查询 | <u32> | （待补） | `scpi_system_snapshot_commands.h` |
-| 147 | `SYSTem:RESource:TABle?` | 查询 | <u32> | （待补） | `scpi_system_snapshot_commands.h` |
-| 148 | `SYSTem:FAULT:TABle?` | 查询 | <u32> | （待补） | `scpi_system_snapshot_commands.h` |
-| 149 | `SYSTem:USB:MODE?` | 查询 | — | （待补） | `scpi_usb_control.h` |
-| 150 | `SYSTem:USB:MODE` | 动作 | — | （待补） | `scpi_usb_control.h` |
-| 151 | `SYSTem:USB:BOOT` | 动作 | — | （待补） | `scpi_usb_control.h` |
+| 144 | `SYSTem:TDMA:HEALth?` | 查询 | — | 紧凑健康/增长计数页（流式 soak 用；单次查询替代运行态 + process 两页） | `scpi_system_snapshot_commands.h` |
+| 145 | `SYSTem:CORE:VECTOR?` | 查询 | — | （待补） | `scpi_system_snapshot_commands.h` |
+| 146 | `SYSTem:PROTection:STATus?` | 查询 | — | （待补） | `scpi_system_snapshot_commands.h` |
+| 147 | `SYSTem:MODE:TABle?` | 查询 | <u32> | （待补） | `scpi_system_snapshot_commands.h` |
+| 148 | `SYSTem:RESource:TABle?` | 查询 | <u32> | （待补） | `scpi_system_snapshot_commands.h` |
+| 149 | `SYSTem:FAULT:TABle?` | 查询 | <u32> | （待补） | `scpi_system_snapshot_commands.h` |
+| 150 | `SYSTem:USB:MODE?` | 查询 | — | （待补） | `scpi_usb_control.h` |
+| 151 | `SYSTem:USB:MODE` | 动作 | — | （待补） | `scpi_usb_control.h` |
+| 152 | `SYSTem:USB:BOOT` | 动作 | — | （待补） | `scpi_usb_control.h` |
 
 ## 系统快照（3）
 
