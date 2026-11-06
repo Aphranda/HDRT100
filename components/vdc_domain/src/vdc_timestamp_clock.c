@@ -1,4 +1,5 @@
 #include "vdc_timestamp_clock.h"
+
 #include <stddef.h>
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -103,6 +104,17 @@ uint64_t VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_read_ticks64)(void)
 #endif
 }
 
+/* Exact one-second multiple: the clock owner wraps, the bounded sampler
+ * refuses; each caller keeps its own overflow policy. */
+static bool vdc_timestamp_ns_scale(uint32_t hz, uint32_t *scale)
+{
+    if (scale == NULL || hz == 0u || (UINT32_C(1000000000) % hz) != 0u) {
+        return false;
+    }
+    *scale = UINT32_C(1000000000) / hz;
+    return true;
+}
+
 uint64_t vdc_timestamp_clock_ticks_to_ns(uint64_t ticks)
 {
     const uint32_t hz = vdc_timestamp_clock_tick_hz();
@@ -113,7 +125,9 @@ uint64_t vdc_timestamp_clock_ticks_to_ns(uint64_t ticks)
      * when one second is exactly hz periods. Unsigned multiplication keeps
      * the same modulo-uint64 result as the quotient/remainder expression. */
     const uint32_t period_ns = s_vdc_timestamp_clock_resolution_ns;
-    if ((uint64_t)hz * period_ns == 1000000000ull) {
+    uint32_t exact_scale = 0u;
+    if (vdc_timestamp_ns_scale(hz, &exact_scale) &&
+        (uint64_t)hz * period_ns == 1000000000ull) {
         return ticks * period_ns;
     }
     const uint64_t seconds = ticks / (uint64_t)hz;
@@ -165,8 +179,8 @@ bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_try_read_ns)(
     uint64_t ticks;
     if (!out || !expected_hz ||
         !vdc_timestamp_clock_try_read_ticks64(expected_hz, &ticks)) return false;
-    if (UINT32_C(1000000000) % expected_hz == 0u) {
-        const uint32_t scale = UINT32_C(1000000000) / expected_hz;
+    uint32_t scale = 0u;
+    if (vdc_timestamp_ns_scale(expected_hz, &scale)) {
         if (ticks > UINT64_MAX / scale) return false;
         *out = ticks * scale;
         return true;

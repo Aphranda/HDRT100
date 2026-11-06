@@ -1,6 +1,7 @@
 #include "refmem_application_model_internal.h"
 
 #include "algo_checksum.h"
+#include "algo_wire.h"
 
 const refmem_application_map_t s_application_map = {
     .version = REFMEM_APP_MODEL_VERSION,
@@ -498,10 +499,7 @@ uint32_t refmem_model_crc32_fields(const uint32_t *fields, size_t count)
 
 static uint32_t refmem_model_read_u32_le(const uint8_t *data)
 {
-    return ((uint32_t)data[0]) |
-           ((uint32_t)data[1] << 8) |
-           ((uint32_t)data[2] << 16) |
-           ((uint32_t)data[3] << 24);
+    return algo_le32_load(data);
 }
 
 static int32_t refmem_model_read_i32_le(const uint8_t *data)

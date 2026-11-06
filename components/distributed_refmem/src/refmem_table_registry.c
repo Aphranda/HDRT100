@@ -6,6 +6,7 @@
 #include "refmem_application_contract.h"
 #include "refmem_vector_table.h"
 #include "algo_checksum.h"
+#include "algo_wire.h"
 
 static refmem_table_registry_entry_t s_registry[REFMEM_TABLE_REGISTRY_COUNT];
 static refmem_table_registry_snapshot_t s_snapshot;
@@ -167,10 +168,7 @@ static uint32_t refmem_table_registry_crc32_update(uint32_t crc, const void *dat
 
 static uint32_t refmem_table_read_u32_le(const uint8_t *data)
 {
-    return ((uint32_t)data[0]) |
-           ((uint32_t)data[1] << 8) |
-           ((uint32_t)data[2] << 16) |
-           ((uint32_t)data[3] << 24);
+    return algo_le32_load(data);
 }
 
 static int32_t refmem_table_read_i32_le(const uint8_t *data)
