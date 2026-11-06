@@ -1770,6 +1770,9 @@ typedef struct {
     uint32_t train_base_seq;
     bool train_pending;
     bool forward_armed;
+    /* When this board first saw the origin's TRIAL phase: a follower's FORWARD
+     * dwell is measured from here (see the FORWARD transition). */
+    uint32_t phase_seen_ms;
     /* Arm/start refusals retried inside this round (see APP_CTRQS_ARM_RETRIES). */
     uint32_t arm_tries;
     /* Pre-window ring identity, captured before the first STOP so the close
@@ -2019,6 +2022,35 @@ static void app_ctrqs_publish_phase(uint8_t phase)
         return;
     }
     (void)tdma_ring_phase_publish(phase, (uint16_t)s_ctrqs.plan.generation);
+}
+
+static void app_ctrqs_finalize(void);
+
+/* A P1 follower's whole contribution is the forwarding persona it holds while
+ * the origin trains.  Completing its trials only after the origin's window
+ * (TRIAL_DONE) is what keeps that persona alive; the bookkeeping itself is the
+ * same check the per-slot follower path already performs. */
+static void app_ctrqs_follower_complete_all(void)
+{
+    const uint32_t trials = s_ctrqs.trials;
+    if (trials == 0u) {
+        app_ctrqs_finalize();
+        return;
+    }
+    tdma_pio_spi_clk_train_snapshot_t train;
+    const bool forwarding =
+        tdma_runtime_owner_get_clk_train_snapshot(&train) &&
+        train.state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING;
+    const uint32_t mask = (1u << trials) - 1u;
+    if (forwarding) {
+        s_ctrqs.progress.passed_mask |= mask;
+    } else {
+        s_ctrqs.progress.failed_mask |= mask;
+    }
+    s_ctrqs.progress.trials_done = trials;
+    s_ctrqs.progress.deepest_trial = trials - 1u;
+    s_ctrqs.trial = trials;
+    app_ctrqs_finalize();
 }
 
 static void app_ctrqs_finalize(void)
@@ -3014,8 +3046,29 @@ static void app_ctrqs_service(void)
          * ring down under the others. */
         if (s_ctrqs.local_slot == s_ctrqs.ref_slot) {
             app_ctrqs_publish_phase((uint8_t)TDMA_RING_PHASE_TRIAL);
-        } else if (tdma_ring_phase_local() != (uint8_t)TDMA_RING_PHASE_TRIAL) {
-            return; /* wait for the origin's broadcast; deadline fails closed */
+        } else {
+            /* Hold FORWARD for the origin's whole window: entering TRIAL here
+             * re-initialises the physical layer and would tear down the very
+             * persona the origin is training against (measured: its later
+             * trials then return nothing).  The dwell equals the origin's own
+             * trial window, so both sides close at about the same moment and
+             * the ring can be rebuilt by all four boards together.  A second
+             * "done" message cannot be used here: it would need the ring that
+             * this handoff is fixing. */
+            if (tdma_ring_phase_local() != (uint8_t)TDMA_RING_PHASE_TRIAL) {
+                return;
+            }
+            if (s_ctrqs.phase_seen_ms == 0u) {
+                s_ctrqs.phase_seen_ms = (uint32_t)now;
+            }
+            const uint64_t dwell =
+                (uint64_t)s_ctrqs.phase_seen_ms +
+                (uint64_t)s_ctrqs.trials * s_ctrqs.slot_ms;
+            if ((uint64_t)now < dwell) {
+                return;
+            }
+            app_ctrqs_follower_complete_all();
+            return;
         }
         s_ctrqs.t0_ms = now;
         s_ctrqs.t_end_ms =
