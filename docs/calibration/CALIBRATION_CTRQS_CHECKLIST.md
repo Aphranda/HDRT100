@@ -429,6 +429,19 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 - 结论：窗口必须共享同一个起始时刻（或让跟随板在整轮结束前不拆转发人设）。前者是把
   `t0` 从"本板 receipt"改为"环上共享时刻"（§6.1 C 段语义变更）；后者是一个较小的
   follower 侧收工延迟，但只对 P1（跟随板贡献=人设）成立，P3/T1/T2 的逐链路动作仍需真对齐。
+
+**2026-11-06 23:1x–23:5x 追记：hold 方案两次实测都失败，证明"部分延迟"不可行**
+
+- 23:13（只延迟 close、只跟随板）：四板**首次全部** `passed=0xF, failed=0, trials_done=4`，
+  但 `prog_status=3, reason=14`——参考板先 rebuild、跟随板还在 hold，环组不起来。
+- 23:46（hold 应用于四板）：参考板连 TRIAL 都没进（`ctrqs 5→27`，trials=0）——跟随板更早
+  进入 TRIAL 后**环已被停**，参考板 16 s 后到达时 `ring_formed()` 为假。
+- 结论（新，且有决定性）：**环状态是四板共享的**。谁先进 TRIAL 就会停环，晚到者的 FORWARD
+  自然失败。因此"让跟随板晚点收工"这类局部延迟无法替代同时开窗；M6.1 必须把 `t0` 从
+  "本板 receipt + 固定偏移"改为**共享时刻**（环 epoch 或双方可观测的同一事件），
+  这正是 §6.1 的 C 段语义变更。
+- 当前工作树留有一处**未提交**的 `app.c` hold 实验（`hold_close_pending` /
+  `app_ctrqs_hold_ms`），按 §2 规则 10 未经用户同意不撤销；在共享起始时刻落地前不应合入。
 - 该项已按 §7.4 开只读子代理（`96f0340a`）复核状态机与回落原因；裁决前不改该路径。
 - 附带结论：P1 的 cycle ladder 不属于冻结契约——canonical host 工具是扫频（`calibration_clk_train.py`
   的 `pulse_start/pulse_limit/growth_factor`），`{4,16}` 只是交接配方里的取值，可按档位调整。
