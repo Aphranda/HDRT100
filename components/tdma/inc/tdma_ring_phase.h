@@ -98,6 +98,12 @@ bool tdma_ring_phase_next(uint8_t *phase, uint16_t *round,
  * until then, and a no-op when nothing is pending. */
 void tdma_ring_phase_service(uint32_t ring_seq);
 
+/* Set the local phase directly and drop any pending announcement.  Used at the
+ * start of a round: the phase is sticky, and a follower still holding TRIAL
+ * from the previous round would otherwise start its dwell immediately and
+ * abandon its forwarding persona part-way through the origin's window. */
+void tdma_ring_phase_set_local(uint8_t phase, uint16_t round);
+
 /* Parser entry: records one peer message (allocation-free, O(1)). */
 bool tdma_ring_phase_accept(const uint8_t *payload, size_t size);
 

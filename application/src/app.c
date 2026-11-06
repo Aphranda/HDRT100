@@ -2404,6 +2404,13 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         s_ctrqs.t0_ms + ((uint64_t)s_ctrqs.trials * s_ctrqs.slot_ms);
     /* The schedule above is only an upper bound now: the FORWARD->TRIAL
      * handoff is a negotiated barrier and re-bases t0 when it passes. */
+    /* The phase is sticky across rounds: a follower that still holds TRIAL from
+     * the previous round would start its FORWARD dwell immediately, finish a
+     * few seconds into the origin's window and drop the forwarding persona for
+     * the remaining trials (measured as "first trials pass, last ones fail").
+     * Every board therefore starts the round at READY. */
+    tdma_ring_phase_set_local((uint8_t)TDMA_RING_PHASE_READY,
+                              (uint16_t)plan->generation);
     app_ctrqs_publish_phase((uint8_t)TDMA_RING_PHASE_READY);
     s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_RUNNING;
     app_ctrqs_publish();

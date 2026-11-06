@@ -141,6 +141,13 @@ bool tdma_ring_phase_next(uint8_t *phase, uint16_t *round, uint16_t *target_seq)
     return true;
 }
 
+void tdma_ring_phase_set_local(uint8_t phase, uint16_t round)
+{
+    s_local_phase = phase;
+    s_round = round;
+    s_next_valid = false;
+}
+
 void tdma_ring_phase_service(uint32_t ring_seq)
 {
     if (!s_next_valid) {
