@@ -451,6 +451,53 @@ scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* Compact growth/liveness page.  A host soak needs one sample per second per
+ * board; the runtime status page (151 fields) plus the process page cost two
+ * USB CDC round-trips per sample, and the round-trip (not the byte count) is
+ * the budget.  This page returns only the counters whose growth invalidates a
+ * window, so a soak can sample all four boards inside one second. */
+scpi_result_t scpi_cmd_system_tdma_health_q(scpi_t *context)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    tdma_flight_engine_snapshot_t process;
+    tdma_pio_spi_ring_adapter_snapshot_t ring;
+    if (owner == NULL ||
+        adapter == NULL ||
+        !tdma_service_get_flight_engine_snapshot(owner, &process) ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &ring)) {
+        return SCPI_RES_ERR;
+    }
+    const tdma_receive_health_snapshot_t *health = &ring.receive_health;
+    SCPI_ResultUInt32(context, 1u); /* page version */
+    SCPI_ResultUInt32(context, ring.local_slot_id);
+    SCPI_ResultUInt32(context, ring.schedule_crc32);
+    SCPI_ResultUInt32(context, ring.ring_profile_crc32);
+    SCPI_ResultUInt32(context, ring.started);
+    SCPI_ResultUInt32(context, ring.tx_count);
+    SCPI_ResultUInt32(context, ring.rx_count);
+    SCPI_ResultUInt32(context, ring.rx_bad_count);
+    SCPI_ResultUInt32(context, ring.rx_transport_bad_count);
+    SCPI_ResultUInt32(context, ring.rx_schedule_bad_count);
+    SCPI_ResultUInt32(context, ring.rx_profile_bad_count);
+    SCPI_ResultUInt32(context, ring.rx_drop_count);
+    SCPI_ResultUInt32(context, ring.last_error);
+    SCPI_ResultUInt32(context, process.configured);
+    SCPI_ResultUInt32(context, process.active);
+    SCPI_ResultUInt32(context, process.map_generation);
+    SCPI_ResultUInt32(context, process.payload_size);
+    SCPI_ResultUInt32(context, health->state);
+    SCPI_ResultUInt32(context, health->accepted_count);
+    SCPI_ResultUInt32(context, health->rejected_count);
+    SCPI_ResultUInt32(context, health->missing_count);
+    SCPI_ResultUInt32(context, health->consecutive_failure_count);
+    SCPI_ResultUInt32(context, health->accepted_sequence);
+    SCPI_ResultUInt32(context, health->last_reason);
+    SCPI_ResultUInt32(context, health->last_rejected_reason);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();

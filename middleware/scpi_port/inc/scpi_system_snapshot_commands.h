@@ -203,6 +203,9 @@ scpi_result_t scpi_cmd_system_tdma_rx_start_cut_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_reset(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_crc_diagnostic_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context);
+/* Compact growth/liveness page for host-side soak streaming: one query
+ * replaces the runtime status and process pages when only deltas matter. */
+scpi_result_t scpi_cmd_system_tdma_health_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_rx_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_local(scpi_t *context);
@@ -553,6 +556,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:PROFile:RESet", .callback = scpi_cmd_system_tdma_profile_reset}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:CRC:DIAGnostic?", .callback = scpi_cmd_system_tdma_flight_crc_diagnostic_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:PROCess?", .callback = scpi_cmd_system_tdma_flight_process_q}, \
+    {.pattern = "SYSTem:TDMA:HEALth?", .callback = scpi_cmd_system_tdma_health_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:TX", .callback = scpi_cmd_system_tdma_flight_tx}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:RX?", .callback = scpi_cmd_system_tdma_flight_rx_q}, \
     {.pattern = "SYSTem:TDMA:RING:LOCAL", .callback = scpi_cmd_system_tdma_ring_local}, \
