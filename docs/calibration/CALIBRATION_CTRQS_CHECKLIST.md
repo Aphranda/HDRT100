@@ -620,6 +620,17 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   说明返回检测依赖足够的 burst 长度（跟随板要有时间把沿转回来），10 kHz 下必须保留 16-cycle
   档；抖动要靠 slot/时序而不是缩小 ladder 解决。
 
+**2026-11-07 04:4x–04:5x 连续复跑（`1f6438f8`，build `20261106203152`）**：
+
+- slot 估算 2x → 3x（10 kHz 下 16-cycle slot = 7.7 s；10 MHz 不变）。
+- 同一 build 两轮：**A 轮四板全绿**（`passed=0xF/failed=0`）；**B 轮参考板
+  `passed=0x3, failed=0xC`**（4 个 trial 都跑完，后两个失败），跟随板仍全绿。
+- 结论：抖动已从"整轮 abort"降级为"单 trial 失败"；失败集中在参考板**后两个 trial**，
+  说明是返回路径在窗口后半段退化，而不是窗口预算不足。下一步查"第二个 slot 之后
+  跟随板/参考板物理层状态"（`RING:TRAIN:STATUS?` 的 request_seq 与 state 变化）。
+- **M6.1 累计**：全绿出现 3 次（gen 460 / 470 / 与 461 前一轮），但**从未连续 2 次**，
+  仍 OPEN。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
