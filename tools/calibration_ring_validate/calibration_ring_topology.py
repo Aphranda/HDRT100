@@ -256,14 +256,22 @@ def _snapshot_format_errors(candidate):
 
 
 def _pair_snapshot(board, args, armed, observations, *, phase):
-    """Retry malformed read-only evidence once; valid lifetime drift is final."""
-    for attempt in (1, 2):
+    """Retry read timeouts up to three times; other malformed evidence once.
+
+    ``snapshot`` maps a ``<timeout>`` response to all ``-1`` fields, which is a
+    host/CDC read stall rather than a board fault.  Keep that distinction in
+    the evidence so a timeout does not get reported as a malformed page, and
+    allow one extra bounded observation only for timeouts.
+    """
+    for attempt in (1, 2, 3):
+        started = time.monotonic()
         row = {"board": board.address, "phase": phase, "attempt": attempt}
         observations.append(row)
         try:
             close_persistent_connections()
             candidate = snapshot(board, args.timeout)
             row["snapshot"] = candidate
+            row["elapsed_ms"] = round((time.monotonic() - started) * 1000.0, 3)
             if not isinstance(candidate, dict) or any(candidate.get(key) != getattr(board, key)
                     for key in ("address", "port", "build")):
                 row["classification"] = "IDENTITY_MISMATCH"
@@ -280,10 +288,19 @@ def _pair_snapshot(board, args, armed, observations, *, phase):
                 row["format_errors"] = errors
                 raise RuntimeError("snapshot crossed the admitted ARM lifetime")
             if errors:
-                row["classification"] = "MALFORMED"
+                raw = candidate.get("raw") if isinstance(candidate, dict) else {}
+                raw = raw if isinstance(raw, dict) else {}
+                read_timeout = any(raw.get(plane) == "<timeout>"
+                                   for plane in ("tdma", "phys"))
+                row["classification"] = "READ_TIMEOUT" if read_timeout else "MALFORMED"
                 row["format_errors"] = errors
-                if attempt == 1:
+                if read_timeout and attempt < 3:
                     continue
+                if not read_timeout and attempt == 1:
+                    continue
+                if read_timeout:
+                    raise RuntimeError(
+                        f"{board.address}: read timeout after three observations")
                 raise RuntimeError("snapshot malformed after two read-only observations")
             row["classification"] = "VALID"
             return candidate

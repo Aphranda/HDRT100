@@ -3438,7 +3438,12 @@ def phase_topology(run: AcceptanceRun) -> None:
     # second means the command plane is starved (busy board), not "slow line".
     # Keep this independent from the global serial timeout so a busy board is
     # classified quickly instead of being masked by the 3 s default.
-    topology_timeout_s = 1.0
+    # A 151-field TDMA page is only ~32 ms on the wire at 115200.  A 1.0 s
+    # deadline measured ~15 % read timeouts (2026-11-06: two consecutive
+    # timeouts aborted pair 11), so use the configured 3.0 s serial budget;
+    # action ACK reads are still capped at 0.8 s by board_command, preserving
+    # the busy-board fast path.
+    topology_timeout_s = max(2.0, float(timing.get("serial_timeout_s", 3.0)))
     topology_command = [
         sys.executable,
         str(root / "tools/calibration_ring_validate/calibration_ring_topology.py"),

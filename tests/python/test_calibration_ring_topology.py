@@ -7,6 +7,7 @@ import tools.calibration_ring_validate.calibration_ring_topology as topology
 from tools.calibration_ring_validate.calibration_ring_topology import (
     arm_pair_board,
     _stop_pair_board,
+    _pair_snapshot,
     compact_pair_results,
     counter_delta,
     counter_regressed,
@@ -146,3 +147,37 @@ def test_wait_started_does_not_loop_after_short_open_failure(monkeypatch):
             [],
             "A->B",
         )
+
+
+def test_pair_snapshot_classifies_timeout_and_retries_it(monkeypatch):
+    board = SimpleNamespace(address="A", port="COM1", build="b")
+    candidate = {
+        "address": "A", "port": "COM1", "build": "b",
+        "tdma": {}, "phys": {},
+        "raw": {"tdma": "<timeout>", "phys": "<timeout>"},
+    }
+    monkeypatch.setattr(topology, "snapshot", lambda *args: candidate)
+    monkeypatch.setattr(topology, "close_persistent_connections", lambda: None)
+    observations = []
+    with pytest.raises(RuntimeError, match="read timeout after three observations"):
+        _pair_snapshot(board, argparse.Namespace(timeout=3.0), {},
+                       observations, phase="activity")
+    assert len(observations) == 3
+    assert all(row["classification"] == "READ_TIMEOUT" for row in observations)
+
+
+def test_pair_snapshot_retries_non_timeout_malformed_once(monkeypatch):
+    board = SimpleNamespace(address="A", port="COM1", build="b")
+    candidate = {
+        "address": "A", "port": "COM1", "build": "b",
+        "tdma": {}, "phys": {},
+        "raw": {"tdma": "not-a-page", "phys": "not-a-page"},
+    }
+    monkeypatch.setattr(topology, "snapshot", lambda *args: candidate)
+    monkeypatch.setattr(topology, "close_persistent_connections", lambda: None)
+    observations = []
+    with pytest.raises(RuntimeError, match="snapshot malformed after two"):
+        _pair_snapshot(board, argparse.Namespace(timeout=3.0), {},
+                       observations, phase="activity")
+    assert len(observations) == 2
+    assert all(row["classification"] == "MALFORMED" for row in observations)

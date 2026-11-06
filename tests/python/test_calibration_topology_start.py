@@ -387,9 +387,12 @@ def test_main_failure_preserves_summary_and_cleans_every_board(monkeypatch, tmp_
     bench.install(monkeypatch)
     monkeypatch.setattr(topology, "parse_args", lambda: options(tmp_path))
     monkeypatch.setattr(topology, "discover", lambda _: {"A": DRIVER, "B": RECEIVER})
-    assert topology.main() == 1
+    cleanup_failure = failure in ("cleanup_stop", "cleanup_probe")
+    assert topology.main() == (0 if cleanup_failure else 1)
     report = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
-    assert not report["passed"]
+    # Adjacency-only is a wiring check: a cleanup probe/STOP failure is recorded
+    # but must not turn a correctly wired ring into a topology FAIL.
+    assert report["passed"] is cleanup_failure
     assert {row["board"] for row in report["cleanup"]} == {"A", "B"}
     assert all("probe_response" in row or "probe_error" in row for row in report["cleanup"])
 
@@ -483,7 +486,7 @@ def test_malformed_snapshot_recovers_once_without_resending_control(monkeypatch,
     report = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
     rows = (report["pair_actions"][0]["baseline_observations"] if phase == "baseline"
             else report["pair_preparation"][0]["activity_observations"])
-    assert [row["classification"] for row in rows] == ["MALFORMED", "VALID"]
+    assert [row["classification"] for row in rows] == ["READ_TIMEOUT", "VALID"]
     assert rows[0]["snapshot"]["raw"][plane] == "<timeout>"
     assert sum(command.endswith(":ARM") for _, command in bench.calls) == 4
     assert sum(command.endswith(":START") for _, command in bench.calls) == 4
@@ -513,10 +516,16 @@ def test_bad_snapshot_has_only_two_observations_and_never_starts(monkeypatch, tm
 
     monkeypatch.setattr(topology, "snapshot", read)
     actions = []
-    with pytest.raises(RuntimeError, match="malformed"):
-        topology.start_pair(DRIVER, RECEIVER, options(tmp_path), actions, [])
-    assert bench.snapshots == 2
-    assert len(actions[0]["baseline_observations"]) == 2
+    if kind == "timeout":
+        with pytest.raises(RuntimeError, match="read timeout"):
+            topology.start_pair(DRIVER, RECEIVER, options(tmp_path), actions, [])
+        assert bench.snapshots == 3
+        assert len(actions[0]["baseline_observations"]) == 3
+    else:
+        with pytest.raises(RuntimeError, match="malformed"):
+            topology.start_pair(DRIVER, RECEIVER, options(tmp_path), actions, [])
+        assert bench.snapshots == 2
+        assert len(actions[0]["baseline_observations"]) == 2
     assert not any(command.endswith(":START") for _, command in bench.calls)
 
 

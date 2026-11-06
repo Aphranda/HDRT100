@@ -514,7 +514,7 @@ def test_tdma_rerun_discards_the_previous_recorder(tmp_path, fingerprint, monkey
     assert "--cancel-unsaved-record" not in commands[0]
     assert "--cancel-unsaved-record" in commands[1]
 
-def test_p0t_timeout_is_independent_one_second(tmp_path, monkeypatch):
+def test_p0t_timeout_uses_serial_budget(tmp_path, monkeypatch):
     captured = {}
 
     def fake_run_step(command, root, log):
@@ -545,4 +545,4 @@ def test_p0t_timeout_is_independent_one_second(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         p3.phase_topology(run)
     command = captured["command"]
-    assert command[command.index("--timeout") + 1] == "1.0"
+    assert command[command.index("--timeout") + 1] == "3.0"
