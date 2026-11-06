@@ -2449,6 +2449,17 @@ static void app_ctrqs_trial_fail_and_advance(void)
 static void app_ctrqs_trial(void)
 {
     const uint64_t now = app_ctrqs_now_ms();
+    /* The first train right after entering TRIAL is the one that fails when the
+     * round is not green: the phys has just been re-armed and the followers are
+     * still settling their forwarding persona, so the very first burst can miss
+     * its return (measured: every non-green round had failed_mask=0x1, i.e.
+     * trial 0 only).  Give the first trial one short settle scaled from the
+     * ring period before requesting its train. */
+    if (s_ctrqs.trial == 0u &&
+        now < s_ctrqs.t0_ms +
+                  (uint64_t)3u * app_ctrqs_staged_period_ms()) {
+        return;
+    }
     if (now >= s_ctrqs.t_end_ms) {
         app_ctrqs_finalize();
         return;
