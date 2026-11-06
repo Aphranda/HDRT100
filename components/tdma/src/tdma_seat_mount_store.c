@@ -5,6 +5,8 @@
 #include "drv_flash.h"
 #include "flash_deployment_map.h"
 #include "flash_store_nvs.h"
+
+#include "flash_store_ab.h"
 #include "flash_store_record.h"
 #include "flash_transaction.h"
 
@@ -103,12 +105,9 @@ static bool scan_has_latest(const seat_mount_scan_t *scan)
 static bool select_latest(seat_mount_scan_t scans[SEAT_MOUNT_SECTOR_COUNT],
     uint32_t *latest_sector)
 {
-    const bool first = scan_has_latest(&scans[0]);
-    const bool second = scan_has_latest(&scans[1]);
-    if (!first && !second) return false;
-    *latest_sector = (!second || (first &&
-        !flash_store_record_is_newer(&scans[1].scan.latest, &scans[0].scan.latest))) ? 0u : 1u;
-    return true;
+    const flash_store_nvs_scan_t pair[2] = {scans[0].scan, scans[1].scan};
+    const bool usable[2] = {scans[0].usable, scans[1].usable};
+    return flash_store_ab_select_latest(pair, usable, latest_sector);
 }
 
 static bool decode_latest(const seat_mount_scan_t *scan, flash_store_record_header_t *header)
@@ -163,9 +162,10 @@ bool tdma_seat_mount_store_save(const tdma_seat_mount_table_t *table, uint32_t g
     if (has_latest && (int32_t)(generation - scans[latest_sector].scan.latest.generation) < 0) {
         s_last_reject = 3u; return false; }
     uint32_t sequence = 1u;
-    if (has_latest && generation == scans[latest_sector].scan.latest.generation) {
-        sequence = scans[latest_sector].scan.latest.sequence + 1u;
-        if (sequence == 0u) sequence = 1u;
+    if (has_latest) {
+        sequence = flash_store_ab_next_sequence(
+            true, generation, scans[latest_sector].scan.latest.generation,
+            scans[latest_sector].scan.latest.sequence);
     }
     const size_t required = flash_store_nvs_record_span(
         FLASH_STORE_RECORD_HEADER_SIZE + sizeof(s_payload),

@@ -5,6 +5,8 @@
 #include "drv_flash.h"
 #include "flash_deployment_map.h"
 #include "flash_store_nvs.h"
+
+#include "flash_store_ab.h"
 #include "flash_transaction.h"
 
 #define CALIBRATION_TRAINING_STORE_SECTOR_COUNT 2u
@@ -260,17 +262,9 @@ static bool scan_has_latest(const calibration_training_sector_scan_t *scan)
 static bool select_latest(calibration_training_sector_scan_t scans[2],
                           uint32_t *latest_sector)
 {
-    const bool first = scan_has_latest(&scans[0]);
-    const bool second = scan_has_latest(&scans[1]);
-    if (!first && !second) return false;
-    if (!second || (first && !flash_store_record_is_newer(
-                                  &scans[1].scan.latest,
-                                  &scans[0].scan.latest))) {
-        *latest_sector = 0u;
-    } else {
-        *latest_sector = 1u;
-    }
-    return true;
+    const flash_store_nvs_scan_t pair[2] = {scans[0].scan, scans[1].scan};
+    const bool usable[2] = {scans[0].usable, scans[1].usable};
+    return flash_store_ab_select_latest(pair, usable, latest_sector);
 }
 
 static bool decode_latest(const calibration_training_sector_scan_t *scan,
@@ -439,10 +433,11 @@ bool calibration_training_store_commit(
         return false;
     }
     uint32_t record_sequence = 1u;
-    if (has_latest && stage->calibration_generation ==
-                          scans[latest_sector].scan.latest.generation) {
-        record_sequence = scans[latest_sector].scan.latest.sequence + 1u;
-        if (record_sequence == 0u) record_sequence = 1u;
+    if (has_latest) {
+        record_sequence = flash_store_ab_next_sequence(
+            true, stage->calibration_generation,
+            scans[latest_sector].scan.latest.generation,
+            scans[latest_sector].scan.latest.sequence);
     }
     const size_t required_span = flash_store_nvs_record_span(
         FLASH_STORE_RECORD_HEADER_SIZE + sizeof(s_payload),
