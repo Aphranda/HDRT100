@@ -316,7 +316,8 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 | 里程碑 | 内容 | 完成判据 | 证据 | 依赖 |
 |---|---|---|---|---|
 | M6.1 | 参考板 P1 TIMEOUT 收口（10 kHz） | ✅ 同 build `20261106213111` 连续 2 次（gen 620/621）四板 P1 `progress_status=1`、`trials_done=4`、`passed_mask=0xF`、`failed_mask=0`、`reason=0`、`reconcile=1`，`ladder` 一致前进 | 四板 `PLAN?`（25 字段）+ `p3-053100` | ✅ 完成（`f1e03ae9`） |
-| M6.2 | 阶梯索引与代数一致 | 四板 `ladder_index` 相同；同动作同代数 S 只写一次；S 决策四板一致 | `PLAN?` 第 18–22 字段 + 提交证据 | M6.1 |
+| M6.2 | 阶梯索引与代数一致 | ✅ 同 build `20261106220406` 连续 10 轮（gen 640–649）四板 `ladder_index=1` 一致；同代数重复 `ladder_step=0`（不再推进）；P1 无 staged 载荷，`commit=0/0/0` 四板一致 | 四板 `PLAN?`（25 字段）+ `verdict` | ✅ 完成 |
+| M6.2b | S 段"同动作同代数只写一次" | ⏳ P1 不写 flash（`commit_appl=0`），该路径要到有 staged 载荷的动作（T3）才能验证 | 四板 `PLAN?` 的 commit 三字段 + flash 记录 | 并入 M6.7 |
 | M6.3 | P2 成环档/测量档分离 | 成环走 level 23 + BRINGUP，停环后再 apply 测量档；四板 P2 `COMPLETE` | `PLAN?` + `RING:CONFIG?`（cycle_period/flags） | M6.2 |
 | M6.4 | P3 @10 kHz 四板 | 全部链路×重复通过，`COMPLETE` 且 `deepest_trial` 覆盖满 | `PLAN?` + P3 工具产物 | M6.3 |
 | M6.5 | T0/T1/T2 @10 kHz 四板 | 每动作一轮 C→T→R→Q→S 四板 `COMPLETE` | 四板 `PLAN?`（逐动作 gen/epoch 记录） | M6.4 |
@@ -673,6 +674,15 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - **残余（OPEN）**：第 3 次复跑（gen 622）参考板 `passed_mask=0xE, failed_mask=0x1`
   ——4 个 trial 里仍有 1 个丢返回（跟随板全绿）。3 次里 2 次全绿、1 次单 trial 失败。
   复验判据：连续 10 次四板全绿；未达标前 M6.1 的"稳定"只到"判据满足"这一级。
+
+**2026-11-07 06:4x 稳定性残余 CLOSED（`605a7194`，build `20261106220406`）**：
+
+- 非绿轮次的 `failed_mask` 恒为 `0x1`（失败总在 **trial 0**，即进 TRIAL 后第一个训练）：
+  phys 刚 re-arm、跟随板转发人设仍在收敛。在 t0 后加 3× 环周期 settle（10 kHz 450 ms、
+  10 MHz 3 ms）再发第一个训练请求。
+- **连续 10 轮（gen 640–649）四板全部 GREEN**：`status=1, trials=4/4, passed=0xF,
+  failed=0, reason=0, ladder=1/0, commit=0/0/0`。⇒ M6.1 稳定性残余 **CLOSED**；
+  M6.2 的索引/决策一致性同批证据达成。
 
 ## 7. 台架与操作注意
 
