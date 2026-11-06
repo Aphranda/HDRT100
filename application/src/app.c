@@ -2293,7 +2293,7 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
     /* One common schedule for all four boards: the trigger frame reaches them
      * within a ring cycle, so a fixed offset from receipt is a shared epoch. */
     s_ctrqs.t0_ms = now + APP_CTRQS_T0_OFFSET_MS +
-                    (uint64_t)40u * app_ctrqs_staged_period_ms();
+                    (uint64_t)80u * app_ctrqs_staged_period_ms();
     s_ctrqs.t_end_ms =
         s_ctrqs.t0_ms + ((uint64_t)s_ctrqs.trials * s_ctrqs.slot_ms);
     s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_RUNNING;
@@ -2862,6 +2862,17 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_FORWARD: {
         if (!app_ctrqs_ring_formed()) {
+            tdma_ring_runtime_snapshot_t forward_ring;
+            const bool have_ring =
+                tdma_runtime_owner_get_ring_snapshot(&forward_ring);
+            if (have_ring && forward_ring.adapter_last_error != 0u &&
+                forward_ring.enabled == 0u) {
+                /* The adapter start itself failed (ADAPTER_START_FAILED):
+                 * waiting longer cannot help, so surface the code now. */
+                app_ctrqs_abort(
+                    (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
+                return;
+            }
             if (now >= s_ctrqs.deadline_ms) {
                 app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
             }
