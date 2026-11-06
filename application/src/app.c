@@ -2216,12 +2216,11 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         if (s_ctrqs.slot_ms < 300u) {
             s_ctrqs.slot_ms = 300u;
         }
-        /* Empirical bound only: burst_duration is wire time
-         * (cycles / baud_hz), but the phys meters one bit per ring cycle, so
-         * the slot must scale with the profile instead of a 10 MHz constant.
-         * 2 x period per cycle is the original bound and is kept; a trial that
-         * still misses its slot is now recorded as a failed trial rather than
-         * aborting the window (see app_ctrqs_trial). */
+        /* Empirical bound only: the phys meters one bit per ring cycle, so the
+         * slot must scale with the profile. 3x period per cycle (measured: a
+         * 16-cycle trial occasionally needs more than the 2x estimate, and the
+         * failing trial then aborts at the slot edge).  High-rate profiles keep
+         * their window-derived slot because 3x1msx16 stays far below it. */
         tdma_service_ring_runtime_config_t staged_p1;
         if (tdma_runtime_owner_get_staged_ring_config(&staged_p1) &&
             staged_p1.cycle_period_ns != 0u) {
@@ -2232,7 +2231,7 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
                 }
             }
             const uint64_t need_ms =
-                ((uint64_t)max_cycles * 2ull * staged_p1.cycle_period_ns +
+                ((uint64_t)max_cycles * 3ull * staged_p1.cycle_period_ns +
                  UINT64_C(999999)) /
                     UINT64_C(1000000) +
                 UINT64_C(500);
