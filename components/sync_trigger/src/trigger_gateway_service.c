@@ -53,10 +53,10 @@ static uint32_t gateway_binding(trigger_deployment_binding_t *binding,
     if (b->local_role!=TRIGGER_DEPLOYMENT_SLOT_GATEWAY) return GATEWAY_WRONG_ROLE;
     if (b->table.generation!=generation || b->crc!=crc ||
         trigger_deployment_crc(&b->table)!=crc ||
-        !gateway_uid(&uid) || uid!=b->local_uid ||
+        !gateway_uid(&uid) ||
         !tdma_runtime_owner_get_ring_clock_snapshot(&ring) ||
         !tdma_runtime_owner_get_staged_ring_config(&staged) ||
-        !trigger_binding_ring_staged_current(b,&ring,&staged) ||
+        trigger_binding_ring_check(b,uid,&ring,&staged)!=TRIGGER_BINDING_RING_OK ||
         (ring.schedule_crc32 && (ring.schedule_crc32!=staged.schedule_crc32 ||
             ring.local_slot_id!=staged.local_slot_id))) return GATEWAY_CHANGED;
     trigger_deployment_row_t row;

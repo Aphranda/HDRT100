@@ -6,6 +6,7 @@
 #include "tdma_runtime_owner.h"
 #include "vdc_timestamp_clock.h"
 #include "tdma_seat_mount_store.h"
+#include "trigger_binding_ring.h"
 
 static uint32_t s_action_busy;
 static trigger_action_snapshot_t s_action;
@@ -67,13 +68,16 @@ static bool current_binding(trigger_deployment_binding_t *out)
     if(!tdma_runtime_owner_get_staged_ring_config(&staged)){tdma_seat_mount_store_note_reject(65u);return false;}
     const trigger_deployment_binding_t *b=&dep.active;
     /* Split so a bench readout can name the failing condition (temporary). */
-    if(ring.enabled || ring.adapter_started){tdma_seat_mount_store_note_reject(41u);return false;}
-    if(ring.config_seq!=ring.applied_config_seq){tdma_seat_mount_store_note_reject(42u);return false;}
-    if(!staged.enabled){tdma_seat_mount_store_note_reject(43u);return false;}
-    if(ring.config_seq!=b->ring_config){tdma_seat_mount_store_note_reject(44u);return false;}
-    if(uid!=b->local_uid){tdma_seat_mount_store_note_reject(45u);return false;}
-    if(staged.local_slot_id!=b->local_slot){tdma_seat_mount_store_note_reject(46u);return false;}
-    if(staged.schedule_crc32!=b->schedule_crc){tdma_seat_mount_store_note_reject(47u);return false;}
+    switch (trigger_binding_ring_check(b, uid, &ring, &staged)) {
+    case TRIGGER_BINDING_RING_RUNNING: tdma_seat_mount_store_note_reject(41u); return false;
+    case TRIGGER_BINDING_RING_SEQ_PENDING: tdma_seat_mount_store_note_reject(42u); return false;
+    case TRIGGER_BINDING_RING_STAGED_OFF: tdma_seat_mount_store_note_reject(43u); return false;
+    case TRIGGER_BINDING_RING_CONFIG: tdma_seat_mount_store_note_reject(44u); return false;
+    case TRIGGER_BINDING_RING_UID: tdma_seat_mount_store_note_reject(45u); return false;
+    case TRIGGER_BINDING_RING_SLOT: tdma_seat_mount_store_note_reject(46u); return false;
+    case TRIGGER_BINDING_RING_SCHEDULE: tdma_seat_mount_store_note_reject(47u); return false;
+    case TRIGGER_BINDING_RING_OK: break;
+    }
     if(trigger_deployment_crc(&b->table)!=b->crc){tdma_seat_mount_store_note_reject(48u);return false;}
     if(ring.schedule_crc32 && (ring.schedule_crc32!=staged.schedule_crc32 ||
         ring.local_slot_id!=staged.local_slot_id)){tdma_seat_mount_store_note_reject(49u);return false;}

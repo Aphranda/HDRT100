@@ -54,10 +54,10 @@ static uint32_t counter_binding(trigger_deployment_binding_t *binding,
     const trigger_deployment_binding_t *b=&snapshot.active;
     if (b->local_role!=TRIGGER_DEPLOYMENT_SLOT_COUNTER) return COUNTER_WRONG_ROLE;
     if (b->table.generation!=generation || b->crc!=crc ||
-        !counter_uid(&uid) || uid!=b->local_uid ||
+        !counter_uid(&uid) ||
         !tdma_runtime_owner_get_ring_clock_snapshot(&ring) ||
         !tdma_runtime_owner_get_staged_ring_config(&staged) ||
-        !trigger_binding_ring_staged_current(b,&ring,&staged))
+        trigger_binding_ring_check(b,uid,&ring,&staged)!=TRIGGER_BINDING_RING_OK)
         return COUNTER_CHANGED;
     trigger_deployment_row_t row;
     if (trigger_deployment_resolve(&b->table,TRIGGER_DEPLOYMENT_SLOT_COUNTER,
