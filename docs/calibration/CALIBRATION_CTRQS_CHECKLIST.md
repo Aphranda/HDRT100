@@ -614,8 +614,11 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   完成"。这是参考板侧仅剩的抖动。
 - 达成全绿的三个条件（本提交）：① 跟随板驻留 60 s 且到期视为完成；② 跟随板完成判定先于
   FORWARD 的通用 deadline；③ rebuild 预算 60 s（否则先到的板把收尾判成 14）。
-- **M6.1 状态**：1/2 连续通过，仍 **OPEN**；下一步压参考板 trial 的 slot 抖动
-  （候选：10 kHz 下把 C 段 cycle ladder 从 {4,16} 降到 {4,8}，或按实测放宽 slot）。
+- **M6.1 状态**：1/2 连续通过，仍 **OPEN**；下一步压参考板 trial 的 slot 抖动。
+- **cycle ladder 不能缩短（负结果）**：把 C 段候选从 `{4,16}` 降到 `{4,8}` 后，参考板
+  `trials_done=4` 但 `passed_mask=0, failed_mask=15`——4 个 trial 全部拿不到返回。
+  说明返回检测依赖足够的 burst 长度（跟随板要有时间把沿转回来），10 kHz 下必须保留 16-cycle
+  档；抖动要靠 slot/时序而不是缩小 ladder 解决。
 
 ## 7. 台架与操作注意
 
