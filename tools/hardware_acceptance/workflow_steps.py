@@ -940,7 +940,12 @@ def add_serial_timing(command: list[str], timing: dict[str, float], *,
     command.extend(["--timeout", str(timing["serial_timeout_s"]),
                     "--settle", str(timing["input_settle_s"])])
     if action:
-        command.extend(["--action-timeout", str(timing["action_timeout_s"])])
+        # START/STOP acknowledgements race the post-reset admission window:
+        # 50 ms was measured to time out even though the board accepted the
+        # action (`error_after` stays "No error").  Keep a hard 100 ms floor,
+        # matching `calibration_timeout_config` and the gap floor below.
+        command.extend(["--action-timeout",
+                        str(max(float(timing["action_timeout_s"]), 0.1))])
     if capture:
         command.extend(["--capture-timeout",
                         str(timing["p3_capture_timeout_s"])])

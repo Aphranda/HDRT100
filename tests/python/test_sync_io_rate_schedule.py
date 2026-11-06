@@ -308,6 +308,7 @@ def test_real_owner_stop_and_final_falling_edge(tmp_path):
     harness = r'''
 #include <assert.h>
 #include <string.h>
+#include "algo_num.h"
 #include "sync_io.h"
 #include "board_config.h"
 #include "sync_io_persona_manager.h"
