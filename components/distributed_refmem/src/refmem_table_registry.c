@@ -199,35 +199,26 @@ static bool refmem_table_registry_validate_wire_header(const uint8_t *data,
     return true;
 }
 
+/* Application-model table decoders (declared here instead of including the
+ * model's private header, which owns a same-named snapshot object). */
+bool refmem_model_parse_board_capability_view(const uint8_t *data, size_t size,
+                                              void *table);
+bool refmem_model_parse_application_map_view(const uint8_t *data, size_t size,
+                                             void *table);
+bool refmem_model_parse_generic_node_view(const uint8_t *data, size_t size,
+                                          void *table);
+bool refmem_model_parse_node_load_view(const uint8_t *data, size_t size,
+                                       void *table);
+
 static bool refmem_table_registry_parse_board_capability(
     const uint8_t *data,
     size_t size,
     refmem_board_capability_table_t *table)
 {
-    if (data == NULL ||
-        table == NULL ||
-        size != sizeof(refmem_board_capability_table_t)) {
-        return false;
-    }
-
-    memset(table, 0, sizeof(*table));
-    table->version = refmem_table_read_u32_le(&data[0]);
-    table->board_count = refmem_table_read_u32_le(&data[4]);
-    size_t cursor = 8u;
-    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT; i++) {
-        refmem_board_capability_entry_t *board = &table->board[i];
-        board->board_id = refmem_table_read_u32_le(&data[cursor + 0u]);
-        board->board_uuid_crc32 = refmem_table_read_u32_le(&data[cursor + 4u]);
-        board->capability_mask = refmem_table_read_u32_le(&data[cursor + 8u]);
-        board->io_constraint_mask = refmem_table_read_u32_le(&data[cursor + 12u]);
-        board->ip_core_mask = refmem_table_read_u32_le(&data[cursor + 16u]);
-        board->default_persona_mask = refmem_table_read_u32_le(&data[cursor + 20u]);
-        board->hw_profile_crc32 = refmem_table_read_u32_le(&data[cursor + 24u]);
-        board->active_default_slot = refmem_table_read_u32_le(&data[cursor + 28u]);
-        board->online_required = refmem_table_read_u32_le(&data[cursor + 32u]);
-        cursor += 9u * sizeof(uint32_t);
-    }
-    return true;
+    /* Field decode and version/count validation live in the application model;
+     * reusing them makes staging reject malformed tables at the same phase the
+     * model does, instead of deferring to activation. */
+    return refmem_model_parse_board_capability_view(data, size, table);
 }
 
 static bool refmem_table_registry_parse_application_map(
@@ -235,20 +226,7 @@ static bool refmem_table_registry_parse_application_map(
     size_t size,
     refmem_application_map_t *table)
 {
-    if (data == NULL ||
-        table == NULL ||
-        size != sizeof(refmem_application_map_t)) {
-        return false;
-    }
-
-    memset(table, 0, sizeof(*table));
-    table->version = refmem_table_read_u32_le(&data[0]);
-    table->application_id = refmem_table_read_u32_le(&data[4]);
-    table->application_version = refmem_table_read_u32_le(&data[8]);
-    table->profile_id = refmem_table_read_u32_le(&data[12]);
-    table->layout_version = refmem_table_read_u32_le(&data[16]);
-    table->target_node_mask = refmem_table_read_u32_le(&data[20]);
-    return true;
+    return refmem_model_parse_application_map_view(data, size, table);
 }
 
 static bool refmem_table_registry_parse_generic_node(
@@ -256,30 +234,7 @@ static bool refmem_table_registry_parse_generic_node(
     size_t size,
     refmem_generic_node_table_t *table)
 {
-    if (data == NULL ||
-        table == NULL ||
-        size != sizeof(refmem_generic_node_table_t)) {
-        return false;
-    }
-
-    memset(table, 0, sizeof(*table));
-    table->version = refmem_table_read_u32_le(&data[0]);
-    table->node_count = refmem_table_read_u32_le(&data[4]);
-    size_t cursor = 8u;
-    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_NODE_COUNT; i++) {
-        refmem_app_node_entry_t *node = &table->node[i];
-        node->node_id = refmem_table_read_u32_le(&data[cursor + 0u]);
-        node->node_uuid_crc32 = refmem_table_read_u32_le(&data[cursor + 4u]);
-        node->capability_mask = refmem_table_read_u32_le(&data[cursor + 8u]);
-        node->claim_policy = refmem_table_read_u32_le(&data[cursor + 12u]);
-        node->claim_priority = refmem_table_read_u32_le(&data[cursor + 16u]);
-        node->default_persona_mask = refmem_table_read_u32_le(&data[cursor + 20u]);
-        node->hw_profile_crc32 = refmem_table_read_u32_le(&data[cursor + 24u]);
-        node->online_required = refmem_table_read_u32_le(&data[cursor + 28u]);
-        node->fail_policy = refmem_table_read_u32_le(&data[cursor + 32u]);
-        cursor += 9u * sizeof(uint32_t);
-    }
-    return true;
+    return refmem_model_parse_generic_node_view(data, size, table);
 }
 
 static bool refmem_table_registry_parse_node_load(
@@ -287,32 +242,7 @@ static bool refmem_table_registry_parse_node_load(
     size_t size,
     refmem_node_load_table_t *table)
 {
-    if (data == NULL ||
-        table == NULL ||
-        size != sizeof(refmem_node_load_table_t)) {
-        return false;
-    }
-
-    memset(table, 0, sizeof(*table));
-    table->version = refmem_table_read_u32_le(&data[0]);
-    table->load_count = refmem_table_read_u32_le(&data[4]);
-    size_t cursor = 8u;
-    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_NODE_LOAD_COUNT; i++) {
-        refmem_node_load_entry_t *load = &table->load[i];
-        load->load_id = refmem_table_read_u32_le(&data[cursor + 0u]);
-        load->application_id = refmem_table_read_u32_le(&data[cursor + 4u]);
-        load->profile_id = refmem_table_read_u32_le(&data[cursor + 8u]);
-        load->node_id = refmem_table_read_u32_le(&data[cursor + 12u]);
-        load->instance_id = refmem_table_read_u32_le(&data[cursor + 16u]);
-        load->role_mask = refmem_table_read_u32_le(&data[cursor + 20u]);
-        load->persona_mask = refmem_table_read_u32_le(&data[cursor + 24u]);
-        load->enabled = refmem_table_read_u32_le(&data[cursor + 28u]);
-        load->required = refmem_table_read_u32_le(&data[cursor + 32u]);
-        load->fail_policy = refmem_table_read_u32_le(&data[cursor + 36u]);
-        load->load_order = refmem_table_read_u32_le(&data[cursor + 40u]);
-        cursor += 11u * sizeof(uint32_t);
-    }
-    return true;
+    return refmem_model_parse_node_load_view(data, size, table);
 }
 
 static bool refmem_table_registry_validate_package_owner_contract(
