@@ -579,6 +579,21 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   "待起环"可接受状态），并给 START 增加回读/重试（现有 `472`/`473` 之外的失败分支要带 reason）。
 - M6.1 仍 OPEN。
 
+**2026-11-07 01:5x 关键实测（`4db6db93`，build `20261106174316`）**：
+
+- **参考板 P1 首次 4/4 全过**：`passed_mask=0xF, failed_mask=0, trials_done=4`。条件正是
+  "跟随板全程停在 FORWARD 保持转发人设"——跟随板一旦进 TRIAL 就会重初始化物理层，
+  参考板后续 trial 立刻收不到返回（这解释了此前 `passed=0x1, failed=0xE` 的稳定现象）。
+  ⇒ **P1 的正确角色分工：跟随板在参考板窗口期间保持 FORWARD，不进入自己的 TRIAL。**
+- 同轮暴露两点：① 跟随板 `RING:PHASE? recv=0`——环被拆时维护帧根本发不出去，phase 广播
+  在此之前/之后才可能到达；② 参考板收尾 rebuild `14(NOT_ONLINE_SAFE)`——跟随板此时还在
+  等 phase，没人一起重建。
+- 结论（下一步设计）：协商消息必须**按"未来环序号"下发**，而不是"立即切换"：
+  origin 在环还跑着时广播 `stop at ring_seq = now + K`（K 覆盖投递），各板在自己的 ring_seq
+  到达该值时一起停；重建同理用 `form at ring_seq`。这样消息在环上可达，切换点又四板同刻。
+- 相应地 P1 需要新增 `TRIAL_DONE` 阶段：跟随板在 origin 窗口期间保持 FORWARD，收到
+  `TRIAL_DONE` 后才进入自己的 TRIAL（只做 persona 计数），随后与 origin 一起按环序号重建。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
