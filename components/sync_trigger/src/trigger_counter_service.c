@@ -4,6 +4,8 @@
 #include "pico.h"
 #include "tdma_runtime_owner.h"
 
+#include "trigger_binding_ring.h"
+
 #ifndef __not_in_flash_func
 #define __not_in_flash_func(name) name
 #endif
@@ -55,9 +57,7 @@ static uint32_t counter_binding(trigger_deployment_binding_t *binding,
         !counter_uid(&uid) || uid!=b->local_uid ||
         !tdma_runtime_owner_get_ring_clock_snapshot(&ring) ||
         !tdma_runtime_owner_get_staged_ring_config(&staged) ||
-        ring.enabled || ring.adapter_started || ring.config_seq!=ring.applied_config_seq ||
-        ring.config_seq!=b->ring_config || !staged.enabled ||
-        staged.local_slot_id!=b->local_slot || staged.schedule_crc32!=b->schedule_crc)
+        !trigger_binding_ring_staged_current(b,&ring,&staged))
         return COUNTER_CHANGED;
     trigger_deployment_row_t row;
     if (trigger_deployment_resolve(&b->table,TRIGGER_DEPLOYMENT_SLOT_COUNTER,

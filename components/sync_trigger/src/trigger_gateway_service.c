@@ -4,6 +4,8 @@
 #include "board_identity.h"
 #include "pico.h"
 #include "tdma_runtime_owner.h"
+
+#include "trigger_binding_ring.h"
 #include "trigger_counter_service.h"
 
 static uint32_t s_gateway_busy, s_gateway_loaded, s_gateway_generation;
@@ -54,9 +56,7 @@ static uint32_t gateway_binding(trigger_deployment_binding_t *binding,
         !gateway_uid(&uid) || uid!=b->local_uid ||
         !tdma_runtime_owner_get_ring_clock_snapshot(&ring) ||
         !tdma_runtime_owner_get_staged_ring_config(&staged) ||
-        ring.enabled || ring.adapter_started || ring.config_seq!=ring.applied_config_seq ||
-        ring.config_seq!=b->ring_config || !staged.enabled ||
-        staged.local_slot_id!=b->local_slot || staged.schedule_crc32!=b->schedule_crc ||
+        !trigger_binding_ring_staged_current(b,&ring,&staged) ||
         (ring.schedule_crc32 && (ring.schedule_crc32!=staged.schedule_crc32 ||
             ring.local_slot_id!=staged.local_slot_id))) return GATEWAY_CHANGED;
     trigger_deployment_row_t row;
