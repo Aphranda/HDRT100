@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
 Related: `docs/README.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-13
+Last updated: 2026-11-06
 
 本文档定义 `docs/` 下 Markdown 文档的统一命名格式、层级关系、交叉引用规则和
 后续新增文件规则。所有 Markdown 文档按 UTF-8 读取和写入。
@@ -65,6 +65,7 @@ LOG_RUNTIME_CORE_DESIGN.md
 | `MULTICORE` | RP2350 双核分工。 |
 | `RELEASE` | 发布门禁、量产检查和 release 流程。 |
 | `DOCS` | 文档体系、命名规则和索引。 |
+| `STANDARDS` | 通用规范、跨项目治理标准（非产品域）。 |
 | `CALIBRATION` | 校准 link、delay、参数、版本和质量。 |
 | `REFMEM` | 分布式向量表、命令槽、ACK/NACK 和节点事实。 |
 | `COMMUNICATION` | BiSS-C、UART、RS485 和通信维护。 |

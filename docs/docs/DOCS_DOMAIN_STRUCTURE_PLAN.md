@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation
 Canonical: `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-11-02
+Last updated: 2026-11-06
 
 本文档定义 `docs/` 后续按产品主域整理的目标结构、迁移规则和文档归属。当前阶段不直接移动大批文件，先冻结目录规划、迁移 gate 和索引规则，后续按域小批量迁移。
 
@@ -24,6 +24,7 @@ Last updated: 2026-11-02
 ```text
 docs/
   README.md
+  standards/            ; 通用规范与跨项目治理标准（非产品域）
   docs/                 ; 文档治理、命名规则、迁移表
   arch/                 ; 产品架构、HAOFV、RTOS 和分布式总纲
   interface/            ; SCPI、USB、USBTMC、命令表、上位机接口
@@ -92,6 +93,7 @@ docs/
 
 | 目标目录 | 初始 canonical |
 |---|---|
+| `standards/` | `STANDARDS_PROJECT_MANAGEMENT_SYSTEM_ARCHITECTURE.md` |
 | `docs/` | `DOCS_NAMING_STRUCTURE_PLAN.md`, `DOCS_MIGRATION_TODO.md`, `DOCS_DOMAIN_STRUCTURE_PLAN.md` |
 | `arch/` | `HAOFV_ARCHITECTURE.md`, `HAOFV_VDC_DPLL_ARCHITECTURE.md`, `ARCH_PRODUCT_ARCHITECTURE.md`, `RTOS_HAOFV_ARCHITECTURE.md`, `RTOS_HAOFV_TODO.md`, `RTOS_HAOFV_TASK_PROGRESS.md` |
 | `interface/` | `SCPI_COMMAND_PLAN.md`, `SCPI_COMMANDS.md`, `SCPI_USB_INTERFACE_DESIGN.md`, `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` |

@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-11-05
+Last updated: 2026-11-06
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -21,6 +21,7 @@ Last updated: 2026-11-05
 ```text
 docs/
   README.md
+  standards/      通用规范与跨项目治理标准（非产品域）
   docs/           文档治理、命名规则、迁移表
   evaluation/     项目价值评估与长期监督（评估结论、行动追踪、复评闭环）
   arch/           产品架构、HAOFV、RTOS 和分布式总纲
@@ -56,6 +57,7 @@ docs/
 | 目录 | 入口 | 当前作用 |
 |---|---|---|
 | `docs/` | `docs/README.md` | 文档治理、命名规则、迁移表 |
+| `standards/` | `standards/README.md` | 通用规范：可复用的大型项目治理标准（非产品域，不作为产品契约） |
 | `evaluation/` | `evaluation/README.md` | 项目价值评估与长期监督：开源/商业/学术价值评估、行动追踪与复评闭环 |
 | `arch/` | `arch/README.md` | 产品架构、HAOFV、RTOS 和分布式总纲 |
 | `interface/` | `interface/README.md` | SCPI、USB、USBTMC、命令表和上位机接口 |
@@ -86,6 +88,7 @@ docs/
 
 | 领域 | 当前 canonical 主文档 | 说明 |
 |---|---|---|
+| STANDARDS | `standards/STANDARDS_DOMAIN_ARCHITECTURE.md` | 通用规范域架构：定位、边界、文档模型、标准生命周期与验证映射；主标准见 `standards/STANDARDS_PROJECT_MANAGEMENT_SYSTEM_ARCHITECTURE.md`。 |
 | EVALUATION | `evaluation/PRODUCT_VALUE_EVALUATION.md` | 项目价值评估 canonical：开源/商业/学术三维评估单链结论；行动追踪见 `evaluation/PRODUCT_VALUE_TRACKING_TODO.md`。 |
 | TOOLS | `tools/DOCS_TOOLS_ARCHITECTURE.md` | 工具域治理草案，定义工具、组件、工作流、证据及交接边界；自动化尚待实施。 |
 | CONSOLE | `console/CONSOLE_ARCHITECTURE.md` | 运维与调试控制面主域：域边界、子域、单端口/多端口原则、契约候选、证据与验收；调试 Demo 为首个交付物。 |
@@ -152,6 +155,15 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
+| `docs/standards/README.md` | 通用规范子域入口：可复用治理标准的定位、索引与边界。 |
+| `docs/standards/STANDARDS_DOMAIN_ARCHITECTURE.md` | 通用规范域架构：定位、边界、文档模型、标准生命周期与验证映射。 |
+| `docs/standards/STANDARDS_DOMAIN_TODO.md` | 通用规范域任务状态唯一落点：里程碑、任务表、阻塞与完成定义。 |
+| `docs/standards/STANDARDS_TASK_PROGRESS.md` | 通用规范域交付与验证证据：按时间倒排，不替代 TODO 状态。 |
+| `docs/standards/STANDARDS_PROJECT_MANAGEMENT_SYSTEM_ARCHITECTURE.md` | 通用化大型项目 AI 协作管理体系：文档/契约/工具/Skill/工作流/证据治理，含模板、路线图与结构工程适配示例。 |
+| `docs/standards/STANDARDS_ADOPTION_GUIDE_PLAYBOOK.md` | 外部团队 90 天采用手册：阶段路线、角色、最小产物、门禁、裁剪和止损。 |
+| `docs/standards/STANDARDS_LOCALIZATION_KIT_PLAYBOOK.md` | 本地化填空工具包：六系统映射、三件套、契约/工具/WorkflowSpec、验收凭证和结构工程示例。 |
+| `docs/standards/STANDARDS_VERSION_REVIEW_ARCHIVE_PLAYBOOK.md` | 版本、复审、changelog 与归档机制：版本规则、季度复审、旧版归档和模板。 |
+| `docs/standards/STANDARDS_FEEDBACK_EVALUATION_PLAYBOOK.md` | 反馈与评估手册：反馈日志、分诊/处置/回流、反向评估记录和模板。 |
 | `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` | 文档命名格式、层级关系、新增文件规则和迁移规则。 |
 | `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md` | 按产品主域目录化管理的目标结构、迁移批次、域映射和 gate。 |
 | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档体系迁移待办，跟踪元数据补齐、历史改名和索引维护。 |
@@ -161,8 +173,11 @@ docs/
 | `docs/check/DOCS_REGRESSION_REVIEW.md` | 文档自回归体系实施经验总结（问题清单 + 解法 + 维护建议）。 |
 | `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` | 2026-08-24 项目状态审查快照：域进度、关键闭环、治理门禁和在制改动边界；不作为冻结契约或代码事实源。 |
 | `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` | 跨 worker/agent 的长期执行约束、证据闭环、Debug 门禁和主控复核规则（首版 Draft）。 |
+| `docs/check/DOCS_PROJECT_GOVERNANCE_GOALS_PLAN.md` | 项目治理长期目标 G1–G4、里程碑、度量、台架需求与复审节奏（规划基线，非契约）。 |
+| `docs/check/DOCS_CONTRACT_ACTIVATION_WAVE_PLAN.md` | 契约激活波次计划：Wave 0 host-only、Wave 1 高风险台架、Wave 2 剩余项与激活协议。 |
 | `docs/check/DOCS_PROGRESS_ROTATION_PLAN.md` | 进展日志轮转（C14/C15 环5）操作规程与债务基线唯一落点：规则 R1-R6、倒排约定、轮转步骤与归档命名。 |
 | `docs/check/submissions/README.md` | 核验提交单归档目录说明 + 模板（层间逐级核验，C11 交叉审核）。 |
+| `docs/check/submissions/DOCS_PROGRESS_CROSS_REVIEW_01.md` | C14/C15 进展日志契约的两次独立 C11 复核：`DOCS-PROGRESSROTATE-01`、`DOCS-PROGRESSORDER-01` 均 `PASS_WITH_NOTE`，保持 pending；列明闭包/同向/边界缺口与后续任务。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_01.md` | 首份核验提交单：HAOFV-879 seqlock 偏差（ACCEPT_WITH_DEVIATION，2026-08-19）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_02.md` | TDMA mandatory-first process image 的 HAOFV/VDC/RefMem 层间核验（pending，2026-08-28）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_03.md` | TDMA bounded recovery 双 buffer、原 Node offset 与实时诊断边界层间核验（pending，2026-08-28）。 |
@@ -477,6 +492,7 @@ docs/
 
 - 查系统边界：先读 `arch/HAOFV_ARCHITECTURE.md`。
 - 查开源/商业/学术价值评估与行动追踪：读 `evaluation/README.md`，再读 `evaluation/PRODUCT_VALUE_EVALUATION.md` 与 `evaluation/PRODUCT_VALUE_TRACKING_TODO.md`。
+- 查通用治理规范/跨项目 AI 工作流：读 `standards/README.md`，再读 `standards/STANDARDS_PROJECT_MANAGEMENT_SYSTEM_ARCHITECTURE.md`。
 - 查 VDC/DPLL：先读 `vdc/VDC_DOMAIN_ARCHITECTURE.md`，再读 `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`；底层 IO 链路见 `sync/SYNC_IO_ARCHITECTURE.md`。
 - 查上/下行 TDMA 与环路基础件：先读 `tdma/TDMA_DOMAIN_ARCHITECTURE.md`，再读 `refmem/REFMEM_SYNC_ARCHITECTURE.md` 和 `vdc/VDC_DOMAIN_ARCHITECTURE.md` 的消费边界。
 - 查当前运行板约束：读 `hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`。

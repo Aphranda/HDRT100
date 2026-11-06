@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/submissions/README.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-10-21
+Last updated: 2026-11-06
 
 > 用途：层间逐级核验（域 → 父层）的提交单归档目录。每份提交单一个文件：
 > `docs/check/submissions/<DOMAIN>_CROSS_REVIEW_<NN>.md`
@@ -85,3 +85,4 @@ Last updated: <YYYY-MM-DD>
 | `DOCS_CROSS_REVIEW_01.md` | agent 约束收敛：`tools/**`/`.agents/**/*.py` 归 host、契约 id 全量校验、`DRAFT_CLAUSE_DEBT`、§8 迁入 EXE §7 | 初审 `APPROVE-WITH-FIXES` → 复审 `PASS_WITH_NOTE`；4 项必修功能面闭环 |
 | `ARCH_ALGORITHM_REUSE_CROSS_REVIEW_01.md` | 校验原语合并（CRC-32/CCITT/FNV → `components/algo`）+ `p3_dpll_gate`/`validate_summary` 自检修复；逐字节等价与四板 P3 `SCOPE_PASS` 证据 | `ACCEPT_WITH_DEVIATION`；C11 `PASS_WITH_NOTE`，host 凭证待接受会话重生成 |
 | `ARCH_CONCEPT_DUPLICATION_CROSS_REVIEW_01.md` | 重复概念合并/归档计划（A1–A11 / B1 / C）的独立交叉核验；评审修订 4 处 A 项、撤回 A10 合并、批次重排 | `ACCEPT_WITH_DEVIATION`；C11 `PASS_WITH_CHANGES`，`REFMEM-ACTION-01` 已 superseded |
+| `DOCS_PROGRESS_CROSS_REVIEW_01.md` | C14/C15 进展日志契约的两次独立 C11 复核：`DOCS-PROGRESSROTATE-01`、`DOCS-PROGRESSORDER-01` | `PASS_WITH_NOTE`；因闭包/同向/边界缺口保持 pending，修复后再激活 |
