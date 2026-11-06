@@ -1873,15 +1873,43 @@ static void app_ctrqs_publish(void)
 static void app_ctrqs_ring_diagnostic_after_topo(void)
 {
     (void)tdma_runtime_owner_set_ring_diagnostic_mode(true);
-    /* The low-rate guide carrier (10 kHz / 100 kHz) has no calibrated phase
-     * table; it is started through the existing bring-up no-cal path.  The
-     * final T3 product start at 10 MHz must never use it. */
+}
+
+/* The low-rate guide carrier (10 kHz / 100 kHz) has no calibrated phase table;
+ * it starts through the existing bring-up no-cal path.  The flag lives on the
+ * staged config and can only be set after the topology/config retire has
+ * completed, so callers invoke this at the quiescent barrier just before ARM.
+ * The final T3 product start at 10 MHz must never use it. */
+static void app_ctrqs_low_rate_bringup(void)
+{
     tdma_service_ring_runtime_config_t staged;
     if (s_ctrqs.plan.action_id != APP_CTRQS_ACTION_T3 &&
         tdma_runtime_owner_get_staged_ring_config(&staged) &&
         staged.baud_hz != 0u && staged.baud_hz < 1000000u) {
         (void)tdma_runtime_owner_set_bringup_no_cal(true);
     }
+}
+
+/* Wall-clock budgets must follow the carrier rate: one ring cycle is 1 ms at
+ * 10 MHz but 150 ms at 10 kHz, so a 10 MHz-sized constant (t0 offset, forward
+ * window, trial slot) is 150x too small at the low-rate profile. */
+static uint32_t app_ctrqs_staged_period_ms(void)
+{
+    tdma_service_ring_runtime_config_t staged;
+    if (!tdma_runtime_owner_get_staged_ring_config(&staged) ||
+        staged.cycle_period_ns == 0u) {
+        return 1u;
+    }
+    const uint32_t period_ms =
+        (uint32_t)(staged.cycle_period_ns / UINT64_C(1000000));
+    return period_ms != 0u ? period_ms : 1u;
+}
+
+static uint32_t app_ctrqs_scaled_ms(uint32_t base_ms, uint32_t cycles)
+{
+    const uint64_t scaled =
+        (uint64_t)cycles * app_ctrqs_staged_period_ms() + UINT64_C(500);
+    return scaled > base_ms ? (uint32_t)scaled : base_ms;
 }
 
 static bool app_ctrqs_ring_quiescent(void)
@@ -2083,6 +2111,28 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         if (s_ctrqs.slot_ms < 300u) {
             s_ctrqs.slot_ms = 300u;
         }
+        /* The same trial needs cycles x cycle_period of wall time, so the slot
+         * must follow the applied profile instead of a 10 MHz-sized constant.
+         * The C window stays a lower-bound budget; the executor extends the
+         * slot when the carrier is slower (10 kHz is 150x the 10 MHz period). */
+        tdma_service_ring_runtime_config_t staged_p1;
+        if (tdma_runtime_owner_get_staged_ring_config(&staged_p1) &&
+            staged_p1.cycle_period_ns != 0u) {
+            uint32_t max_cycles = 0u;
+            for (uint32_t i = 0u; i < s_ctrqs.cycle_count; i++) {
+                if (s_ctrqs.cycles[i] > max_cycles) {
+                    max_cycles = s_ctrqs.cycles[i];
+                }
+            }
+            const uint64_t need_ms =
+                ((uint64_t)max_cycles * 2ull * staged_p1.cycle_period_ns +
+                 UINT64_C(999999)) /
+                    UINT64_C(1000000) +
+                UINT64_C(500);
+            if ((uint64_t)s_ctrqs.slot_ms < need_ms) {
+                s_ctrqs.slot_ms = (uint32_t)need_ms;
+            }
+        }
     } else if (plan->action_id == APP_CTRQS_ACTION_P2) {
         /* P2 candidate layout: ref_slot, codebook, min_lag, max_lag,
          * min_margin; threshold_low = probe phase cycles, threshold_high =
@@ -2242,7 +2292,8 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
     }
     /* One common schedule for all four boards: the trigger frame reaches them
      * within a ring cycle, so a fixed offset from receipt is a shared epoch. */
-    s_ctrqs.t0_ms = now + APP_CTRQS_T0_OFFSET_MS;
+    s_ctrqs.t0_ms = now + APP_CTRQS_T0_OFFSET_MS +
+                    (uint64_t)10u * app_ctrqs_staged_period_ms();
     s_ctrqs.t_end_ms =
         s_ctrqs.t0_ms + ((uint64_t)s_ctrqs.trials * s_ctrqs.slot_ms);
     s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_RUNNING;
@@ -2755,7 +2806,8 @@ static void app_ctrqs_service(void)
                 (uint32_t)PROJECT_TDMA_GUIDE_NODES)) {
             app_ctrqs_ring_diagnostic_after_topo();
             s_ctrqs.state = APP_CTRQS_ARM;
-            s_ctrqs.deadline_ms = now + APP_CTRQS_ARM_MS;
+            s_ctrqs.deadline_ms =
+                now + app_ctrqs_scaled_ms(APP_CTRQS_ARM_MS, 8u);
             /* Followers arm first; the reference releases the ring start last,
              * the same handshake the host training tools use. */
             s_ctrqs.arm_try_ms = (s_ctrqs.local_slot == s_ctrqs.ref_slot)
@@ -2779,6 +2831,7 @@ static void app_ctrqs_service(void)
             }
             return;
         }
+        app_ctrqs_low_rate_bringup();
         if (now < s_ctrqs.arm_try_ms) {
             return;
         }
@@ -2793,7 +2846,8 @@ static void app_ctrqs_service(void)
             return;
         }
         s_ctrqs.state = APP_CTRQS_FORWARD;
-        s_ctrqs.deadline_ms = now + APP_CTRQS_FORWARD_MS;
+        s_ctrqs.deadline_ms =
+            now + app_ctrqs_scaled_ms(APP_CTRQS_FORWARD_MS, 6u);
         /* The shared trial epoch is anchored on the trigger receipt, so the
          * forward barrier must stay open at least until that epoch. */
         if (s_ctrqs.deadline_ms < s_ctrqs.t0_ms + 1000u) {
@@ -2905,10 +2959,13 @@ static void app_ctrqs_service(void)
             s_ctrqs.arm_try_ms = (uint32_t)now + 150u;
             if (!app_ctrqs_ring_quiescent()) {
                 app_ctrqs_stop_throttled(now);
-            } else if (distributed_refmem_tdma_ring_arm() &&
-                       distributed_refmem_tdma_ring_arm_last_result() !=
-                           DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
-                app_ctrqs_stop_throttled(now);
+            } else {
+                app_ctrqs_low_rate_bringup();
+                if (distributed_refmem_tdma_ring_arm() &&
+                    distributed_refmem_tdma_ring_arm_last_result() !=
+                        DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
+                    app_ctrqs_stop_throttled(now);
+                }
             }
             return;
         }
@@ -3307,10 +3364,13 @@ static void app_ctrqs_service(void)
         if (!s_ctrqs.rebuild_armed) {
             if (!app_ctrqs_ring_quiescent()) {
                 app_ctrqs_stop_throttled(now);
-            } else if (distributed_refmem_tdma_ring_arm() &&
-                       distributed_refmem_tdma_ring_arm_last_result() ==
-                           DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
-                s_ctrqs.rebuild_armed = true;
+            } else {
+                app_ctrqs_low_rate_bringup();
+                if (distributed_refmem_tdma_ring_arm() &&
+                    distributed_refmem_tdma_ring_arm_last_result() ==
+                        DISTRIBUTED_REFMEM_TDMA_ARM_OK) {
+                    s_ctrqs.rebuild_armed = true;
+                }
             }
         } else {
             /* ARM starts the adapter; START releases the ring traffic.  A
