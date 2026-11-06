@@ -9,7 +9,7 @@
 #include "flash_transaction.h"
 
 #define SEAT_MOUNT_OBJECT_TYPE 0x53454154u
-#define SEAT_MOUNT_COMMIT_OFFSET 36u
+#define SEAT_MOUNT_COMMIT_OFFSET FLASH_STORE_RECORD_COMMIT_OFFSET
 #define SEAT_MOUNT_SECTOR_COUNT 2u
 #define SEAT_MOUNT_PROGRAM_SIZE 512u
 #define SEAT_MOUNT_SCAN_SIZE 64u
@@ -207,6 +207,16 @@ bool tdma_seat_mount_store_save(const tdma_seat_mount_table_t *table, uint32_t g
     if (!flash_execute(FLASH_TRANSACTION_OPERATION_PROGRAM, base, s_commit_page,
             FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE, generation)) {
         s_last_reject = 8u;
+        return false;
+    }
+    /* Same write-verify as the boot profile store: re-scan the sector, decode
+     * the committed record and compare it with what we meant to persist. */
+    seat_mount_scan_t verify = scan_sector(target);
+    flash_store_record_header_t header;
+    if (!decode_latest(&verify, &header) || header.generation != generation ||
+        header.sequence != sequence ||
+        memcmp(&s_mount, table, sizeof(*table)) != 0) {
+        s_last_reject = 9u;
         return false;
     }
     s_mount = *table;

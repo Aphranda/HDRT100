@@ -10,6 +10,9 @@
 #define FLASH_STORE_RECORD_MAGIC 0x46535231u
 #define FLASH_STORE_RECORD_COMMIT_MARKER 0x434F4D4Du
 #define FLASH_STORE_RECORD_HEADER_SIZE 40u
+/* Offset of the commit marker inside the header. The NVS stores used to
+ * repeat the literal `36u`; the record owner is this header. */
+#define FLASH_STORE_RECORD_COMMIT_OFFSET 36u
 
 typedef enum {
     FLASH_STORE_RECORD_OK = 0,
