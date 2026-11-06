@@ -318,7 +318,7 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 | M6.1 | 参考板 P1 TIMEOUT 收口（10 kHz） | ✅ 同 build `20261106213111` 连续 2 次（gen 620/621）四板 P1 `progress_status=1`、`trials_done=4`、`passed_mask=0xF`、`failed_mask=0`、`reason=0`、`reconcile=1`，`ladder` 一致前进 | 四板 `PLAN?`（25 字段）+ `p3-053100` | ✅ 完成（`f1e03ae9`） |
 | M6.2 | 阶梯索引与代数一致 | ✅ 同 build `20261106220406` 连续 10 轮（gen 640–649）四板 `ladder_index=1` 一致；同代数重复 `ladder_step=0`（不再推进）；P1 无 staged 载荷，`commit=0/0/0` 四板一致 | 四板 `PLAN?`（25 字段）+ `verdict` | ✅ 完成 |
 | M6.2b | S 段"同动作同代数只写一次" | ⏳ P1 不写 flash（`commit_appl=0`），该路径要到有 staged 载荷的动作（T3）才能验证 | 四板 `PLAN?` 的 commit 三字段 + flash 记录 | 并入 M6.7 |
-| M6.3 | P2 成环档/测量档分离 | 成环走 level 23 + BRINGUP，停环后再 apply 测量档；四板 P2 `COMPLETE` | `PLAN?` + `RING:CONFIG?`（cycle_period/flags） | M6.2 |
+| M6.3 | P2 成环档/测量档分离 | ✅ 同 build `20261106224625`：成环沿用窗口载体（引导档 + BRINGUP），停环后 apply 测量档（level 7）；四板 P2 `prog_status=1, trials_done=1/1, passed_mask=1, failed_mask=0, reason=0, reconcile=1, ladder_idx=2` | 四板 `PLAN?` + `p3-064615` | ✅ 完成（`740eb1f9`） |
 | M6.4 | P3 @10 kHz 四板 | 全部链路×重复通过，`COMPLETE` 且 `deepest_trial` 覆盖满 | `PLAN?` + P3 工具产物 | M6.3 |
 | M6.5 | T0/T1/T2 @10 kHz 四板 | 每动作一轮 C→T→R→Q→S 四板 `COMPLETE` | 四板 `PLAN?`（逐动作 gen/epoch 记录） | M6.4 |
 | M6.6 | T3 @10 kHz | T3 `COMPLETE` 后**仅其 S** 允许 `ARM → START 10 MHz`；四板 `enabled=1, adapter_started=1` | `RING:STATUS?` + `PLAN?` | M6.5 |
@@ -684,9 +684,20 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   failed=0, reason=0, ladder=1/0, commit=0/0/0`。⇒ M6.1 稳定性残余 **CLOSED**；
   M6.2 的索引/决策一致性同批证据达成。
 
-## 7. 台架与操作注意
+**2026-11-07 07:0x M6.3 达成（`740eb1f9`，build `20261106224625`）**：
 
-- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
+- P2 原来在 PREP 第一步就 apply 计划的 `profile_level` 再成环——在设计档位下等于要求用
+  10 MHz 成环，成不了。改为两段：**成环沿用窗口载体（引导档 + BRINGUP）**，`ring_torn_down`
+  之后再 stage/apply **测量档（level 7）**，然后才进 P2_WAIT 发 coded 测量。
+- 实板：先跑一轮 P1（四板全绿、ladder→1），再发 P2 计划 → **四板全部**
+  `status=1, trials_done=1/1, passed_mask=1, failed_mask=0, reason=0, reconcile=1,
+  ladder_idx=2, ladder_step=1`，计划 `level=7`。M6.3 达成。
+- 观察：P2 的 S 段 `commit_decision=2, commit_appl=1, commit_ok=0`——有 staged flash 载荷
+  但未写；这正是 M6.2b/M6.7 要收口的"S 代数语义"，留待 T3 一并验证。
+- 注意：阶梯单调（P1→2），重跑 P2 需先让 ladder 回到 1（跑一轮 P1），因此 P2 的"连续多次"
+  验证成本高于 P1。
+
+## 7. 台架与操作注意- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
 - `RING:TOPology` 会清掉 `DIAGNOSTIC_CONTINUE`；台架诊断起环顺序是
