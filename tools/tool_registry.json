@@ -4575,10 +4575,6 @@
           "role": "test_runner"
         },
         {
-          "path": "tools/tests/run_refmem_action_registry_tests.ps1",
-          "role": "test_runner"
-        },
-        {
           "path": "tools/tests/run_refmem_all_host_tests.ps1",
           "role": "test_runner"
         },

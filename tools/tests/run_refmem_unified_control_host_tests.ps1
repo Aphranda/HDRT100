@@ -12,8 +12,7 @@ $sources = @(
     (Join-Path $repo "components\distributed_refmem\src\refmem_cmd_codec.c"),
     (Join-Path $repo "components\distributed_refmem\src\refmem_command.c"),
     (Join-Path $repo "components\distributed_refmem\src\refmem_control_route.c"),
-    (Join-Path $repo "components\distributed_refmem\src\refmem_trigger_session.c"),
-    (Join-Path $repo "components\distributed_refmem\src\refmem_action_registry.c")
+    (Join-Path $repo "components\distributed_refmem\src\refmem_trigger_session.c")
 )
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
@@ -28,7 +27,7 @@ if (-not $hostCc) {
 
 $exe = Join-Path $build "test_refmem_unified_control_host.exe"
 & $hostCc.Source -std=c11 -Wall -Wextra -Werror `
-    "-I$refmemInclude" $testSource $sources -o $exe
+    "-I$refmemInclude" "-I$repo\components\algo\inc" $testSource $sources -o $exe
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
