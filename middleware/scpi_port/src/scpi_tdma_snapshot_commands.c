@@ -12,6 +12,7 @@
 #include "refmem_domain_config.h"
 #include "refmem_param_pool.h"
 #include "diagnostics_tdma_record.h"
+#include "tdma_ring_phase.h"
 #include "pico/time.h"
 #include "board_config.h"
 #include "board_identity.h"
@@ -1038,6 +1039,30 @@ scpi_result_t scpi_cmd_system_tdma_ring_diagnostic_q(scpi_t *context)
     SCPI_ResultUInt32(
         context,
         (config.flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) != 0u ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_phase_q(scpi_t *context)
+{
+    tdma_ring_phase_diag_t diag;
+    tdma_ring_phase_get_diag(&diag);
+    SCPI_ResultUInt32(context, diag.local_phase);
+    SCPI_ResultUInt32(context, diag.round);
+    SCPI_ResultUInt32(context, diag.publish_count);
+    SCPI_ResultUInt32(context, diag.receive_count);
+    SCPI_ResultUInt32(context, diag.reject_count);
+    for (uint32_t slot = 0u; slot < TDMA_RING_PHASE_NODE_MAX; slot++) {
+        tdma_ring_phase_peer_t peer;
+        if (!tdma_ring_phase_get_peer(slot, &peer)) {
+            SCPI_ResultUInt32(context, 0u);
+            SCPI_ResultUInt32(context, 0u);
+            SCPI_ResultUInt32(context, 0u);
+            continue;
+        }
+        SCPI_ResultUInt32(context, peer.valid ? 1u : 0u);
+        SCPI_ResultUInt32(context, peer.phase);
+        SCPI_ResultUInt32(context, peer.round);
+    }
     return SCPI_RES_OK;
 }
 

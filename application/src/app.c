@@ -47,6 +47,7 @@
 #include "tdma_operating_profile.h"
 #include "tdma_service.h"
 #include "tdma_service_timing.h"
+#include "tdma_ring_phase.h"
 #include "sync_io.h"
 #include "sync_io_reference.h"
 #include "sync_io_logic_analyzer.h"
@@ -1992,6 +1993,28 @@ static void app_ctrqs_abort(uint32_t reason)
     s_ctrqs.deadline_ms = app_ctrqs_now_ms() + APP_CTRQS_RESTORE_MS;
 }
 
+/* Ring-state negotiation: every board advertises the phase it is in, and the
+ * executor crosses a handoff only after all boards report the same phase for
+ * the same round.  Stopping or forming the ring is a shared transition, so a
+ * board that moves first cannot tear the ring out from under the others. */
+#define APP_CTRQS_PHASE_STALE_MS 15000u
+/* How long a follower keeps its forward window open for the origin's phase
+ * handoff.  The origin can start up to one command delivery later than the
+ * boards that already applied the broadcast (16-52 s measured at 10 kHz), so
+ * the local t0-based deadline cannot gate a follower. */
+#define APP_CTRQS_FOLLOWER_PHASE_WAIT_MS 90000u
+
+static void app_ctrqs_publish_phase(uint8_t phase)
+{
+    /* The maintenance plane is origin-broadcast: a follower's submit never
+     * reaches the ring and would only fill its own TX queue, so only the
+     * reference advertises.  Followers adopt the broadcast instead. */
+    if (s_ctrqs.local_slot != s_ctrqs.ref_slot) {
+        return;
+    }
+    (void)tdma_ring_phase_publish(phase, (uint16_t)s_ctrqs.plan.generation);
+}
+
 static void app_ctrqs_finalize(void)
 {
     if (s_ctrqs.hard_fail_reason != 0u) {
@@ -2307,6 +2330,9 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
                     (uint64_t)80u * app_ctrqs_staged_period_ms();
     s_ctrqs.t_end_ms =
         s_ctrqs.t0_ms + ((uint64_t)s_ctrqs.trials * s_ctrqs.slot_ms);
+    /* The schedule above is only an upper bound now: the FORWARD->TRIAL
+     * handoff is a negotiated barrier and re-bases t0 when it passes. */
+    app_ctrqs_publish_phase((uint8_t)TDMA_RING_PHASE_READY);
     s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_RUNNING;
     app_ctrqs_publish();
     /* The dark window below is intentional: do not let the ring completeness
@@ -2801,6 +2827,9 @@ static void app_ctrqs_service(void)
     }
     case APP_CTRQS_FANOUT:
         if (now >= s_ctrqs.deadline_ms) {
+            /* Announce the stop before it happens: a board that is still in an
+             * earlier phase sees the others stopping and can follow. */
+            app_ctrqs_publish_phase((uint8_t)TDMA_RING_PHASE_STOPPING);
             app_ctrqs_stop_throttled(now);
             s_ctrqs.state =
                 (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_P2)
@@ -2824,6 +2853,7 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_STOP:
         if (app_ctrqs_ring_quiescent()) {
+            app_ctrqs_publish_phase((uint8_t)TDMA_RING_PHASE_STOPPED);
             s_ctrqs.state = APP_CTRQS_TOPO;
             s_ctrqs.deadline_ms = now + APP_CTRQS_TOPO_MS;
             return;
@@ -2836,6 +2866,7 @@ static void app_ctrqs_service(void)
         if (distributed_refmem_set_tdma_ring_topology(
                 s_ctrqs.local_slot, s_ctrqs.ref_slot,
                 (uint32_t)PROJECT_TDMA_GUIDE_NODES)) {
+            app_ctrqs_publish_phase((uint8_t)TDMA_RING_PHASE_FORMING);
             app_ctrqs_ring_diagnostic_after_topo();
             s_ctrqs.state = APP_CTRQS_ARM;
             s_ctrqs.deadline_ms =
@@ -2891,6 +2922,18 @@ static void app_ctrqs_service(void)
             s_ctrqs.deadline_ms =
                 s_ctrqs.t0_ms + (uint32_t)forward_guard;
         }
+        /* A follower no longer opens on its own t0: it waits for the origin's
+         * phase broadcast, and the origin starts as much as one command
+         * delivery later (measured 16-52 s at 10 kHz).  The local schedule is
+         * therefore only an upper bound for the origin; followers keep the
+         * forward window open long enough to see the handoff. */
+        if (s_ctrqs.local_slot != s_ctrqs.ref_slot) {
+            const uint64_t follower_wait =
+                now + (uint64_t)APP_CTRQS_FOLLOWER_PHASE_WAIT_MS;
+            if ((uint64_t)s_ctrqs.deadline_ms < follower_wait) {
+                s_ctrqs.deadline_ms = follower_wait;
+            }
+        }
         return;
     case APP_CTRQS_FORWARD: {
         if (!app_ctrqs_ring_formed()) {
@@ -2945,9 +2988,21 @@ static void app_ctrqs_service(void)
             app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
             return;
         }
-        if (now < s_ctrqs.t0_ms) {
-            return;
+        /* The ring is formed on this board.  The origin now drives the shared
+         * handoff: its phase broadcast crosses the whole ring in one
+         * revolution, so every follower enters the trial phase within about
+         * one revolution of the origin instead of at its own receipt offset
+         * (measured 16-52 s apart).  The old "wait until t0" rule was exactly
+         * that per-board offset, which is why the first board to move tore the
+         * ring down under the others. */
+        if (s_ctrqs.local_slot == s_ctrqs.ref_slot) {
+            app_ctrqs_publish_phase((uint8_t)TDMA_RING_PHASE_TRIAL);
+        } else if (tdma_ring_phase_local() != (uint8_t)TDMA_RING_PHASE_TRIAL) {
+            return; /* wait for the origin's broadcast; deadline fails closed */
         }
+        s_ctrqs.t0_ms = now;
+        s_ctrqs.t_end_ms =
+            now + ((uint64_t)s_ctrqs.trials * s_ctrqs.slot_ms);
         s_ctrqs.state = APP_CTRQS_TRIAL;
         return;
     }

@@ -1,0 +1,101 @@
+#ifndef TDMA_RING_PHASE_H
+#define TDMA_RING_PHASE_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Ring state negotiation ("barrier") over the maintenance plane.
+ *
+ * The guide ladder's C->T->R->Q->S handoff used to be decided per board: each
+ * board stopped and re-formed the ring on its own, so whoever moved first broke
+ * the shared ring for the others.  At 10 kHz the maintenance channel carries
+ * one 10-byte chunk per ring revolution, and a GUIDE command takes ~50 s
+ * because its frame is 216 bytes (54 chunks) -- not because the channel is
+ * slow.  A phase message is a single chunk, so one revolution carries it.
+ *
+ * Every node broadcasts {phase, round} when its phase changes and refreshes it
+ * periodically.  A barrier is satisfied when every node reports a phase at or
+ * past the target for the same round, so all boards cross it within about one
+ * revolution instead of within one command broadcast (20-78 s measured).
+ *
+ * The barrier is POLLED: the caller keeps its own deadline and fails closed.
+ * Nothing here blocks, sleeps or services another component. */
+
+#define TDMA_RING_PHASE_TYPE 0x56u
+#define TDMA_RING_PHASE_VERSION 1u
+#define TDMA_RING_PHASE_MSG_SIZE 8u
+#define TDMA_RING_PHASE_NODE_MAX 8u
+
+/* Phases are ordered: a node already past the target counts as arrived, so a
+ * board that moved early is never waited for twice. */
+typedef enum {
+    TDMA_RING_PHASE_IDLE = 0u,
+    TDMA_RING_PHASE_READY = 1u,
+    TDMA_RING_PHASE_STOPPING = 2u,
+    TDMA_RING_PHASE_STOPPED = 3u,
+    TDMA_RING_PHASE_FORMING = 4u,
+    TDMA_RING_PHASE_FORMED = 5u,
+    TDMA_RING_PHASE_TRIAL = 6u,
+    TDMA_RING_PHASE_RESTORING = 7u,
+} tdma_ring_phase_t;
+
+typedef struct {
+    uint8_t version;
+    uint8_t phase;
+    uint16_t round;
+    uint8_t source_slot;
+    uint8_t reserved[3];
+} tdma_ring_phase_msg_t;
+
+typedef struct {
+    uint8_t phase;
+    uint16_t round;
+    bool valid;
+} tdma_ring_phase_peer_t;
+
+typedef struct {
+    uint8_t local_phase;
+    uint16_t round;
+    uint32_t publish_count;
+    uint32_t receive_count;
+    uint32_t reject_count;
+    uint32_t ready_fail_count;
+} tdma_ring_phase_diag_t;
+
+void tdma_ring_phase_reset(void);
+
+uint32_t tdma_ring_phase_encode(const tdma_ring_phase_msg_t *msg,
+                                uint8_t out[TDMA_RING_PHASE_MSG_SIZE]);
+bool tdma_ring_phase_decode(const uint8_t *payload, size_t size,
+                            tdma_ring_phase_msg_t *msg);
+
+/* Broadcast the local phase/round to every node.  False when the maintenance
+ * transport is not ready; the caller keeps its own state and retries later. */
+bool tdma_ring_phase_publish(uint8_t phase, uint16_t round);
+
+/* Parser entry: records one peer message (allocation-free, O(1)). */
+bool tdma_ring_phase_accept(const uint8_t *payload, size_t size);
+
+/* True when every node in [0, node_count) reports the same `round` and a phase
+ * at or past `target`.  The local node is authoritative for itself.  A peer
+ * whose entry is older than `stale_ms` does not satisfy the barrier. */
+bool tdma_ring_phase_ready(uint8_t target, uint16_t round, uint32_t node_count,
+                           uint32_t stale_ms);
+
+/* The phase this board is in.  A follower adopts the origin's phase when the
+ * broadcast arrives, so this is the negotiated state, not a local guess. */
+uint8_t tdma_ring_phase_local(void);
+
+bool tdma_ring_phase_get_peer(uint32_t slot, tdma_ring_phase_peer_t *peer);
+void tdma_ring_phase_get_diag(tdma_ring_phase_diag_t *diag);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* TDMA_RING_PHASE_H */

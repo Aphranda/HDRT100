@@ -12,6 +12,7 @@
 #include "tdma_long_frame.h"
 #include "tdma_maintenance_runtime.h"
 #include "tdma_maintenance_stream.h"
+#include "tdma_ring_phase.h"
 #include "tdma_second_class_parser.h"
 
 static tdma_pio_spi_ring_adapter_t *s_adapter;
@@ -160,6 +161,14 @@ static bool refmem_fragment_parser(const uint8_t *payload,
     return ok;
 }
 
+static bool refmem_ring_phase_parser(const uint8_t *payload,
+                                    size_t payload_size,
+                                    void *context)
+{
+    (void)context;
+    return tdma_ring_phase_accept(payload, payload_size);
+}
+
 bool refmem_cmd_load_init(tdma_pio_spi_ring_adapter_t *adapter)
 {
     s_adapter = adapter;
@@ -168,6 +177,7 @@ bool refmem_cmd_load_init(tdma_pio_spi_ring_adapter_t *adapter)
         return false;
     }
     tdma_second_class_parser_reset();
+    tdma_ring_phase_reset();
     if (!tdma_second_class_parser_register(
             TDMA_SECOND_CLASS_TYPE_REFMEM_CMD, refmem_cmd_parser, NULL) ||
         !tdma_second_class_parser_register(
@@ -176,7 +186,9 @@ bool refmem_cmd_load_init(tdma_pio_spi_ring_adapter_t *adapter)
             TDMA_SECOND_CLASS_TYPE_T2_DYNAMIC, tdma_t2_dynamic_parser, NULL) ||
         !tdma_second_class_parser_register(
             TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT, refmem_fragment_parser,
-            NULL)) {
+            NULL) ||
+        !tdma_second_class_parser_register(
+            TDMA_RING_PHASE_TYPE, refmem_ring_phase_parser, NULL)) {
         s_initialized = 0u;
         return false;
     }
