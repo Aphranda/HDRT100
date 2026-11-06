@@ -3386,6 +3386,18 @@ static void app_ctrqs_service(void)
             }
             return;
         }
+        /* Same split as P2: the ring was formed at the guide carrier, but the
+         * per-link ranging is a raw measurement that needs the plan's
+         * measurement profile.  Applying it before the teardown would ask a
+         * low-rate guide window to form a 10 MHz ring. */
+        if (s_ctrqs.plan.profile_level != 0u &&
+            (!tdma_runtime_owner_stage_operating_profile(
+                 s_ctrqs.plan.profile_level) ||
+             !tdma_runtime_owner_apply_operating_profile())) {
+            app_ctrqs_abort(
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            return;
+        }
         s_ctrqs.p3_trial = 0u;
         s_ctrqs.p3_started = false;
         s_ctrqs.p3_trial_t0_ms = s_ctrqs.t0_ms;
