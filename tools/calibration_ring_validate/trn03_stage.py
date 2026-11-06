@@ -136,7 +136,53 @@ DIAGNOSTIC_ONLY_FLAG = 1 << 31
 # opposite physical edge arrives.
 FLIGHT_SCK_REARM_SAMPLES = 2
 FLIGHT_DATA_REARM_SAMPLES = 5
+# Mirrors TDMA_PIO_SPI_PROCESS_DATA_DECODE_CYCLES / ..._PROCESS_BYTE_REARM_CYCLES
+# / ..._RAW_BYTE_REARM_CYCLES.  A follower re-arms its byte path inside one bit:
+# max(DATA phase + decode, half bit) + byte re-arm.
+PROCESS_DATA_DECODE_SAMPLES = 2
+PROCESS_BYTE_REARM_SAMPLES = 7
+RAW_BYTE_REARM_SAMPLES = 8
 FLIGHT_REFERENCE_NODE = 0
+WINDOW_VERDICTS = ("usable", "too_narrow", "non_contiguous",
+                   "coverage_incomplete", "no_window")
+
+
+def checked_offset_window(link_index: int, signal: str, window: object,
+                          chosen: int, *, allow_unsafe: bool
+                          ) -> dict[str, Any]:
+    """Validate one optional eye window recorded by a bench offset sweep.
+
+    A link may omit ``offset_window``; when it is present its verdict must be
+    ``usable`` and its chosen offset must be the one the matrix actually
+    stages, otherwise the sweep evidence and the staged row disagree.
+    """
+    if not isinstance(window, dict):
+        raise ValueError(
+            f"link{link_index} {signal} offset window must be an object")
+    verdict = str(window.get("verdict", ""))
+    if verdict not in WINDOW_VERDICTS:
+        raise ValueError(
+            f"link{link_index} {signal} offset window verdict is invalid")
+    width = integer_field(window, "width_samples")
+    if width < 0:
+        raise ValueError(
+            f"link{link_index} {signal} offset window width is invalid")
+    if verdict != "usable":
+        if not allow_unsafe:
+            raise ValueError(
+                f"link{link_index} {signal} offset window is not usable "
+                f"({verdict})")
+        return dict(window)
+    if width < 2:
+        raise ValueError(
+            f"link{link_index} {signal} offset window claims usable with "
+            f"width {width}")
+    window_chosen = integer_field(window, "chosen_offset_sample_count")
+    if window_chosen != chosen:
+        raise ValueError(
+            f"link{link_index} {signal} offset window chose {window_chosen} "
+            f"but the matrix stages {chosen}")
+    return dict(window)
 
 
 def sck_replay_phase_margin(*, phase_delay_cycles: int, baud_hz: int,
@@ -333,6 +379,8 @@ def validate_config(raw: object,
 
     links: list[dict[str, int]] = []
     unsafe_data_links: list[int] = []
+    data_rearm_evidence: list[dict[str, Any]] = []
+    window_evidence: list[dict[str, Any]] = []
     for raw_link in raw_links:
         if not isinstance(raw_link, dict):
             raise ValueError("every link must be an object")
@@ -347,6 +395,28 @@ def validate_config(raw: object,
         link_index = link["link_index"]
         if link_index >= node_count:
             raise ValueError("link_index is outside the physical ring")
+        raw_window = raw_link.get("offset_window")
+        if raw_window is not None:
+            if not isinstance(raw_window, dict):
+                raise ValueError(
+                    f"link{link_index} offset window must be an object")
+            for signal, chosen, allow in (
+                    ("sck", link["sck_offset_sample_count"], allow_unsafe_sck),
+                    ("data", link["data_offset_sample_count"], allow_unsafe_data)):
+                if signal not in raw_window:
+                    continue
+                checked = checked_offset_window(
+                    link_index, signal, raw_window[signal], chosen,
+                    allow_unsafe=allow)
+                link[f"{signal}_offset_window"] = checked
+                window_evidence.append({
+                    "link": link_index,
+                    "signal": signal,
+                    "verdict": checked["verdict"],
+                    "width_samples": checked["width_samples"],
+                    "chosen_offset_sample_count": checked[
+                        "chosen_offset_sample_count"],
+                })
         marker_source = integer_field(raw_link, "marker_source_node")
         marker_destination = integer_field(
             raw_link, "marker_destination_node")
@@ -423,23 +493,63 @@ def validate_config(raw: object,
                 link["data_phase_delay_cycles"] > 31:
             raise ValueError(
                 f"link{link['link_index']} PIO phase mapping is invalid")
-        if not allow_unsafe_sck and not sck_replay_phase_is_safe(
+        if not allow_unsafe_sck:
+            # The reference node owns the SCK origin, so only the half-period
+            # bound is waived for it; the encoder's lower bound (the PIO patch
+            # cannot encode a phase below the re-arm width) applies to every
+            # role, exactly as the firmware's global `sck < 2` clause does.
+            margin = sck_replay_phase_margin(
                 phase_delay_cycles=link["sck_phase_delay_cycles"],
                 baud_hz=baud_hz,
                 sample_period_ns=link["sample_period_ns"],
-                destination_node=marker_destination):
-            raise ValueError(
-                f"link{link['link_index']} SCK replay phase cannot re-arm "
-                "before the opposite edge")
+                destination_node=marker_destination)
+            if margin is None:
+                if link["sck_phase_delay_cycles"] < FLIGHT_SCK_REARM_SAMPLES:
+                    raise ValueError(
+                        f"link{link['link_index']} SCK phase is below the "
+                        "encoder minimum on the reference node")
+            elif margin < 0:
+                raise ValueError(
+                    f"link{link['link_index']} SCK replay phase cannot re-arm "
+                    "before the opposite edge")
         period_samples = 1_000_000_000 // (
             baud_hz * link["sample_period_ns"])
-        if (link["data_phase_delay_cycles"] +
-                FLIGHT_DATA_REARM_SAMPLES > period_samples):
+        # Mirror the firmware byte-path admission instead of checking the
+        # flight re-arm constant for every link: the master launches DATA
+        # against its own counted phase (D + 5), while a follower must re-arm
+        # the whole byte path inside one bit (max(D + decode, half) + re-arm).
+        # Staging carries no process-image flag, so the hard bound follows the
+        # product persona (process follower, 7 cycles); the stricter raw-follower
+        # bound (8) is recorded per link so a raw-persona run is not silently
+        # admitted. The board re-checks the bound that matches its own persona.
+        high_samples = (period_samples + 1) // 2
+        if sck_destination == FLIGHT_REFERENCE_NODE:
+            data_rearm_cycles = (link["data_phase_delay_cycles"] +
+                                 FLIGHT_DATA_REARM_SAMPLES)
+            raw_rearm_cycles = data_rearm_cycles
+            data_rearm_bound = "master_flight_data"
+        else:
+            sample_path = (link["data_phase_delay_cycles"] +
+                           PROCESS_DATA_DECODE_SAMPLES)
+            data_rearm_cycles = max(sample_path, high_samples) + \
+                PROCESS_BYTE_REARM_SAMPLES
+            raw_rearm_cycles = max(sample_path, high_samples) + \
+                RAW_BYTE_REARM_SAMPLES
+            data_rearm_bound = "follower_process_byte_path"
+        data_rearm_evidence.append({
+            "link": link["link_index"],
+            "bound": data_rearm_bound,
+            "required_cycles": data_rearm_cycles,
+            "period_cycles": period_samples,
+            "raw_persona_required_cycles": raw_rearm_cycles,
+            "raw_persona_safe": raw_rearm_cycles <= period_samples,
+        })
+        if data_rearm_cycles > period_samples:
             unsafe_data_links.append(link["link_index"])
             if not allow_unsafe_data:
                 raise ValueError(
                     f"link{link['link_index']} DATA replay phase cannot "
-                    "re-arm before the next symbol")
+                    f"re-arm before the next symbol ({data_rearm_bound})")
         if link[ORIGIN_CAPTURE_FIELDS[1]] + FLIGHT_DATA_REARM_SAMPLES > period_samples:
             if link["link_index"] not in unsafe_data_links:
                 unsafe_data_links.append(link["link_index"])
@@ -487,6 +597,8 @@ def validate_config(raw: object,
             "allow_unsafe_sck": bool(allow_unsafe_sck),
             "allow_unsafe_data": bool(allow_unsafe_data),
             "unsafe_data_links": unsafe_data_links,
+            "data_rearm_bounds": data_rearm_evidence,
+            "offset_windows": window_evidence,
         },
         "node_ids_in_loop_order": raw.get("node_ids_in_loop_order"),
     }

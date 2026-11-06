@@ -217,7 +217,10 @@ def test_load_config_keeps_data_phase_independent_from_sck(
     value = matrix()
     value["offset_matrix"]["rows"][0][
         "data_offset_sample_counts_by_node"] = [data_offset] * 4
-    loaded = load_config(write_matrix(tmp_path, value))
+    # A phase beyond the follower byte path is still derived verbatim; only the
+    # diagnostic flag keeps it loadable, and it is reported as unsafe.
+    loaded = load_config(
+        write_matrix(tmp_path, value), allow_unsafe_data=True)
     assert [link["data_phase_delay_cycles"]
             for link in loaded["links"]] == [10 + data_offset] * 4
 
@@ -449,3 +452,125 @@ def test_prepare_context_rejects_non_raw_flight_mode(
              f'7,10000000,100,1,0,{config["profile_crc32"]},0,0,0,0,0,0'))
     with pytest.raises(RuntimeError, match="raw-flight mode not active"):
         prepare_board_context(board, config, 0, args)
+
+
+def test_data_rearm_uses_firmware_byte_path_bound(tmp_path: Path) -> None:
+    config = load_config(write_matrix(tmp_path, matrix()))
+    bounds = {item["link"]: item
+              for item in config["diagnostic_replay_gates"]["data_rearm_bounds"]}
+    # Links 0..2 forward into a follower; link 3 owns the origin.
+    for link in (0, 1, 2):
+        assert bounds[link]["bound"] == "follower_process_byte_path"
+        assert bounds[link]["required_cycles"] == 24
+        assert bounds[link]["raw_persona_required_cycles"] == 25
+        assert bounds[link]["raw_persona_safe"] is True
+        assert bounds[link]["period_cycles"] == 25
+    assert bounds[3]["bound"] == "master_flight_data"
+    assert bounds[3]["required_cycles"] == 20
+    assert bounds[3]["raw_persona_safe"] is True
+
+
+def test_data_rearm_records_raw_persona_bound_beyond_process_limit(
+        tmp_path: Path) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][
+        "data_offset_sample_counts_by_node"] = [6, 6, 6, 6]
+    # Phase 16: process follower 18 + 7 = 25 fits, raw follower 18 + 8 = 26 does
+    # not.  The product persona stays admissible; the raw bound is surfaced.
+    config = load_config(write_matrix(tmp_path, value))
+    bounds = {item["link"]: item
+              for item in config["diagnostic_replay_gates"]["data_rearm_bounds"]}
+    assert bounds[0]["required_cycles"] == 25
+    assert bounds[0]["raw_persona_required_cycles"] == 26
+    assert bounds[0]["raw_persona_safe"] is False
+    assert config["diagnostic_replay_gates"]["unsafe_data_links"] == []
+
+
+def test_data_rearm_rejects_phase_beyond_process_byte_path(
+        tmp_path: Path) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][
+        "data_offset_sample_counts_by_node"] = [8, 8, 8, 8]
+    # Phase 18: 20 + 7 = 27 > 25 for a follower, while the old master-only
+    # formula (18 + 5 = 23) admitted it.
+    with pytest.raises(ValueError, match="follower_process_byte_path"):
+        load_config(write_matrix(tmp_path, value))
+    config = load_config(write_matrix(tmp_path, value), allow_unsafe_data=True)
+    assert config["diagnostic_replay_gates"]["unsafe_data_links"] == [0, 1, 2]
+
+
+def test_data_rearm_bound_rejects_25mhz_low_phase(tmp_path: Path) -> None:
+    value = matrix()
+    value["baud_hz"] = 25_000_000
+    # 25 MHz: period 10 cycles, half 5.  SCK can be tuned down to phase 3 so it
+    # passes, but the follower byte path still needs max(2 + 2, 5) + 7 = 12 > 10.
+    value["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] = [-7, -7, -7, -7]
+    value["offset_matrix"]["rows"][0][
+        "data_offset_sample_counts_by_node"] = [-8, -8, -8, -8]
+    with pytest.raises(ValueError, match="follower_process_byte_path"):
+        load_config(write_matrix(tmp_path, value))
+
+def test_load_config_enforces_sck_encoder_minimum_on_reference(
+        tmp_path: Path) -> None:
+    value = matrix()
+    # Node 0 is the reference and the destination of link 3; a phase of 1
+    # cannot be encoded (the PIO patch clamps below the re-arm width) and the
+    # firmware rejects it for every role.
+    value["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] = [-9, 0, 0, 0]
+    with pytest.raises(ValueError, match="encoder minimum"):
+        load_config(write_matrix(tmp_path, value))
+    loaded = load_config(
+        write_matrix(tmp_path, value), allow_unsafe_sck=True)
+    assert loaded["links"][3]["sck_phase_delay_cycles"] == 1
+
+def test_offset_window_is_validated_when_recorded(tmp_path: Path) -> None:
+    value = matrix()
+    for link in value["links"]:
+        link["offset_window"] = {
+            "sck": {"verdict": "usable", "width_samples": 2,
+                    "chosen_offset_sample_count": 0},
+        }
+    config = load_config(write_matrix(tmp_path, value))
+    assert config["diagnostic_replay_gates"]["offset_windows"] == [
+        {"link": 0, "signal": "sck", "verdict": "usable", "width_samples": 2,
+         "chosen_offset_sample_count": 0},
+        {"link": 1, "signal": "sck", "verdict": "usable", "width_samples": 2,
+         "chosen_offset_sample_count": 0},
+        {"link": 2, "signal": "sck", "verdict": "usable", "width_samples": 2,
+         "chosen_offset_sample_count": 0},
+        {"link": 3, "signal": "sck", "verdict": "usable", "width_samples": 2,
+         "chosen_offset_sample_count": 0},
+    ]
+
+
+def test_offset_window_must_match_the_staged_offset(tmp_path: Path) -> None:
+    value = matrix()
+    value["links"][0]["offset_window"] = {
+        "sck": {"verdict": "usable", "width_samples": 3,
+                "chosen_offset_sample_count": 1}}
+    with pytest.raises(ValueError, match="but the matrix stages 0"):
+        load_config(write_matrix(tmp_path, value))
+
+
+def test_offset_window_rejects_narrow_or_malformed_evidence(
+        tmp_path: Path) -> None:
+    value = matrix()
+    value["links"][0]["offset_window"] = {
+        "sck": {"verdict": "too_narrow", "width_samples": 1,
+                "chosen_offset_sample_count": 0}}
+    with pytest.raises(ValueError, match="not usable"):
+        load_config(write_matrix(tmp_path, value))
+    loaded = load_config(
+        write_matrix(tmp_path, value), allow_unsafe_sck=True)
+    assert loaded["diagnostic_replay_gates"]["offset_windows"][0][
+        "verdict"] == "too_narrow"
+    value["links"][0]["offset_window"] = {
+        "sck": {"verdict": "usable", "width_samples": 1,
+                "chosen_offset_sample_count": 0}}
+    with pytest.raises(ValueError, match="claims usable"):
+        load_config(write_matrix(tmp_path, value))
+    value["links"][0]["offset_window"] = "not-a-window"
+    with pytest.raises(ValueError, match="must be an object"):
+        load_config(write_matrix(tmp_path, value))
