@@ -315,7 +315,7 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 
 | 里程碑 | 内容 | 完成判据 | 证据 | 依赖 |
 |---|---|---|---|---|
-| M6.1 | 参考板 P1 TIMEOUT 收口（10 kHz） | 同一 build 连续 2 次四板 P1 `progress_status=1`、`trials_done=4` **且 `passed_mask=0xF`、`failed_mask=0`** | 四板 `PLAN?` 前 15 字段 + 末 2 字段（mask）+ `RING:STATUS?` | §7.4 交叉分析裁决（子代理 `7a077e37`/`96f0340a`） |
+| M6.1 | 参考板 P1 TIMEOUT 收口（10 kHz） | ✅ 同 build `20261106213111` 连续 2 次（gen 620/621）四板 P1 `progress_status=1`、`trials_done=4`、`passed_mask=0xF`、`failed_mask=0`、`reason=0`、`reconcile=1`，`ladder` 一致前进 | 四板 `PLAN?`（25 字段）+ `p3-053100` | ✅ 完成（`f1e03ae9`） |
 | M6.2 | 阶梯索引与代数一致 | 四板 `ladder_index` 相同；同动作同代数 S 只写一次；S 决策四板一致 | `PLAN?` 第 18–22 字段 + 提交证据 | M6.1 |
 | M6.3 | P2 成环档/测量档分离 | 成环走 level 23 + BRINGUP，停环后再 apply 测量档；四板 P2 `COMPLETE` | `PLAN?` + `RING:CONFIG?`（cycle_period/flags） | M6.2 |
 | M6.4 | P3 @10 kHz 四板 | 全部链路×重复通过，`COMPLETE` 且 `deepest_trial` 覆盖满 | `PLAN?` + P3 工具产物 | M6.3 |
@@ -658,6 +658,18 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 台架退化与恢复（记录备用）：连续跑数小时后出现 bring-up 失败/命令面停摆；恢复步骤为
   四板 `SYST:BOOT:RESET` + `stage` + `up`，若仍异常则跑一次 P3（其初始化比手工更完整）。
   本轮 P3 `p3-051235` 后恢复，随后 gen 610 四板全绿、gen 611 参考板再次失败。
+
+**2026-11-07 05:4x M6.1 收口（`f1e03ae9`，build `20261106213111`）**：
+
+- 紧凑 trigger（0x57，8 B，1 chunk）上线后：参考板 trigger 应用从 **t=65.5 s 降到 t=0.09 s**，
+  四板在同一个环回内看到 trigger。
+- **连续两轮（gen 620、gen 621）四板全部** `prog_status=1, trials_done=4,
+  passed_mask=0xF, failed_mask=0, reason=0, reconcile=1`，`ladder_idx` 四板一致。
+  ⇒ **M6.1 判据达成（同 build 连续 2 次）**。
+- 复现配方：`stage`（level 23）→ `up`（TOPO/BRINGUP/ARM/START）→ `GUIDE:CONFig`（gen G，
+  等四板 gen 一致）→ `GUIDE:TRIGger`（epoch E）→ 等四板 `PLAN?` 终态。
+- 下一步 M6.2：四板阶梯索引与 S 代数一致——两轮已看到 `ladder_idx=1` 一致，但
+  `ladder_step` 在第二轮为 0（同代数重复），需要确认"S 段代数幂等"在 10 kHz 下同样成立。
 
 ## 7. 台架与操作注意
 
