@@ -374,6 +374,19 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
   下一步：按 §6.2.1 的判别实验把"训练返回在 slot 内到达"的比例量化，再决定
   `max(100 ms, k × cycle_period)` 的 k 与 slot 预算是否同时调整。
 
+**2026-11-06 21:1x–21:2x 追记（build `20261106131109`，`56ea7598`）**：
+
+- P1 的 slot 估算原来假设"一个 cycle 只花 2 个环回"；10 kHz 实测 4-cycle burst 的 `tx_done`
+  在 2.06 s 才到（≈3.4×环周期/cycle），16-cycle trial 实需 ~8 s > 5.3 s slot，边界必 abort。
+  改为 5×环周期后：参考板 `trials_done` 1 → **3**（4-cycle 与 16-cycle 各成功一次），跟随板仍 4/4。
+- **新的结构性观察**：参考板训练时三块跟随板 `RING:TRAIN:STATus?` 为 `state=1`（不在
+  `FORWARDING=2`），它们只在各自 FORWARD 段短暂进过 2；参考板成功的那几次恰好落在跟随板
+  处于 2 的窗口内。即"参考板每个 trial 都发一次 train，但跟随板不会为参考板的每次 trial
+  重新 arm forward persona"。
+- 该项已按 §7.4 开只读子代理（`96f0340a`）复核状态机与回落原因；裁决前不改该路径。
+- 附带结论：P1 的 cycle ladder 不属于冻结契约——canonical host 工具是扫频（`calibration_clk_train.py`
+  的 `pulse_start/pulse_limit/growth_factor`），`{4,16}` 只是交接配方里的取值，可按档位调整。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
