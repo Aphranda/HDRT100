@@ -63,6 +63,11 @@ static uint32_t s_maint_ack_count;
 static uint32_t s_cmd_deadline_ms;
 static uint32_t s_cmd_pending_seq;
 static uint32_t s_cmd_budget_ms;
+/* Broadcast-landed gate: the number of maintenance chunks this command needs,
+ * the counter value when it was submitted, and whether the gate is armed. */
+static uint32_t s_dispatch_base_chunks;
+static uint32_t s_dispatch_chunks_needed;
+static uint32_t s_dispatch_armed;
 
 static bool refmem_cmd_load_emit_fragments(const uint8_t *frame,
                                            uint32_t frame_size,
@@ -569,17 +574,59 @@ static bool refmem_cmd_load_emit_fragments(const uint8_t *frame,
     return submitted_frames > 0u;
 }
 
-bool refmem_cmd_load_transport_idle(void)
+/* Chunks one command's records produce: records are packed into maintenance
+ * frames of at most TDMA_MAINTENANCE_STREAM_MAX bytes and each frame is sent as
+ * ceil(bytes / DATA_SIZE) chunks, which is what maintenance_mailbox() hands to
+ * the wire one call at a time. */
+static uint32_t refmem_cmd_load_chunk_count(uint32_t records)
 {
-    /* True when every queued maintenance frame has been taken and
-     * frame-ACKed.  The issuer uses this as its "the broadcast landed" edge:
-     * the low-rate channel delivers the last chunk to all targets in the same
-     * ring revolution, and the last frame's ACK returns about one revolution
-     * after that, so this is the closest cheap approximation to the instant
-     * the targets applied the command. */
+    uint32_t chunks = 0u;
+    uint32_t used = 0u;
+    for (uint32_t index = 0u; index < records; index++) {
+        used += REFMEM_CMD_FRAGMENT_RECORD_SIZE;
+        const bool last = (index + 1u) == records;
+        if (used + REFMEM_CMD_FRAGMENT_RECORD_SIZE >
+                TDMA_MAINTENANCE_STREAM_MAX ||
+            last) {
+            chunks += (used + TDMA_MAINTENANCE_CHUNK_DATA_SIZE - 1u) /
+                      TDMA_MAINTENANCE_CHUNK_DATA_SIZE;
+            used = 0u;
+        }
+    }
+    return chunks;
+}
+
+bool refmem_cmd_load_broadcast_landed(void)
+{
+    /* The gate is the frame-ACK drain: every frame of the command has been
+     * taken and acknowledged, so every target has reassembled it.
+     *
+     * The chunk counter alone is NOT sufficient and was tried: it counts
+     * chunks handed to the wire, so a frame that has to be retried (routine at
+     * 10 kHz) inflates it and opens the gate while delivery is still behind --
+     * measured 52 s early in the other direction.  It is kept only as a
+     * necessary condition, never as the trigger.
+     *
+     * Residual: the drain includes the retry tail, so the issuer still starts
+     * up to ~16 s after the faster boards -- enough that they finish their
+     * round and disarm their forwarding persona first.  Aligning the windows
+     * exactly needs a shared start time (see the M6.1 ledger), not a better
+     * edge here. */
+    if (s_dispatch_armed == 0u) {
+        return true;
+    }
+    uint32_t chunks = 0u;
+    tdma_maintenance_runtime_get_counters(NULL, &chunks, NULL, NULL);
+    if ((uint32_t)(chunks - s_dispatch_base_chunks) < s_dispatch_chunks_needed) {
+        return false; /* not every chunk has even been handed to the wire */
+    }
     tdma_maintenance_runtime_diag_t diag;
     tdma_maintenance_runtime_get_diag(&diag);
-    return diag.queue_depth == 0u && diag.tx_awaiting_ack == 0u;
+    if (diag.queue_depth != 0u || diag.tx_awaiting_ack != 0u) {
+        return false;
+    }
+    s_dispatch_armed = 0u;
+    return true;
 }
 
 bool refmem_cmd_load_submit_fragments(
@@ -622,7 +669,16 @@ bool refmem_cmd_load_submit_fragments(
     if (!refmem_cmd_load_emit_fragments(frame, (uint32_t)frame_size,
                                         (uint8_t)snapshot->target_mask)) {
         s_pending_active = 0u;
+        s_dispatch_armed = 0u;
         return false;
+    }
+    /* Arm the broadcast-landed gate for the issuer's own copy. */
+    {
+        uint32_t chunks = 0u;
+        tdma_maintenance_runtime_get_counters(NULL, &chunks, NULL, NULL);
+        s_dispatch_base_chunks = chunks;
+        s_dispatch_chunks_needed = refmem_cmd_load_chunk_count(count);
+        s_dispatch_armed = 1u;
     }
     memcpy(s_pending_frame, frame, frame_size);
     s_pending_size = (uint32_t)frame_size;

@@ -32,12 +32,13 @@ bool refmem_cmd_load_peek_maintenance_ack(uint8_t *stream_id,
                                           bool *ok);
 void refmem_cmd_load_consume_maintenance_ack(void);
 
-/* True when every queued maintenance frame has been taken and frame-ACKed.
- * The issuer treats the transition to idle as "the broadcast landed": at a
- * low-rate profile the whole fragment stream reaches all targets in the same
- * ring revolution as the last chunk, so dispatching a local copy before this
- * edge would start it tens of seconds ahead of the rest of the ring. */
-bool refmem_cmd_load_transport_idle(void);
+/* True once the last maintenance chunk of the command just submitted has been
+ * handed to the wire -- the instant every target reassembles it in the same
+ * ring revolution.  The issuer holds its own copy until this edge so the whole
+ * ring starts its window together; waiting for the frame ACKs instead adds the
+ * per-frame ACK chain (measured 16 s at 10 kHz) and lets faster boards finish
+ * and disarm while the issuer is still training. */
+bool refmem_cmd_load_broadcast_landed(void);
 
 typedef struct {
     uint32_t load_initialized;

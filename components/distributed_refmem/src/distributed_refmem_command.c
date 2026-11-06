@@ -212,20 +212,21 @@ void distributed_refmem_node_control_service(void)
      * finish reassembling tens of seconds later, so dispatching the local copy
      * on submit starts this board's training window long before the ring's
      * other boards have even seen the plan (measured 20-78 s of skew, with the
-     * reference always first and therefore always alone).  The last maintenance
-     * frame's ACK is the one instant all boards share -- every target has
-     * applied the command by then, and the ACK comes back about one ring
-     * revolution later -- so holding until the transport drains puts every
-     * window within roughly one revolution instead of one broadcast.
+     * reference always first and therefore always alone).  The last
+     * maintenance chunk is the one instant all boards share -- every target
+     * reassembles the command in the ring revolution that carries it -- so
+     * holding until that chunk is on the wire puts every window within roughly
+     * one revolution instead of one broadcast.
      *
-     * The aggregate ACK bits are deliberately NOT the trigger: those replies
-     * travel the same slow path and arrive tens of seconds later (measured
-     * ~42 s at 10 kHz), which would make the issuer the last board instead of
-     * the first. */
+     * The frame-ACK aggregate and even the per-frame ACK drain are deliberately
+     * NOT the trigger: those replies travel the same slow path (measured 42 s
+     * for the aggregate, 16 s for the drain), and 16 s was already enough for
+     * the faster boards to finish their round and disarm their forwarding
+     * persona while the issuer's later trials were still running. */
     if (snapshot.source_node == local_slot) {
         const uint32_t remote_required =
             snapshot.required_mask & ~(1u << local_slot);
-        if (remote_required != 0u && !refmem_cmd_load_transport_idle()) {
+        if (remote_required != 0u && !refmem_cmd_load_broadcast_landed()) {
             return; /* the wire copy is still being delivered */
         }
     }
