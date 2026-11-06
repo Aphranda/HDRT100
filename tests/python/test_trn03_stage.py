@@ -545,6 +545,22 @@ def test_offset_window_is_validated_when_recorded(tmp_path: Path) -> None:
     ]
 
 
+def test_unreachable_baud_fails_closed_at_the_host(tmp_path: Path) -> None:
+    """A baud whose half period is shorter than the encoder floor has no row.
+
+    At 40 MHz the period is 6 PIO cycles and the half period is 3, while the
+    SCK patch cannot encode a phase below the re-arm width (2).  Every observed
+    offset therefore fails ``sck + re-arm <= half``; staging must reject the
+    matrix on the host instead of shipping a row the firmware would refuse.
+    """
+    value = matrix()
+    value["baud_hz"] = 40_000_000
+    value["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] = [-8, -8, -8, -8]
+    with pytest.raises(ValueError, match="cannot re-arm before the opposite"):
+        load_config(write_matrix(tmp_path, value))
+
+
 def test_offset_window_must_match_the_staged_offset(tmp_path: Path) -> None:
     value = matrix()
     value["links"][0]["offset_window"] = {
