@@ -631,6 +631,18 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - **M6.1 累计**：全绿出现 3 次（gen 460 / 470 / 与 461 前一轮），但**从未连续 2 次**，
   仍 OPEN。
 
+**2026-11-07 05:1x phase 复位（`e5c5af33`，build `20261106204950`）**：
+
+- 修复"phase 跨轮粘滞"：跟随板不再沿用上一轮的 TRIAL 提前驻留（`tdma_ring_phase_set_local()`
+  + `app_ctrqs_start` 每轮置 READY）。这是"后两个 trial 失败"的直接解释。
+- 同轮时间线（`trace-*.json`）：跟随板在 t≈124.8 已是 `1/1(FORWARDING)`；参考板
+  124.8 FANOUT → 125.6 ARM → 126.6 **REBUILD**（约 1 s 内 abort），从未进入 TRIAL。
+  `PLAN?` 记录的 `abort_site` 与时间线不完全一致（说明该字段被后续 abort 覆盖或状态枚举
+  另有含义），下一步要把 abort 站点做成"只记第一次 + 带阶段名"，否则归因仍会漂移。
+- 结论：剩余抖动是**参考板自身的起环/ARM 阶段**在 1 s 内失败（跟随板此时已就绪），
+  不是 persona 问题。下一步给 ARM 路径加 reason 细分（哪一步被拒：quiescent / arm 结果 /
+  adapter 错误），再决定修复。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
