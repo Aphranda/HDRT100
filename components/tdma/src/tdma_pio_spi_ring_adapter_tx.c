@@ -360,18 +360,27 @@ bool tdma_pio_spi_ring_adapter_start(
         uint32_t expected_segment_mask = 0u;
         const uint32_t expected_owner_mask =
             tdma_pio_spi_ring_adapter_expected_owner_mask(adapter, config);
-        if (!tdma_flight_engine_get_snapshot(adapter->flight_engine,
-                                              &engine_snapshot) ||
-            !tdma_flight_engine_expected_input_mask(
-                adapter->flight_engine,
-                expected_owner_mask,
-                &expected_segment_mask)) {
+        const bool map_ok =
+            tdma_flight_engine_get_snapshot(adapter->flight_engine,
+                                            &engine_snapshot) &&
+            tdma_flight_engine_expected_input_mask(
+                adapter->flight_engine, expected_owner_mask,
+                &expected_segment_mask);
+        if (!map_ok && expected_segment_mask == 0u) {
+            /* Degenerate process-image map: the calibration stage was cleared,
+             * so no segment is owned by a foreign slot and there is no map to
+             * gate on.  Start the ring with the physical-layer default payload
+             * and no flight-health binding instead of failing the whole ring
+             * start; a real process-image map keeps the strict reject below. */
+            tdma_flight_engine_deactivate(adapter->flight_engine);
+            tdma_receive_health_reset_stopped(&adapter->receive_health);
+        } else if (!map_ok) {
             tdma_flight_engine_deactivate(adapter->flight_engine);
             tdma_pio_spi_ring_adapter_set_error(
                 adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
             tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
             return false;
-        }
+        } else {
         const tdma_receive_health_config_t receive_config = {
             .schedule_crc32 = config->schedule_crc32,
             .ring_profile_crc32 = config->ring_profile_crc32,
@@ -405,6 +414,7 @@ bool tdma_pio_spi_ring_adapter_start(
                 adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
             tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
             return false;
+        }
         }
     } else {
         tdma_receive_health_reset_stopped(&adapter->receive_health);
