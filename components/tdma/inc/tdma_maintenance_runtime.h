@@ -87,4 +87,16 @@ typedef struct {
 
 void tdma_maintenance_runtime_get_diag(tdma_maintenance_runtime_diag_t *diag);
 
+/* Rate-scaled delivery budget for one multi-frame control message.
+ *
+ * The maintenance channel hands ONE chunk to the wire per ring revolution, and
+ * each frame additionally waits for its own frame-level ACK.  At a low-rate
+ * profile that is seconds per frame, so a caller that wants a fail-closed
+ * deadline must derive it from the ring, not from a compile-time constant.
+ * `total_bytes` is the sum of the frame payloads to send and `frames` the
+ * number of maintenance frames; both are known by the caller that packed them.
+ * Returns 0 when the ring never reported a feedback timeout (no deadline). */
+uint32_t tdma_maintenance_runtime_delivery_budget_ms(uint32_t total_bytes,
+                                                     uint32_t frames);
+
 #endif /* TDMA_MAINTENANCE_RUNTIME_H */

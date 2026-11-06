@@ -394,3 +394,36 @@ void tdma_maintenance_runtime_get_diag(tdma_maintenance_runtime_diag_t *diag)
     diag->tx_fail = s_tx_fail;
     diag->tx_dropped_chunks = s_tx_dropped_chunks;
 }
+
+uint32_t tdma_maintenance_runtime_delivery_budget_ms(uint32_t total_bytes,
+                                                     uint32_t frames)
+{
+    if (s_adapter == NULL || s_adapter->config.feedback_timeout_ns == 0u) {
+        return 0u;
+    }
+    /* One chunk reaches the wire per revolution; a frame additionally waits
+     * one or two revolutions for its frame-level ACK before the next frame is
+     * released.  Both terms are counted from the ring's own feedback timeout,
+     * so the budget follows the active profile (600 ms/revolution at 10 kHz,
+     * 4 ms at 10 MHz) instead of a fixed constant. */
+    uint32_t chunks =
+        (total_bytes + TDMA_MAINTENANCE_CHUNK_DATA_SIZE - 1u) /
+        TDMA_MAINTENANCE_CHUNK_DATA_SIZE;
+    if (chunks == 0u) {
+        chunks = 1u;
+    }
+    if (frames == 0u) {
+        frames = 1u;
+    }
+    const uint64_t revolutions = (uint64_t)(chunks + 2u * frames) * 3u / 2u;
+    uint64_t budget_ms =
+        (revolutions * s_adapter->config.feedback_timeout_ns + 999999u) /
+        1000000u;
+    if (budget_ms < TDMA_MAINTENANCE_ACK_TIMEOUT_BASE_MS) {
+        budget_ms = TDMA_MAINTENANCE_ACK_TIMEOUT_BASE_MS;
+    }
+    if (budget_ms > 240000u) {
+        budget_ms = 240000u;
+    }
+    return (uint32_t)budget_ms;
+}

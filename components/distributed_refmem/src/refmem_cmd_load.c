@@ -1,4 +1,4 @@
-﻿#include "refmem_cmd_load.h"
+#include "refmem_cmd_load.h"
 
 #include <string.h>
 
@@ -28,13 +28,26 @@ static uint8_t s_generation;
 static uint8_t s_tx_frame[TDMA_MAINTENANCE_RUNTIME_MAX];
 static refmem_cmd_fragment_ctx_t s_frag_ctx;
 static uint32_t s_frag_frame_seq;
+/* Retained fragment source for one bounded replay.
+ *
+ * The maintenance channel moves one 10-byte chunk per ring revolution, so a
+ * 216-byte command frame is ~50 chunks and takes ~50 s at 10 kHz.  That is
+ * throughput, not loss: the targets apply it together, one revolution after
+ * the last chunk.  The only loss path left is a maintenance frame that fails
+ * all three of its own attempts and is dropped; the fragments the target had
+ * already accepted stay valid, so re-sending the SAME command_seq (new
+ * fragment frame_seq) lets the target restart cleanly and dedupe the command
+ * by its seq.  The source is kept here only until the replicated record shows
+ * every required ACK bit; the replay is gated on a quiet transport so an old
+ * and a new fragment sequence never interleave at the target. */
 static uint8_t s_pending_frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
-                              REFMEM_SYNC_FRAME_PAYLOAD_MAX];
+                               REFMEM_SYNC_FRAME_PAYLOAD_MAX];
 static uint32_t s_pending_size;
-static uint32_t s_pending_index;
 static uint32_t s_pending_count;
 static uint32_t s_pending_seq;
 static uint32_t s_pending_active;
+static uint32_t s_pending_retries;
+static uint8_t s_pending_target;
 static uint32_t s_frag_complete;
 static uint32_t s_frag_submit_fail;
 static uint32_t s_frag_rejected;
@@ -49,8 +62,12 @@ static uint32_t s_maint_ack_count;
  * here: it belongs to the submitter, not to the command fact itself. */
 static uint32_t s_cmd_deadline_ms;
 static uint32_t s_cmd_pending_seq;
+static uint32_t s_cmd_budget_ms;
 
-static void refmem_cmd_load_service_fragments(void);
+static bool refmem_cmd_load_emit_fragments(const uint8_t *frame,
+                                           uint32_t frame_size,
+                                           uint8_t target_mask);
+
 static void refmem_cmd_load_service_timeout(void);
 
 static bool refmem_cmd_parser(const uint8_t *payload,
@@ -281,7 +298,33 @@ static void refmem_cmd_load_service_timeout(void)
         ~(snapshot.ack_flags | snapshot.nack_flags | snapshot.timeout_flags);
     if (pending == 0u) {
         s_cmd_pending_seq = 0u; /* every required bit answered in time */
+        s_pending_active = 0u;
+        s_pending_retries = 0u;
         return;
+    }
+    /* One bounded replay before failing closed.  A maintenance frame that used
+     * all three of its own attempts is dropped without telling the fragment
+     * layer, so the only recovery is to send the same command again.  The
+     * replay must wait for a quiet transport: an old and a new fragment
+     * sequence interleaved at the target would reset its reassembler on every
+     * switch and never complete. */
+    if (s_pending_retries != 0u && s_pending_active != 0u &&
+        s_pending_seq == s_cmd_pending_seq) {
+        tdma_maintenance_runtime_diag_t diag;
+        tdma_maintenance_runtime_get_diag(&diag);
+        if (diag.queue_depth != 0u || diag.tx_awaiting_ack != 0u) {
+            /* Still draining: re-check shortly instead of replaying now. */
+            s_cmd_deadline_ms = osal_tick_ms() + 1000u;
+            return;
+        }
+        s_pending_retries--;
+        if (refmem_cmd_load_emit_fragments(s_pending_frame, s_pending_size,
+                                           s_pending_target)) {
+            s_tx_ok++;
+            s_cmd_deadline_ms = osal_tick_ms() + s_cmd_budget_ms;
+            return;
+        }
+        s_frag_submit_fail++;
     }
     (void)distributed_refmem_node_control_update_status(
         local_slot, (uint32_t)REFMEM_COMMAND_STATE_TIMED_OUT,
@@ -290,6 +333,8 @@ static void refmem_cmd_load_service_timeout(void)
         (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT,
         (uint32_t)REFMEM_COMMAND_INVALID_NODE, 0u, 0u);
     s_cmd_pending_seq = 0u;
+    s_pending_active = 0u;
+    s_pending_retries = 0u;
 }
 
 void refmem_cmd_load_service(void)
@@ -298,7 +343,6 @@ void refmem_cmd_load_service(void)
         return;
     }
     refmem_cmd_load_service_timeout();
-    refmem_cmd_load_service_fragments();
     uint8_t frame[TDMA_MAINTENANCE_RUNTIME_MAX];
     size_t frame_size = 0u;
     uint8_t stream_id = 0u;
@@ -415,7 +459,9 @@ bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status)
     status->frag_complete = s_frag_complete;
     status->frag_submit_fail = s_frag_submit_fail;
     status->frag_pending = s_pending_active;
-    status->frag_pending_index = s_pending_index;
+    /* Replay state rather than send position: `index` is the number of bounded
+     * replays still allowed and `count` the fragments in the stored frame. */
+    status->frag_pending_index = s_pending_retries;
     status->frag_pending_count = s_pending_count;
     if (s_adapter != NULL) {
         tdma_pio_spi_ring_adapter_get_rx_debug(
@@ -460,6 +506,69 @@ bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status)
     return true;
 }
 
+/* Emit every 4-byte fragment of one REFMEM frame as 9-byte records packed into
+ * maintenance frames of at most TDMA_MAINTENANCE_STREAM_MAX bytes.  Each call
+ * starts a new fragment sequence so a replay restarts the target's reassembler
+ * instead of being rejected as an out-of-order continuation. */
+static bool refmem_cmd_load_emit_fragments(const uint8_t *frame,
+                                           uint32_t frame_size,
+                                           uint8_t target_mask)
+{
+    if (frame == NULL || frame_size == 0u) {
+        return false;
+    }
+    const bool bootstrap =
+        refmem_control_transport_route(
+            distributed_refmem_ring_link_ready() ? 1u : 0u) ==
+        REFMEM_CONTROL_TRANSPORT_BOOTSTRAP_SPI;
+    if (!bootstrap && s_initialized == 0u) {
+        return false;
+    }
+    const uint32_t board_no = board_identity_get_no();
+    const uint32_t local_slot = board_no > 0u ? board_no - 1u : 0u;
+    const uint32_t count = refmem_cmd_fragment_count(frame_size);
+    if (count == 0u || count > UINT8_MAX) {
+        return false;
+    }
+    s_frag_frame_seq++;
+    uint8_t payload[TDMA_MAINTENANCE_STREAM_MAX];
+    uint32_t used = 0u;
+    uint32_t submitted_frames = 0u;
+    for (uint32_t index = 0u; index < count; index++) {
+        uint32_t word = 0u;
+        if (!refmem_cmd_fragment_get(frame, frame_size, index, &word)) {
+            s_frag_submit_fail++;
+            return false;
+        }
+        uint8_t record[REFMEM_CMD_FRAGMENT_RECORD_SIZE];
+        (void)refmem_cmd_fragment_record_build(
+            s_frag_frame_seq, (uint8_t)index, (uint8_t)count,
+            (uint8_t)local_slot, word, record);
+        memcpy(payload + used, record, REFMEM_CMD_FRAGMENT_RECORD_SIZE);
+        used += REFMEM_CMD_FRAGMENT_RECORD_SIZE;
+        const bool last = (index + 1u) == count;
+        if (used + REFMEM_CMD_FRAGMENT_RECORD_SIZE >
+                TDMA_MAINTENANCE_STREAM_MAX ||
+            last) {
+            const bool submitted =
+                bootstrap
+                    ? refmem_control_transport_submit(
+                          payload, used, TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT,
+                          s_generation++, target_mask)
+                    : tdma_maintenance_runtime_submit(
+                          payload, used, TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT,
+                          s_generation++, target_mask);
+            if (!submitted) {
+                s_frag_submit_fail++;
+                return false;
+            }
+            submitted_frames++;
+            used = 0u;
+        }
+    }
+    return submitted_frames > 0u;
+}
+
 bool refmem_cmd_load_submit_fragments(
     const refmem_command_snapshot_t *snapshot,
     const uint32_t *params)
@@ -493,47 +602,22 @@ bool refmem_cmd_load_submit_fragments(
         return false;
     }
     const uint32_t count = refmem_cmd_fragment_count(frame_size);
-    if (count == 0u) {
+    if (count == 0u || frame_size > sizeof(s_pending_frame)) {
         s_rejected++;
         return false;
     }
-    s_frag_frame_seq++;
-    uint8_t payload[TDMA_MAINTENANCE_STREAM_MAX];
-    uint32_t used = 0u;
-    uint32_t submitted_frames = 0u;
-    for (uint32_t index = 0u; index < count; index++) {
-        uint32_t word = 0u;
-        if (!refmem_cmd_fragment_get(frame, frame_size, index, &word)) {
-            s_frag_submit_fail++;
-            return false;
-        }
-        uint8_t record[REFMEM_CMD_FRAGMENT_RECORD_SIZE];
-        (void)refmem_cmd_fragment_record_build(
-            s_frag_frame_seq, (uint8_t)index, (uint8_t)count,
-            (uint8_t)local_slot, word, record);
-        memcpy(payload + used, record, REFMEM_CMD_FRAGMENT_RECORD_SIZE);
-        used += REFMEM_CMD_FRAGMENT_RECORD_SIZE;
-        const bool last = (index + 1u) == count;
-        if (used + REFMEM_CMD_FRAGMENT_RECORD_SIZE >
-                TDMA_MAINTENANCE_STREAM_MAX ||
-            last) {
-            const bool submitted =
-                bootstrap
-                    ? refmem_control_transport_submit(
-                          payload, used, TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT,
-                          s_generation++, (uint8_t)snapshot->target_mask)
-                    : tdma_maintenance_runtime_submit(
-                          payload, used, TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT,
-                          s_generation++, (uint8_t)snapshot->target_mask);
-            if (!submitted) {
-                s_frag_submit_fail++;
-                return false;
-            }
-            submitted_frames++;
-            used = 0u;
-        }
+    if (!refmem_cmd_load_emit_fragments(frame, (uint32_t)frame_size,
+                                        (uint8_t)snapshot->target_mask)) {
+        s_pending_active = 0u;
+        return false;
     }
-    s_pending_active = 0u;
+    memcpy(s_pending_frame, frame, frame_size);
+    s_pending_size = (uint32_t)frame_size;
+    s_pending_count = count;
+    s_pending_seq = snapshot->command_seq;
+    s_pending_target = (uint8_t)snapshot->target_mask;
+    s_pending_active = 1u;
+    s_pending_retries = 1u;
     s_submitted++;
     s_tx_ok++;
     /* The issuer records the request in its own REFMEM node control slot, so
@@ -553,39 +637,34 @@ bool refmem_cmd_load_submit_fragments(
         (void)distributed_refmem_node_control_write_with_params(
             local_slot, &source, params, source.command_seq);
     }
-    return submitted_frames > 0u;
+    /* Arm the issuer-side deadline on the fragment path too.  Catalog 50/51
+     * carry timeout_us = 0, so the budget comes from the ring: at 10 kHz the
+     * measured transfer is ~50 s, and this budget is ~57 s; at 10 MHz it is
+     * sub-second.  A zero budget means the ring never reported a feedback
+     * timeout, and then no deadline is armed (same rule as the single-frame
+     * path). */
+    if (snapshot->required_mask != 0u) {
+        const uint32_t frames = (count + 7u) / 8u;
+        const uint32_t bytes = count * REFMEM_CMD_FRAGMENT_RECORD_SIZE;
+        uint32_t budget_ms =
+            tdma_maintenance_runtime_delivery_budget_ms(bytes, frames);
+        const uint32_t explicit_ms = snapshot->timeout_us / 1000u +
+                                     ((snapshot->timeout_us % 1000u) != 0u);
+        if (explicit_ms > budget_ms) {
+            budget_ms = explicit_ms;
+        }
+        if (budget_ms != 0u) {
+            s_cmd_pending_seq = snapshot->command_seq;
+            s_cmd_budget_ms = budget_ms;
+            s_cmd_deadline_ms = osal_tick_ms() + budget_ms;
+        }
+    }
+    return true;
 }
 
-/* Pace one fragment per service call: the maintenance runtime queue is small,
- * so a 55-fragment frame must not be flooded in one call. */
-static void refmem_cmd_load_service_fragments(void)
-{
-    if (s_pending_active == 0u || s_initialized == 0u) {
-        return;
-    }
-    const uint32_t board_no = board_identity_get_no();
-    const uint32_t local_slot = board_no > 0u ? board_no - 1u : 0u;
-    uint32_t word = 0u;
-    if (s_pending_index >= s_pending_count ||
-        !refmem_cmd_fragment_get(s_pending_frame, s_pending_size,
-                                 s_pending_index, &word)) {
-        s_pending_active = 0u;
-        return;
-    }
-    uint8_t record[REFMEM_CMD_FRAGMENT_RECORD_SIZE];
-    (void)refmem_cmd_fragment_record_build(
-        s_pending_seq, (uint8_t)s_pending_index, (uint8_t)s_pending_count,
-        (uint8_t)local_slot, word, record);
-    if (!tdma_maintenance_runtime_submit(
-            record, REFMEM_CMD_FRAGMENT_RECORD_SIZE,
-            TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT, s_generation++,
-            0x0Fu)) {
-        s_frag_submit_fail++;
-        return; /* retry next service */
-    }
-    s_pending_index++;
-    if (s_pending_index >= s_pending_count) {
-        s_pending_active = 0u;
-    }
-}
+/* The replay path reuses the stored frame above; the per-fragment pacing queue
+ * that used to live here was never armed (every write cleared it), so a
+ * one-record-per-call path could not have run.  Deleted rather than enabled:
+ * one 9-byte record per maintenance frame is 8x slower than the packed form
+ * and cannot keep up at a low-rate profile. */
 
