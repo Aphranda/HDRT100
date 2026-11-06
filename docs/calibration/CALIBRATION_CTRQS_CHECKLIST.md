@@ -201,14 +201,12 @@ C→T→R→Q→S**，全部通过后只有最后一轮（T3）的 S 允许 `ARM
 
 ## 6. 下一步
 
-1. **B4 先行**：接通 10 kHz 低速引导环（生成 level 23 的校准 stage，或让标准环路径接受
-   低速档），并让 C 段的 `level` 固定为引导档；P1/P2 窗口随之改用引导档，10 MHz 只留 T3 的 S。
-2. **B5 已通过**（`c6677dcb`）：P2 参考板 coded 启动延后到 t0+1.5 s 后，四板 P2 Q=COMPLETE，
-   参考板 `flags=63, reject=0, best_lag=102, margin=417`；连续 4 次复跑通过。保留观察（P1 偶发
-   FORWARD 超时仍按残余记录）。
-3. **P3–T3**：先冻结 §6.1 的 C 段布局（来自 canonical host 工具的参数字段），再按动作各实现
-   一个 R 体并跑通 C→T→R→Q→S；只有 T3 的 S 允许 `ARM → START 10 MHz`。
-4. 每次 P3 前确认四板 `SYST:FW:BUILD?` 一致；窗口偶发超时先重触发一次再归因。
+当前唯一阻塞与推进顺序以 §6.2 台账为准（M6.1 起，不可跳项）。历史项状态见 §5：
+B4（低速引导环）已由 `RING:BRINGUP 1` 路径解决；B5（P2 coded）由 `c6677dcb` 通过，保留观察。
+
+1. 每次 P3 前确认四板 `SYST:FW:BUILD?` 一致；窗口偶发超时先重触发一次再归因。
+2. 命令面按 §7.1 确认协议；飞行中不得重发。
+3. P3–T3 的 C 段布局见 §6.1（草案 v2 的链路推导规则已冻结，逐链路 role 由环拓扑推导）。
 
 命令形状（C 段参数必须逗号分隔）：
 
@@ -310,6 +308,30 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 `threshold_low/threshold_high` 暂保留（marker 的接受判据由驱动快照 state=ACCEPTED 给出，
 不依赖距离阈值）。T0 的每 trial 仍是“全板 prepare → origin inject → 全板等 ACCEPTED/REJECTED”，
 不需要逐链路 role；`repeats` 决定重复次数。
+
+### 6.2 M6 细化里程碑台账（长期目标 `goal-ead7c1ef`）
+
+状态口径：✅ 仅当「完成判据」有实板读数/凭证；⏳ 进行中或未达判据；— 未开始。
+未验证、延后、`pending` 一律不得写 ✅。
+
+| 里程碑 | 内容 | 完成判据 | 证据 | 依赖 |
+|---|---|---|---|---|
+| M6.1 | 参考板 P1 TIMEOUT 收口（10 kHz） | 同一 build 连续 2 次四板 P1 `progress_status=1, trials_done=4`、`reason=0` | 四板 `PLAN?` 前 15 字段 + `RING:STATUS?` | §7.4 交叉分析裁决（子代理 `7a077e37`） |
+| M6.2 | 阶梯索引与代数一致 | 四板 `ladder_index` 相同；同动作同代数 S 只写一次；S 决策四板一致 | `PLAN?` 第 18–22 字段 + 提交证据 | M6.1 |
+| M6.3 | P2 成环档/测量档分离 | 成环走 level 23 + BRINGUP，停环后再 apply 测量档；四板 P2 `COMPLETE` | `PLAN?` + `RING:CONFIG?`（cycle_period/flags） | M6.2 |
+| M6.4 | P3 @10 kHz 四板 | 全部链路×重复通过，`COMPLETE` 且 `deepest_trial` 覆盖满 | `PLAN?` + P3 工具产物 | M6.3 |
+| M6.5 | T0/T1/T2 @10 kHz 四板 | 每动作一轮 C→T→R→Q→S 四板 `COMPLETE` | 四板 `PLAN?`（逐动作 gen/epoch 记录） | M6.4 |
+| M6.6 | T3 @10 kHz | T3 `COMPLETE` 后**仅其 S** 允许 `ARM → START 10 MHz`；四板 `enabled=1, adapter_started=1` | `RING:STATUS?` + `PLAN?` | M6.5 |
+| M6.7 | S 代数语义 + M6 收口 | S 代数语义冻结成文；P3 凭证 + host 凭证；本节全行 ✅ | 凭证 + 提交清单 | M6.6 |
+| M6.8 | 10 MHz 七动作全链回归 | `P1→T3` 四板 `COMPLETE`（改动后回归，防 10 kHz 修复伤高速档） | 四板 `PLAN?` + P3 | 可与 M6.1 并行 |
+| M6.9 | 探针工具归型 | `out/calibration/guide-10k/guide_cmdplane_probe.py` 或归型入库、或明确废弃并记录 | `tools/tool_workflow_triage.json` 条目或文档说明 | 收口前 |
+
+执行约束（与 §2、§7 同源，不重复）：
+
+- 每动作前确认四板 `SYST:FW:BUILD?` 一致；命令面按 §7.1 的确认协议（gen ≥60 s、epoch ≥120 s 预算），
+  **飞行中不得重发**（新 `command_seq` → 新 frame_seq 会重置目标侧重组）。
+- 每个里程碑结案都要给出「命令序列 + 四板读数 + 产物路径」，不得只给结论。
+- 里程碑顺序不可跳：M6.1 未收口不得推进 M6.2（阶梯索引分叉正是 M6.1 的后果）。
 
 ## 7. 台架与操作注意
 
