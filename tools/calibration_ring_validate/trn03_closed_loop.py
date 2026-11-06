@@ -286,6 +286,17 @@ def parse_args() -> argparse.Namespace:
               "length and cadence remain unchanged"))
     parser.add_argument("--window-s", type=float, default=3.0)
     parser.add_argument(
+        "--soak-host-s", type=float, default=0.0,
+        help=("sample the short ring page at --soak-interval-s for this many "
+              "seconds instead of exporting board records; the window tail "
+              "stays observable and no SD storage job is involved"))
+    parser.add_argument(
+        "--soak-settle-s", type=float, default=2.0,
+        help="ignore this many leading seconds before baselining the soak")
+    parser.add_argument(
+        "--soak-interval-s", type=float, default=1.0,
+        help="host soak sampling interval (default 1 s)")
+    parser.add_argument(
         "--sample-interval-s", type=float, default=1.0,
         help=("periodic soak snapshot interval; every interval is gated, "
               "not only the first and last snapshot"))
@@ -1513,6 +1524,81 @@ def evaluate_board_records(records: dict[str, Any], ordered: list[Board],
         validation["passed"] = False
         validation.setdefault("errors", []).append("board_record_collection_failed")
     return timeline[0]["nodes"], timeline[-1]["nodes"], barrier, timeline, validation
+
+
+SOAK_GROWTH_FIELDS = (
+    "ring_adapter_rx_bad_count",
+    "ring_adapter_rx_transport_bad_count",
+    "ring_adapter_rx_schedule_bad_count",
+    "ring_adapter_rx_profile_bad_count",
+)
+
+
+def host_soak(ordered: list[Board], args: argparse.Namespace, progress,
+              out_dir: Path) -> dict[str, Any]:
+    """Sample the short ring page at a fixed cadence instead of board records.
+
+    The board recorder freezes a fixed sample window and needs an SD storage job
+    to release it; a host soak costs one short-page round-trip per board per
+    interval (about 62 ms on the current USB CDC link), so a 1 Hz cadence leaves
+    most of each second free and keeps the window tail observable.
+    """
+    window_s = float(args.soak_host_s)
+    interval_s = max(0.2, float(args.soak_interval_s))
+    samples: list[dict[str, Any]] = []
+    started = time.monotonic()
+    try:
+        index = 0
+        while time.monotonic() - started <= window_s:
+            elapsed = time.monotonic() - started
+            row = {board.address: runtime_snapshot(board, args, node)
+                   for node, board in enumerate(ordered)}
+            samples.append({"index": index, "elapsed_s": round(elapsed, 3),
+                            "boards": row})
+            index += 1
+            progress.emit("host_soak_sample", index=index,
+                          elapsed_s=round(elapsed, 3))
+            time.sleep(interval_s)
+    finally:
+        for board in ordered:
+            try:
+                board_command(board, "SYSTem:TDMA:RING:STOP", args)
+            except RuntimeError:
+                pass
+    settle_s = float(getattr(args, "soak_settle_s", 2.0) or 0.0)
+    stable = [sample for sample in samples if sample["elapsed_s"] >= settle_s] or samples
+    baseline = stable[0]["boards"]
+    final = stable[-1]["boards"]
+    verdict: dict[str, Any] = {}
+    passed = True
+    for board in ordered:
+        first, last = baseline[board.address], final[board.address]
+        grew = [name for name in SOAK_GROWTH_FIELDS if last[name] > first[name]]
+        down = any(sample["boards"][board.address]["ring_up_running"] == 0 or
+                   sample["boards"][board.address]["ring_down_running"] == 0
+                   for sample in stable[1:])
+        healthy = not grew and not down and last["ring_enabled"] == 1
+        passed = passed and healthy
+        verdict[board.address] = {
+            "healthy": healthy,
+            "grew": grew,
+            "went_down": down,
+            "tx_delta": last["ring_adapter_tx_count"] - first["ring_adapter_tx_count"],
+            "rx_delta": last["ring_adapter_rx_count"] - first["ring_adapter_rx_count"],
+            "loop_time_ns": first.get("ring_loop_time_last_ns"),
+            "sample_count": len(stable),
+        }
+    result = {
+        "window_s": window_s,
+        "interval_s": interval_s,
+        "passed": passed,
+        "boards": verdict,
+        "samples": samples,
+    }
+    summary_path = Path(out_dir) / "soak-host.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    return result
 
 
 def acquire_board_records(ordered, start_order, args, actions, progress, out_dir):
@@ -2770,6 +2856,31 @@ def main() -> int:
                     "action": "CLOCK_TRAIN",
                     "response": train(board, args),
                 })
+        if float(getattr(args, "soak_host_s", 0.0) or 0.0) > 0.0:
+            # RING:START is only issued inside the board-record acquisition, so
+            # the host soak has to raise data_enabled itself, in the same
+            # follower-first order and with the same transient-retry policy.
+            for board in start_order:
+                response = board_command(
+                    board, "SYSTem:TDMA:RING:START", args)
+                for _attempt in range(3):
+                    if response.strip().strip('"') == "OK":
+                        break
+                    time.sleep(0.05)
+                    response = board_command(
+                        board, "SYSTem:TDMA:RING:START", args)
+                if response.strip().strip('"') != "OK":
+                    raise RuntimeError(
+                        f"{board.address}: RING:START rejected {response!r} "
+                        f"ring={board_command(board, 'SYSTem:TDMA:RING:STATus?', args)} "
+                        f"err={board_command(board, 'SYSTem:ERR?', args)}")
+            soak = host_soak(ordered, args, progress, out_dir)
+            progress.emit(
+                "complete", passed=soak["passed"], left_running=False,
+                error="",
+                summary=str(Path(out_dir) / "soak-host.json"),
+                boards=soak["boards"])
+            return 0 if soak["passed"] else 1
         board_records = acquire_board_records(
             ordered, start_order, args, actions, progress, out_dir)
         before, after, startup_barrier, soak_timeline, soak_validation = evaluate_board_records(
