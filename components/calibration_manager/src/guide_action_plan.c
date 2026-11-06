@@ -3,29 +3,26 @@
 
 #include <string.h>
 
+#include "algo_wire.h"
+
 static void put_u16(uint8_t *p, uint16_t v)
 {
-    p[0] = (uint8_t)(v & 0xffu);
-    p[1] = (uint8_t)((v >> 8u) & 0xffu);
+    algo_le16_store(p, v);
 }
 
 static void put_u32(uint8_t *p, uint32_t v)
 {
-    p[0] = (uint8_t)(v & 0xffu);
-    p[1] = (uint8_t)((v >> 8u) & 0xffu);
-    p[2] = (uint8_t)((v >> 16u) & 0xffu);
-    p[3] = (uint8_t)((v >> 24u) & 0xffu);
+    algo_le32_store(p, v);
 }
 
 static uint16_t get_u16(const uint8_t *p)
 {
-    return (uint16_t)(p[0] | ((uint16_t)p[1] << 8u));
+    return algo_le16_load(p);
 }
 
 static uint32_t get_u32(const uint8_t *p)
 {
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8u) | ((uint32_t)p[2] << 16u) |
-           ((uint32_t)p[3] << 24u);
+    return algo_le32_load(p);
 }
 
 static bool plan_ranges_ok(const guide_action_plan_t *plan)

@@ -3,32 +3,26 @@
 #include <string.h>
 
 #include "algo_checksum.h"
+#include "algo_wire.h"
 
 static void put_u16(uint8_t *dst, uint16_t value)
 {
-    dst[0] = (uint8_t)value;
-    dst[1] = (uint8_t)(value >> 8u);
+    algo_le16_store(dst, value);
 }
 
 static uint16_t get_u16(const uint8_t *src)
 {
-    return (uint16_t)src[0] | ((uint16_t)src[1] << 8u);
+    return algo_le16_load(src);
 }
 
 static void put_u32(uint8_t *dst, uint32_t value)
 {
-    for (uint32_t i = 0u; i < 4u; i++) {
-        dst[i] = (uint8_t)(value >> (i * 8u));
-    }
+    algo_le32_store(dst, value);
 }
 
 static uint32_t get_u32(const uint8_t *src)
 {
-    uint32_t value = 0u;
-    for (uint32_t i = 0u; i < 4u; i++) {
-        value |= (uint32_t)src[i] << (i * 8u);
-    }
-    return value;
+    return algo_le32_load(src);
 }
 
 uint32_t tdma_maintenance_stream_crc32(const uint8_t *data, size_t size)

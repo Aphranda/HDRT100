@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "algo_checksum.h"
+#include "algo_wire.h"
 
 _Static_assert(REFMEM_CMD_WIRE_SIZE == 56u, "REFMEM_CMD wire size changed");
 _Static_assert(REFMEM_CMD_CRC_OFFSET == 52u,
@@ -16,21 +17,17 @@ static void put_u8(uint8_t *p, uint8_t v)
 
 static void put_u16(uint8_t *p, uint16_t v)
 {
-    p[0] = (uint8_t)(v & 0xFFu);
-    p[1] = (uint8_t)((v >> 8u) & 0xFFu);
+    algo_le16_store(p, v);
 }
 
 static void put_u32(uint8_t *p, uint32_t v)
 {
-    p[0] = (uint8_t)(v & 0xFFu);
-    p[1] = (uint8_t)((v >> 8u) & 0xFFu);
-    p[2] = (uint8_t)((v >> 16u) & 0xFFu);
-    p[3] = (uint8_t)((v >> 24u) & 0xFFu);
+    algo_le32_store(p, v);
 }
 
 static uint16_t get_u16(const uint8_t *p)
 {
-    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8u));
+    return algo_le16_load(p);
 }
 
 static uint8_t get_u8(const uint8_t *p)
@@ -40,8 +37,7 @@ static uint8_t get_u8(const uint8_t *p)
 
 static uint32_t get_u32(const uint8_t *p)
 {
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8u) |
-           ((uint32_t)p[2] << 16u) | ((uint32_t)p[3] << 24u);
+    return algo_le32_load(p);
 }
 
 static uint32_t cmd_crc32(const uint8_t *p, size_t n)

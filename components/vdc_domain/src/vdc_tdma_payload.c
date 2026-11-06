@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "algo_checksum.h"
+#include "algo_wire.h"
 
 #define VDC_TDMA_PAYLOAD_CRC_OFFSET 2166136261u
 #define VDC_TDMA_PAYLOAD_CRC_PRIME 16777619u
@@ -68,10 +69,7 @@ static bool vdc_tdma_payload_allowed(uint32_t window_class,
 
 static void put_u32(uint8_t *frame, size_t offset, uint32_t value)
 {
-    frame[offset + 0u] = (uint8_t)(value & 0xFFu);
-    frame[offset + 1u] = (uint8_t)((value >> 8u) & 0xFFu);
-    frame[offset + 2u] = (uint8_t)((value >> 16u) & 0xFFu);
-    frame[offset + 3u] = (uint8_t)((value >> 24u) & 0xFFu);
+    algo_le32_store(frame + offset, value);
 }
 
 static void put_i32(uint8_t *frame, size_t offset, int32_t value)
@@ -81,16 +79,12 @@ static void put_i32(uint8_t *frame, size_t offset, int32_t value)
 
 static void put_u64(uint8_t *frame, size_t offset, uint64_t value)
 {
-    put_u32(frame, offset, (uint32_t)(value & 0xFFFFFFFFull));
-    put_u32(frame, offset + 4u, (uint32_t)(value >> 32u));
+    algo_le64_store(frame + offset, value);
 }
 
 static uint32_t get_u32(const uint8_t *frame, size_t offset)
 {
-    return (uint32_t)frame[offset + 0u] |
-           ((uint32_t)frame[offset + 1u] << 8u) |
-           ((uint32_t)frame[offset + 2u] << 16u) |
-           ((uint32_t)frame[offset + 3u] << 24u);
+    return algo_le32_load(frame + offset);
 }
 
 static int32_t get_i32(const uint8_t *frame, size_t offset)

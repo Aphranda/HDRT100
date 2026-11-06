@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_wire.h"
+
 typedef struct {
     bool used;
     uint8_t type;
@@ -114,13 +116,12 @@ bool tdma_t2_static_get_last(uint32_t *target_mask,
 
 static uint16_t get_u16(const uint8_t *p)
 {
-    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8u));
+    return algo_le16_load(p);
 }
 
 static uint32_t get_u32(const uint8_t *p)
 {
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8u) |
-           ((uint32_t)p[2] << 16u) | ((uint32_t)p[3] << 24u);
+    return algo_le32_load(p);
 }
 
 void tdma_second_class_parser_reset(void)

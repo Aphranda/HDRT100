@@ -8,6 +8,7 @@
 
 #include "tdma_operating_profile.h"
 #include "algo_checksum.h"
+#include "algo_num.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
@@ -314,7 +315,7 @@ bool vdc_domain_payload_requires_reference_sync(uint32_t payload_class)
 
 uint32_t vdc_domain_saturate_u64_to_u32(uint64_t value)
 {
-    return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
+    return algo_sat_u64_to_u32(value);
 }
 
 uint64_t vdc_domain_tracking_window_start_ns(

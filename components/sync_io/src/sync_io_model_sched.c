@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_num.h"
+
 #include "board_config.h"
 #include "diagnostics.h"
 #include "hardware/clocks.h"
@@ -764,7 +766,7 @@ static uint64_t sync_io_model_pulse_duration_ns(uint32_t pulse_index)
 
 static uint32_t sync_io_model_saturate_u64_to_u32(uint64_t value)
 {
-    return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
+    return algo_sat_u64_to_u32(value);
 }
 
 static bool sync_io_main_output_index_valid(uint32_t output_index)

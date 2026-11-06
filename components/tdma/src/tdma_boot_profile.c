@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "algo_checksum.h"
+#include "algo_wire.h"
 
 uint32_t tdma_boot_profile_crc32(const uint8_t *data, size_t size)
 {
@@ -14,16 +15,12 @@ uint32_t tdma_boot_profile_crc32(const uint8_t *data, size_t size)
 
 static void put_u32(uint8_t *cursor, uint32_t value)
 {
-    cursor[0] = (uint8_t)(value & 0xFFu);
-    cursor[1] = (uint8_t)((value >> 8u) & 0xFFu);
-    cursor[2] = (uint8_t)((value >> 16u) & 0xFFu);
-    cursor[3] = (uint8_t)((value >> 24u) & 0xFFu);
+    algo_le32_store(cursor, value);
 }
 
 static uint32_t get_u32(const uint8_t *cursor)
 {
-    return ((uint32_t)cursor[0]) | ((uint32_t)cursor[1] << 8u) |
-           ((uint32_t)cursor[2] << 16u) | ((uint32_t)cursor[3] << 24u);
+    return algo_le32_load(cursor);
 }
 
 bool tdma_boot_profile_valid(const tdma_boot_profile_t *profile)

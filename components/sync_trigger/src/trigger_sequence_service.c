@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "algo_num.h"
+
 #include "osal.h"
 #include "sync_io_sequence.h"
 #include "sync_trigger.h"
@@ -52,7 +54,7 @@ static uint32_t s_inject_count;
 
 static uint32_t saturated_add(uint32_t value, uint32_t add)
 {
-    return add > UINT32_MAX - value ? UINT32_MAX : value + add;
+    return algo_sat_add_u32(value, add);
 }
 
 static void increment(uint32_t *value)
