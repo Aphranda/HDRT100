@@ -499,6 +499,36 @@ phase 且 round 相同**才允许推进；推进前再稳一个环回，避免"�
 **验收**：barrier 完成时刻四板差 ≤1 环回；同一 build 连续 2 次四板 P1
 `passed_mask=0xF, failed_mask=0`。
 
+**载体已定（2026-11-07，用户裁决）= 不改 flight 载荷；在维护面加一条"缩小版" phase 小消息。**
+
+关键观察：维护通道的慢不是"1 chunk/环回"这个上限，而是**命令消息本身太大**——一条 GUIDE
+CONFig 的 REFMEM 帧是 216 B，被切成 54 chunk（实测 49–51 s）。一条 phase/round 小消息只要
+**1 chunk（10 B 净荷）**，一个环回就送达，量级从"几十秒"降到"秒级"，足以支撑停环/起环的
+barrier，而且完全不动 flight process image（无需版本升级、无需挤 body 字节）。
+
+已核实的落点：
+
+- 维护面第二类消息注册表：`TDMA_SECOND_CLASS_TYPE_REFMEM_CMD` / `_FRAGMENT` / `T2_STATIC` /
+  `T2_DYNAMIC`（`components/tdma/src/refmem_cmd_load.c` 注册处），新增一个 `_RING_PHASE` 类型；
+- 每帧 ACK 门控仍在：一条 phase 消息 ≈ 1 帧 ≈ 1 个 ACK 往返（10 kHz 约 2.4 s），
+  所以 barrier（发布 + 看到四板一致）≈ 2–3 帧 ≈ **5–7 s**，用于交接点可接受；
+- 不改 `TDMA_FLIGHT_MAILBOX_VERSION`，不碰 `tdma_flight_engine.c:403-409` 的 slot 写入。
+
+实现清单（下一轮按序做，每步独立可验）：
+
+1. 定义 `ring_phase_msg_t {version, phase, round, reason}`（≤10 B）与 `_RING_PHASE` 类型 id；
+   注册解析器，收到即记录 `peer_phase[node]`/`peer_round[node]`（不产生 ACK 之外的副作用）。
+2. 发布端 `refmem_ring_phase_publish(phase, round)`：环活跃时每 N 个环回（N 可配，默认 1）
+   广播一次；只在 phase/round 变化时立即发一次，稳态降频。
+3. barrier API `refmem_ring_phase_barrier(target, round, timeout_ms)`：四板 phase==target、
+   round 相同，再稳一个环回才返回；超时 fail-closed（reason 可读）。
+4. 执行器接入两个交接点：FANOUT 前（停环共识）、`FORMED→TRIAL`（同刻开窗）。
+5. 回读 `SYST:TDMA:RING:PHASE?`（4 板 phase + round + barrier 结果），并进 `PLAN?` 或独立页。
+6. 单测：编码/解码、round 变化、超时、稳态降频；P3 后按验收判据实板验证。
+
+**被取代的实验**（已存档，勿合入）：`refs/wip/m61-hold`（延迟收工）、
+`refs/wip/m61-lastframe-gate`（末帧上线门 + hold）。两者都只解决"晚到"，不解决"没有协商"。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
