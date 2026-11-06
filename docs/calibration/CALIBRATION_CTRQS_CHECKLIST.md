@@ -226,6 +226,19 @@ Q 仅在全部链路 × 重复都通过时 COMPLETE（`passed_mask` 按链路×�
 reconcile COMPLETE、ladder_index=3）。关键修复：P3 停止后必须等 `p3 state=IDLE` 且
 `phys persona=NORMAL` 才关窗，否则 rebuild ARM 报 267=PROGRAM_LOAD。
 
+**B4 下一会话 runbook（低速率引导环，截至 `6b8d553d` 仍未闭环）**：
+
+1. 现状：level 23（10 kHz）清 stage 后 START 报 **274 = 0x100|18 = OWNER_TOPOLOGY_PHASE**
+   （适配器 flight-map 门已放宽，物理层仍要求校准 stage）；level 7 + P3 的 10 MHz stage 可起环。
+2. 目标：生成与低速率档匹配的 stage，使 `enabled=1,adapter_started=1` 在 level 23 成立。
+3. 候选路径：
+   - 用 `calibration_marker_train.py` / `calibration_sck_train.py` / `calibration_data_train.py`
+     的 `--level 23`（或 25）在四板上重跑并导出矩阵，再 `trn03_stage.py --commit`（工具均接受
+     `--level`；需确认其 config 输入与 P3 工作流的矩阵 schema 一致）。
+   - 或给 `tdma_operating_profile` 的低速率档提供默认 phase 表（固件改动，需保持 274 fail-closed
+     边界之外的显式“无 stage 引导”开关，且仅台架诊断可用）。
+4. 验收：level 23 四板 START OK 后，把 P1–T3 全链复验到 10 kHz，只有 T3 的 S 允许 `ARM → START 10 MHz`。
+
 **T0 布局 v2 草案（待实现验证）**：T0 是 marker/residence 训练，身份字段（epoch/sequence/
 marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候选改为
 `origin_node, codebook, link_base_delay_ns, offset_sample_count, repeats`；
