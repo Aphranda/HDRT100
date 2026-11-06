@@ -310,7 +310,6 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 不需要逐链路 role；`repeats` 决定重复次数。
 
 ### 6.2 M6 细化里程碑台账（长期目标 `goal-ead7c1ef`）
-
 状态口径：✅ 仅当「完成判据」有实板读数/凭证；⏳ 进行中或未达判据；— 未开始。
 未验证、延后、`pending` 一律不得写 ✅。
 
@@ -445,6 +444,29 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 - 该项已按 §7.4 开只读子代理（`96f0340a`）复核状态机与回落原因；裁决前不改该路径。
 - 附带结论：P1 的 cycle ladder 不属于冻结契约——canonical host 工具是扫频（`calibration_clk_train.py`
   的 `pulse_start/pulse_limit/growth_factor`），`{4,16}` 只是交接配方里的取值，可按档位调整。
+
+#### 6.2.2 共享起始时刻（已批准方向，设计待冻结）
+
+**需求**：四板必须在同一时刻进入 R 窗口。已实测排除所有"投递边沿"近似（§6.2.1：ACK 聚合晚
+42 s、帧 ACK 排空晚 16 s、已发 chunk 早 52 s），也排除"局部延迟收工"（23:13/23:46 两次实测：
+环是共享资源，先进 TRIAL 的板会停环，晚到者 FORWARD 必败）。因此 `t0` 必须来自**四板可独立
+计算出的同一时刻**，而不是"本板 receipt + 固定偏移"。
+
+**候选机制**（下一轮冻结其一）：
+
+1. **绝对环序号**（倾向）：trigger 携带 `start_ring_seq = ring_seq + K`；每板在本地
+   `ring_seq` 到达该值时开窗（`ring_seq` 在环运行时四板同源、单调）。K 取值要覆盖最坏投递
+   （10 kHz 实测 78 s ≈ 520 cycle，取 K=1200 有 3 倍余量）。晚到且已错过 `start_ring_seq`
+   的板必须 fail-closed（`MISSED_START`），不得补跑。
+2. **两段式 trigger**：先广播 arm（无窗口），再由 host 在四板 arm 确认后广播 start；start 的
+   投递时间仍是问题，除非同样用绝对序号。
+
+**待冻结点**：K 的来源（host 计算 or C 段下发）、`epoch`/`ring_seq` 的字段承载（新增候选槽 or
+epoch 高位标志）、10 MHz 档是否直通（其投递偏差 ms 级，可保持 receipt 语义）、`PLAN?` 回读
+新增 `start_ring_seq`/`missed_start` 字段、以及 P2–T3 的逐链路动作是否共用同一机制。
+
+**验收**：同一 build 上连续 2 次四板 P1 `progress_status=1, trials_done=4, passed_mask=0xF,
+failed_mask=0`，且四板 `PLAN?` 的 t0 派生量（环序号）一致。
 
 ## 7. 台架与操作注意
 
