@@ -2176,7 +2176,7 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
                      s_ctrqs.p3_capture_words <= 1024u &&
                      s_ctrqs.p3_repeats >= 1u &&
                      s_ctrqs.p3_repeats <= APP_CTRQS_P3_MAX_REPEATS &&
-                     s_ctrqs.p3_baud_hz >= 1000000u &&
+                     s_ctrqs.p3_baud_hz >= 1000u &&
                      s_ctrqs.p3_baud_hz <= 50000000u &&
                      s_ctrqs.p3_start_link < nodes &&
                      s_ctrqs.p3_tolerance_per_mille <= 50000u;
