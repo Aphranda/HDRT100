@@ -29,6 +29,7 @@ ALLOWED_PREFIXES = {
     "MULTICORE",
     "RELEASE",
     "DOCS",
+    "STANDARDS",
     "CALIBRATION",
     "REFMEM",
     "EVENT",

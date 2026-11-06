@@ -12,11 +12,13 @@ def test_docs_check_accepts_current_domain_filename() -> None:
 
 
 def test_docs_check_accepts_added_allowlist_names() -> None:
-    # C5 三同步：白名单新增（PRODUCT 前缀 / REGISTRY / REVIEW 后缀）必须有测试覆盖
+    # C5 三同步：白名单新增（PRODUCT/STANDARDS 前缀 / REGISTRY / REVIEW 后缀）必须有测试覆盖
     assert docs_check.is_allowed_name("PRODUCT_BOARD_MIGRATION_PLAN.md")
     assert docs_check.is_allowed_name("DOCS_REGISTRY.md")
     assert docs_check.is_allowed_name("REFMEM_DOMAIN_RISK_REVIEW.md")
     assert docs_check.is_allowed_name("TDMA_CODE_REVIEW.md")
+    # 通用规范子域前缀（docs/standards/）
+    assert docs_check.is_allowed_name("STANDARDS_PROJECT_MANAGEMENT_SYSTEM_ARCHITECTURE.md")
     # 数字序号后缀容错（提交单归档）
     assert docs_check.is_allowed_name("TDMA_CROSS_REVIEW_01.md")
 
