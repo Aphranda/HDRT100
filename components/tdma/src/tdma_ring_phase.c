@@ -14,6 +14,14 @@ static uint32_t s_publish_count;
 static uint32_t s_receive_count;
 static uint32_t s_reject_count;
 static uint32_t s_ready_fail_count;
+static uint32_t s_commit_count;
+/* Announcement waiting for its ring sequence.  A phase is only applied when
+ * the local ring has reached `s_next_target`, so every board switches on the
+ * same ring sequence instead of on its own receipt time. */
+static uint8_t s_next_phase;
+static uint16_t s_next_round;
+static uint16_t s_next_target;
+static bool s_next_valid;
 
 void tdma_ring_phase_reset(void)
 {
@@ -26,6 +34,11 @@ void tdma_ring_phase_reset(void)
     s_receive_count = 0u;
     s_reject_count = 0u;
     s_ready_fail_count = 0u;
+    s_commit_count = 0u;
+    s_next_phase = (uint8_t)TDMA_RING_PHASE_IDLE;
+    s_next_round = 0u;
+    s_next_target = 0u;
+    s_next_valid = false;
 }
 
 uint32_t tdma_ring_phase_encode(const tdma_ring_phase_msg_t *msg,
@@ -39,9 +52,9 @@ uint32_t tdma_ring_phase_encode(const tdma_ring_phase_msg_t *msg,
     out[2] = (uint8_t)(msg->round & 0xFFu);
     out[3] = (uint8_t)(msg->round >> 8u);
     out[4] = msg->source_slot;
-    out[5] = msg->reserved[0];
-    out[6] = msg->reserved[1];
-    out[7] = msg->reserved[2];
+    out[5] = (uint8_t)(msg->target_seq & 0xFFu);
+    out[6] = (uint8_t)(msg->target_seq >> 8u);
+    out[7] = msg->reserved;
     return TDMA_RING_PHASE_MSG_SIZE;
 }
 
@@ -66,19 +79,22 @@ bool tdma_ring_phase_decode(const uint8_t *payload, size_t size,
     msg->round = (uint16_t)((uint16_t)payload[2] |
                             ((uint16_t)payload[3] << 8u));
     msg->source_slot = payload[4];
-    msg->reserved[0] = payload[5];
-    msg->reserved[1] = payload[6];
-    msg->reserved[2] = payload[7];
+    msg->target_seq = (uint16_t)((uint16_t)payload[5] |
+                                 ((uint16_t)payload[6] << 8u));
+    msg->reserved = payload[7];
     return true;
 }
 
-bool tdma_ring_phase_publish(uint8_t phase, uint16_t round)
+bool tdma_ring_phase_publish_at(uint8_t phase, uint16_t round,
+                                uint16_t target_seq)
 {
     /* Local state is authoritative for this node even when the broadcast is
-     * refused (transport not ready): the barrier must never wait on this board
-     * for a message it cannot send. */
-    s_local_phase = phase;
-    s_round = round;
+     * refused (transport not ready), but the phase itself is applied later, in
+     * tdma_ring_phase_service(), when the local ring reaches the target. */
+    s_next_phase = phase;
+    s_next_round = round;
+    s_next_target = target_seq;
+    s_next_valid = true;
     uint32_t slot = 0u;
     if (!tdma_maintenance_runtime_get_local_slot(&slot)) {
         return false;
@@ -89,6 +105,7 @@ bool tdma_ring_phase_publish(uint8_t phase, uint16_t round)
     msg.phase = phase;
     msg.round = round;
     msg.source_slot = (uint8_t)slot;
+    msg.target_seq = target_seq;
     uint8_t payload[TDMA_RING_PHASE_MSG_SIZE];
     if (tdma_ring_phase_encode(&msg, payload) != TDMA_RING_PHASE_MSG_SIZE) {
         return false;
@@ -100,6 +117,44 @@ bool tdma_ring_phase_publish(uint8_t phase, uint16_t round)
     }
     s_publish_count++;
     return true;
+}
+
+bool tdma_ring_phase_publish(uint8_t phase, uint16_t round)
+{
+    return tdma_ring_phase_publish_at(phase, round, 0u);
+}
+
+bool tdma_ring_phase_next(uint8_t *phase, uint16_t *round, uint16_t *target_seq)
+{
+    if (!s_next_valid) {
+        return false;
+    }
+    if (phase != NULL) {
+        *phase = s_next_phase;
+    }
+    if (round != NULL) {
+        *round = s_next_round;
+    }
+    if (target_seq != NULL) {
+        *target_seq = s_next_target;
+    }
+    return true;
+}
+
+void tdma_ring_phase_service(uint32_t ring_seq)
+{
+    if (!s_next_valid) {
+        return;
+    }
+    /* Signed difference: the ring sequence wraps. */
+    if (s_next_target != 0u &&
+        (int32_t)(ring_seq - (uint32_t)s_next_target) < 0) {
+        return; /* the shared instant has not arrived yet */
+    }
+    s_local_phase = s_next_phase;
+    s_round = s_next_round;
+    s_next_valid = false;
+    s_commit_count++;
 }
 
 bool tdma_ring_phase_accept(const uint8_t *payload, size_t size)
@@ -116,14 +171,16 @@ bool tdma_ring_phase_accept(const uint8_t *payload, size_t size)
     s_receive_count++;
     /* The maintenance plane is origin-broadcast: only the origin's frames
      * reach the ring, so a message is the ring's own phase, not just its
-     * sender's.  Adopting it here is what makes the handoff negotiated: every
-     * follower crosses on the same broadcast, one revolution apart, instead of
-     * at its own receipt offset.  The origin keeps its own state. */
+     * sender's.  The announcement is applied by tdma_ring_phase_service() when
+     * the local ring reaches its target sequence, which is what makes every
+     * board cross on the same sequence rather than on its own receipt. */
     uint32_t local_slot = 0u;
     if (tdma_maintenance_runtime_get_local_slot(&local_slot) &&
         msg.source_slot != local_slot) {
-        s_local_phase = msg.phase;
-        s_round = msg.round;
+        s_next_phase = msg.phase;
+        s_next_round = msg.round;
+        s_next_target = msg.target_seq;
+        s_next_valid = true;
     }
     return true;
 }

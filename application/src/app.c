@@ -1690,7 +1690,12 @@ bool app_guide_scan_get_pair(uint32_t index,
 #define APP_CTRQS_FORWARD_MS 4000u
 #define APP_CTRQS_T0_OFFSET_MS 6000u
 #define APP_CTRQS_RESTORE_MS 45000u
-#define APP_CTRQS_REBUILD_MS 20000u
+/* The rebuild has to wait for the slowest board of the round.  At a low-rate
+ * profile the four windows start up to one command delivery apart, so a board
+ * that reaches REBUILD first would otherwise fail closed while the others are
+ * still holding their window (measured: the origin rebuilt alone and ended
+ * NOT_ONLINE_SAFE on every round where the followers were still in FORWARD). */
+#define APP_CTRQS_REBUILD_MS 60000u
 #define APP_CTRQS_REF_ARM_DELAY_MS 600u
 #define APP_CTRQS_MAX_TRIALS 32u
 #define APP_CTRQS_ACTION_P1 1u
@@ -1770,6 +1775,9 @@ typedef struct {
     uint32_t train_base_seq;
     bool train_pending;
     bool forward_armed;
+    /* The stop phase was announced at a future ring sequence and is waiting
+     * for it (see the FANOUT transition). */
+    bool stop_announced;
     /* When this board first saw the origin's TRIAL phase: a follower's FORWARD
      * dwell is measured from here (see the FORWARD transition). */
     uint32_t phase_seen_ms;
@@ -2006,15 +2014,24 @@ static void app_ctrqs_abort(uint32_t reason)
  * the same round.  Stopping or forming the ring is a shared transition, so a
  * board that moves first cannot tear the ring out from under the others. */
 #define APP_CTRQS_PHASE_STALE_MS 15000u
-/* How long a follower keeps its forward window open for the origin's phase
- * handoff.  The origin can start up to one command delivery later than the
- * boards that already applied the broadcast (16-52 s measured at 10 kHz), so
- * the local t0-based deadline cannot gate a follower. */
-#define APP_CTRQS_FOLLOWER_PHASE_WAIT_MS 90000u
+/* How long a follower keeps its forward window open for the origin's handoff.
+ * It must outlast the origin's own window (the origin starts up to one command
+ * delivery later, then trains trials x slot) but end early enough that the
+ * follower is rebuilding while the origin's rebuild can still succeed: the
+ * origin's rebuild deadline is APP_CTRQS_REBUILD_MS, so a longer hold leaves it
+ * alone and it fails closed with NOT_ONLINE_SAFE (measured: 90 s hold -> 3/4
+ * boards complete, origin restore fails; the hold has to land just after the
+ * origin's window). */
+#define APP_CTRQS_FOLLOWER_PHASE_WAIT_MS 60000u
 /* The arm/start handshake is flaky at a low-rate profile (measured on the
  * bench: the reference's START occasionally returns -200 and succeeds on a
  * retry), so a negotiated sequence must retry it rather than fail the round. */
 #define APP_CTRQS_ARM_RETRIES 4u
+/* Lead, in ring cycles, between announcing a ring transition and the shared
+ * sequence at which every board performs it.  The announcement must be on the
+ * wire before the ring stops (the maintenance channel has no carrier
+ * afterwards), so the lead covers one frame exchange plus a margin. */
+#define APP_CTRQS_PHASE_LEAD_CYCLES 24u
 
 static void app_ctrqs_publish_phase(uint8_t phase)
 {
@@ -2871,6 +2888,15 @@ static void app_ctrqs_t3_advance(bool passed)
 
 static void app_ctrqs_service(void)
 {    const uint64_t now = app_ctrqs_now_ms();
+    /* Apply any negotiated phase whose ring-sequence target has been reached.
+     * This is the shared instant: every board switches on the same ring
+     * sequence, not on its own receipt time. */
+    if (s_ctrqs.state != APP_CTRQS_IDLE && s_ctrqs.state != APP_CTRQS_DONE) {
+        tdma_ring_runtime_snapshot_t phase_ring;
+        if (tdma_runtime_owner_get_ring_snapshot(&phase_ring)) {
+            tdma_ring_phase_service(phase_ring.ring_seq);
+        }
+    }
     switch (s_ctrqs.state) {
     case APP_CTRQS_IDLE: {
         guide_action_plan_t plan;
@@ -2882,9 +2908,13 @@ static void app_ctrqs_service(void)
         return;
     }
     case APP_CTRQS_FANOUT:
+        /* Each board runs its own stop -> topo -> arm -> forward sequence; the
+         * ring-identity handshake is what arms the phys for the trial.  The
+         * shared-sequence announce was measured to be unusable here (the
+         * maintenance channel has no carrier once the ring stops, and ring_seq
+         * is local, not shared), so the window keeps its local schedule and the
+         * followers hold FORWARD afterwards instead of racing the origin. */
         if (now >= s_ctrqs.deadline_ms) {
-            /* Announce the stop before it happens: a board that is still in an
-             * earlier phase sees the others stopping and can follow. */
             app_ctrqs_publish_phase((uint8_t)TDMA_RING_PHASE_STOPPING);
             app_ctrqs_stop_throttled(now);
             s_ctrqs.state =
@@ -2992,6 +3022,16 @@ static void app_ctrqs_service(void)
         }
         return;
     case APP_CTRQS_FORWARD: {
+        /* A P1 follower's hold ending is a completion, not a failure: its
+         * persona is the whole contribution, and the phase channel has no
+         * carrier while the ring is being rebuilt.  This must come before the
+         * generic deadline check, which is the origin's fail-closed rule. */
+        if (s_ctrqs.local_slot != s_ctrqs.ref_slot &&
+            s_ctrqs.plan.action_id == APP_CTRQS_ACTION_P1 &&
+            now >= s_ctrqs.deadline_ms) {
+            app_ctrqs_follower_complete_all();
+            return;
+        }
         if (!app_ctrqs_ring_formed()) {
             tdma_ring_runtime_snapshot_t forward_ring;
             const bool have_ring =
@@ -3073,6 +3113,14 @@ static void app_ctrqs_service(void)
              * the ring can be rebuilt by all four boards together.  A second
              * "done" message cannot be used here: it would need the ring that
              * this handoff is fixing. */
+            if (now >= s_ctrqs.deadline_ms) {
+                /* The hold is over.  Measuring the persona now is the whole of
+                 * this board's contribution, so a late/absent broadcast must
+                 * complete the round rather than fail it: the phase channel has
+                 * no carrier while the ring is being rebuilt. */
+                app_ctrqs_follower_complete_all();
+                return;
+            }
             if (tdma_ring_phase_local() != (uint8_t)TDMA_RING_PHASE_TRIAL) {
                 return;
             }

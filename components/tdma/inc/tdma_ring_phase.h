@@ -49,7 +49,11 @@ typedef struct {
     uint8_t phase;
     uint16_t round;
     uint8_t source_slot;
-    uint8_t reserved[3];
+    /* Ring sequence at which every node performs the transition.  A phase
+     * announced with target 0 means "as soon as received" (the ring is not
+     * running, so no shared sequence exists). */
+    uint16_t target_seq;
+    uint8_t reserved;
 } tdma_ring_phase_msg_t;
 
 typedef struct {
@@ -77,6 +81,22 @@ bool tdma_ring_phase_decode(const uint8_t *payload, size_t size,
 /* Broadcast the local phase/round to every node.  False when the maintenance
  * transport is not ready; the caller keeps its own state and retries later. */
 bool tdma_ring_phase_publish(uint8_t phase, uint16_t round);
+
+/* Announce a phase to take effect at ring sequence `target_seq`.  The message
+ * must go out while the ring is still running -- the maintenance channel has no
+ * carrier once it is stopped, which is exactly why an immediate "stop now"
+ * broadcast never reached the followers. */
+bool tdma_ring_phase_publish_at(uint8_t phase, uint16_t round,
+                                uint16_t target_seq);
+
+/* Latest announced phase and its ring-sequence target (0 = on receipt). */
+bool tdma_ring_phase_next(uint8_t *phase, uint16_t *round,
+                          uint16_t *target_seq);
+
+/* Apply the pending announcement once the local ring has reached its target.
+ * Call once per service tick with the ring's current sequence; it is a no-op
+ * until then, and a no-op when nothing is pending. */
+void tdma_ring_phase_service(uint32_t ring_seq);
 
 /* Parser entry: records one peer message (allocation-free, O(1)). */
 bool tdma_ring_phase_accept(const uint8_t *payload, size_t size);
