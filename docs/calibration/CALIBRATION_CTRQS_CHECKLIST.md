@@ -697,6 +697,17 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 注意：阶梯单调（P1→2），重跑 P2 需先让 ladder 回到 1（跑一轮 P1），因此 P2 的"连续多次"
   验证成本高于 P1。
 
+**2026-11-07 07:1x M6.4 进展（build `20261106230517`）**：
+
+- 首次在 10 kHz 跑 P3 动作：`status=1, trials_done=12`（4 链路 × 3 repeats）但
+  `passed_mask=0`、`failed_mask≈0xFFF`——测量全被拒。原因同 M6.3：**P3_PREP 只停环、不切测量档**，
+  ranging 实际跑在引导档载体上。
+- 修复（`c94dafa4`）：`ring_torn_down` 后 stage/apply 计划的 `profile_level`（7）再进 P3_RUN，
+  与 P2 同一规则。
+- **未复验**：上次 P3 动作已推进阶梯到 3，重跑需阶梯回 0；而实测"重启 + stage/up"之后
+  guide 计划面不接受新计划（P1/P2/P3 三轮全部 `status=0`），需先跑一次 P3 验收流程做完整
+  初始化。故 M6.4 仍 **⏳**，不作完成。
+
 ## 7. 台架与操作注意- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
