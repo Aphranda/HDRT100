@@ -46,6 +46,7 @@ HARNESS = r'''
 #include <string.h>
 #include "trigger_action_service.h"
 #include "tdma_runtime_owner.h"
+#include "tdma_seat_mount_store.h"
 /* Execution slice is tested separately; these stubs keep this harness focused
  * on SRAM/deployment and prove install has no IO call. */
 uint32_t vdc_dpll_manager_feedback_session(void){return 0u;}
@@ -151,7 +152,24 @@ int main(int argc,char **argv)
     else if(!strcmp(n,"missing_ring"))ring_ok=false;
     else if(!strcmp(n,"disabled_staged"))staged.enabled=0;
     else reject=false;
-    if(reject){assert(trigger_action_install(&t,trigger_action_table_crc(&t))==expected);return 0;}
+    if(reject){
+        uint32_t code=0u,want=0u;
+        if(!strcmp(n,"missing_dep"))want=61u;
+        else if(!strcmp(n,"inactive_dep"))want=62u;
+        else if(!strcmp(n,"uid"))want=45u;
+        else if(!strcmp(n,"slot"))want=46u;
+        else if(!strcmp(n,"schedule"))want=47u;
+        else if(!strcmp(n,"ring_config"))want=44u;
+        else if(!strcmp(n,"corrupt_dep"))want=48u;
+        else if(!strcmp(n,"disabled_staged"))want=43u;
+        else if(!strcmp(n,"missing_staged"))want=65u;
+        else if(!strcmp(n,"missing_ring"))want=64u;
+        assert(trigger_action_install(&t,trigger_action_table_crc(&t))==expected);
+        /* Freeze the bench reject codes: current_binding records one of
+         * 41..50/61..65 through the seat-mount diagnostic sink. */
+        tdma_seat_mount_store_status(&code,NULL);
+        assert(code==want);
+        return 0;}
     reentrant=!strcmp(n,"reentrant");install(&t);const trigger_action_snapshot_t original=snapshot();
     assert(original.installed && original.binding_current && original.last_generation==21);unqualified(&original);
     if(reentrant)return 0;
