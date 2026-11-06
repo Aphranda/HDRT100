@@ -2894,6 +2894,16 @@ static void app_ctrqs_t3_advance(bool passed)
 
 static void app_ctrqs_service(void)
 {    const uint64_t now = app_ctrqs_now_ms();
+    /* A trigger arriving as one compact ring message is posted here, for the
+     * origin and the targets alike: the executor then picks it up through the
+     * same app_cal_guide_take_trigger() path the command plane used. */
+    {
+        uint8_t trigger_action = 0u;
+        uint32_t trigger_epoch = 0u;
+        if (tdma_ring_trigger_take(&trigger_action, &trigger_epoch)) {
+            (void)app_cal_guide_post_trigger(trigger_action, trigger_epoch);
+        }
+    }
     /* Apply any negotiated phase whose ring-sequence target has been reached.
      * This is the shared instant: every board switches on the same ring
      * sequence, not on its own receipt time. */

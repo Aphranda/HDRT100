@@ -22,6 +22,11 @@ static uint8_t s_next_phase;
 static uint16_t s_next_round;
 static uint16_t s_next_target;
 static bool s_next_valid;
+/* Compact trigger mailbox (origin and targets share one take() path). */
+static uint8_t s_trigger_action;
+static uint32_t s_trigger_epoch;
+static bool s_trigger_valid;
+static uint32_t s_trigger_count;
 
 void tdma_ring_phase_reset(void)
 {
@@ -39,6 +44,10 @@ void tdma_ring_phase_reset(void)
     s_next_round = 0u;
     s_next_target = 0u;
     s_next_valid = false;
+    s_trigger_action = 0u;
+    s_trigger_epoch = 0u;
+    s_trigger_valid = false;
+    s_trigger_count = 0u;
 }
 
 uint32_t tdma_ring_phase_encode(const tdma_ring_phase_msg_t *msg,
@@ -251,4 +260,59 @@ void tdma_ring_phase_get_diag(tdma_ring_phase_diag_t *diag)
     diag->receive_count = s_receive_count;
     diag->reject_count = s_reject_count;
     diag->ready_fail_count = s_ready_fail_count;
+}
+
+bool tdma_ring_trigger_publish(uint8_t action, uint32_t epoch)
+{
+    uint8_t payload[TDMA_RING_TRIGGER_MSG_SIZE];
+    payload[0] = TDMA_RING_PHASE_VERSION;
+    payload[1] = action;
+    payload[2] = (uint8_t)(epoch & 0xFFu);
+    payload[3] = (uint8_t)((epoch >> 8u) & 0xFFu);
+    payload[4] = (uint8_t)((epoch >> 16u) & 0xFFu);
+    payload[5] = (uint8_t)((epoch >> 24u) & 0xFFu);
+    payload[6] = 0u;
+    payload[7] = 0u;
+    if (!tdma_maintenance_runtime_submit(payload, sizeof(payload),
+                                         TDMA_RING_TRIGGER_TYPE, s_generation++,
+                                         0x0Fu)) {
+        return false;
+    }
+    /* The origin consumes its own trigger through the same take() path as the
+     * targets: no local head start, so the four windows share one instant. */
+    s_trigger_action = action;
+    s_trigger_epoch = epoch;
+    s_trigger_valid = true;
+    s_trigger_count++;
+    return true;
+}
+
+bool tdma_ring_trigger_accept(const uint8_t *payload, size_t size)
+{
+    if (payload == NULL || size != TDMA_RING_TRIGGER_MSG_SIZE ||
+        payload[0] != TDMA_RING_PHASE_VERSION) {
+        return false;
+    }
+    s_trigger_action = payload[1];
+    s_trigger_epoch = (uint32_t)payload[2] | ((uint32_t)payload[3] << 8u) |
+                      ((uint32_t)payload[4] << 16u) |
+                      ((uint32_t)payload[5] << 24u);
+    s_trigger_valid = true;
+    s_trigger_count++;
+    return true;
+}
+
+bool tdma_ring_trigger_take(uint8_t *action, uint32_t *epoch)
+{
+    if (!s_trigger_valid) {
+        return false;
+    }
+    if (action != NULL) {
+        *action = s_trigger_action;
+    }
+    if (epoch != NULL) {
+        *epoch = s_trigger_epoch;
+    }
+    s_trigger_valid = false;
+    return true;
 }

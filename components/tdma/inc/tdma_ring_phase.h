@@ -27,6 +27,12 @@ extern "C" {
  * Nothing here blocks, sleeps or services another component. */
 
 #define TDMA_RING_PHASE_TYPE 0x56u
+/* Compact guide trigger: the same maintenance plane, but 8 bytes instead of a
+ * 160-byte REFMEM command frame.  The frame size is the whole difference: a
+ * REFMEM trigger needs five maintenance frames and takes 20-65 s to reach the
+ * boards, which is exactly the skew that kept the four windows apart. */
+#define TDMA_RING_TRIGGER_TYPE 0x57u
+#define TDMA_RING_TRIGGER_MSG_SIZE 8u
 #define TDMA_RING_PHASE_VERSION 1u
 #define TDMA_RING_PHASE_MSG_SIZE 8u
 #define TDMA_RING_PHASE_NODE_MAX 8u
@@ -119,6 +125,14 @@ uint8_t tdma_ring_phase_local(void);
 
 bool tdma_ring_phase_get_peer(uint32_t slot, tdma_ring_phase_peer_t *peer);
 void tdma_ring_phase_get_diag(tdma_ring_phase_diag_t *diag);
+
+/* Compact guide trigger over the same maintenance plane.  One 8-byte message
+ * carries {action, epoch}; the origin consumes it through the same take() path
+ * as the targets, so all four boards see the trigger within one ring
+ * revolution instead of within a 160-byte command broadcast. */
+bool tdma_ring_trigger_publish(uint8_t action, uint32_t epoch);
+bool tdma_ring_trigger_accept(const uint8_t *payload, size_t size);
+bool tdma_ring_trigger_take(uint8_t *action, uint32_t *epoch);
 
 #ifdef __cplusplus
 }

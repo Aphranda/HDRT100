@@ -786,12 +786,12 @@ scpi_result_t scpi_cmd_system_tdma_guide_trigger(scpi_t *context)
         scpi_port_push_exec_error(context, "TDMA_GUIDE_TRIGGER");
         return SCPI_RES_ERR;
     }
-    /* Same canonical path as C: catalog entry 51 validates the two words and
-     * refmem carries them; the local node gets them through the frame loopback. */
-    const uint32_t params[2] = {action_id, epoch};
-    uint32_t command_seq = 0u;
-    if (!distributed_refmem_control_submit(51u, target_mask, target_mask, params,
-                                           2u, &command_seq)) {
+    /* Compact ring trigger: one 8-byte maintenance message instead of a
+     * 160-byte REFMEM command frame.  A REFMEM trigger needs five maintenance
+     * frames (20-65 s at 10 kHz), which is precisely the skew that kept the
+     * four windows apart; one chunk reaches every board in one ring
+     * revolution.  The origin consumes it through the same take() path. */
+    if (!tdma_ring_trigger_publish((uint8_t)action_id, epoch)) {
         scpi_port_push_exec_error(context, "TDMA_GUIDE_TRIGGER");
         return SCPI_RES_ERR;
     }

@@ -19,6 +19,11 @@ bool app_refmem_domain_config_init(void);
 /* Consumes a guide trigger delivered by CAL_GUIDE_TRIGGER (T segment). Returns
  * false when no trigger is pending; the plan is copied on success. */
 bool app_cal_guide_take_trigger(guide_action_plan_t *plan, uint32_t *epoch);
+
+/* Post a guide trigger for the plan named by `action`.  Used by the compact
+ * ring message (targets and the origin alike) and by the single-port SCPI
+ * handler, so every board runs the same admission rule. */
+bool app_cal_guide_post_trigger(uint32_t action, uint32_t epoch);
 /* R segment: record progress while the ring is down (refmem parameter pool,
  * no link needed). Q reads it back after re-form; `epoch` is the trigger epoch
  * and doubles as the pool slot sequence, so a stale record never matches. */

@@ -800,6 +800,20 @@ static bool cal_guide_trigger_handler(const uint32_t *params, uint32_t param_wor
     return true;
 }
 
+bool app_cal_guide_post_trigger(uint32_t action, uint32_t epoch)
+{
+    /* Same admission as the REFMEM command path: a trigger is only meaningful
+     * for the plan it names.  The compact ring message and the local origin
+     * both enter here, so all four boards run the same check. */
+    if (!s_cal_guide.plan_valid || action != s_cal_guide.plan.action_id ||
+        epoch == 0u) {
+        return false;
+    }
+    s_cal_guide.trigger_epoch = epoch;
+    s_cal_guide.trigger_pending = true;
+    return true;
+}
+
 bool app_cal_guide_take_trigger(guide_action_plan_t *plan, uint32_t *epoch)
 {
     if (!s_cal_guide.trigger_pending) {

@@ -169,6 +169,14 @@ static bool refmem_ring_phase_parser(const uint8_t *payload,
     return tdma_ring_phase_accept(payload, payload_size);
 }
 
+static bool refmem_ring_trigger_parser(const uint8_t *payload,
+                                      size_t payload_size,
+                                      void *context)
+{
+    (void)context;
+    return tdma_ring_trigger_accept(payload, payload_size);
+}
+
 bool refmem_cmd_load_init(tdma_pio_spi_ring_adapter_t *adapter)
 {
     s_adapter = adapter;
@@ -188,7 +196,9 @@ bool refmem_cmd_load_init(tdma_pio_spi_ring_adapter_t *adapter)
             TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT, refmem_fragment_parser,
             NULL) ||
         !tdma_second_class_parser_register(
-            TDMA_RING_PHASE_TYPE, refmem_ring_phase_parser, NULL)) {
+            TDMA_RING_PHASE_TYPE, refmem_ring_phase_parser, NULL) ||
+        !tdma_second_class_parser_register(
+            TDMA_RING_TRIGGER_TYPE, refmem_ring_trigger_parser, NULL)) {
         s_initialized = 0u;
         return false;
     }
