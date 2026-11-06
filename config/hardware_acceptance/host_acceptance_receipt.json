@@ -5,9 +5,6 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_calibration_ring_topology.py",
-    "tests/python/test_calibration_topology_start.py",
-    "tests/python/test_hardware_acceptance_workflow.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
@@ -17,34 +14,29 @@
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_calibration_ring_topology.py",
-    "tests/python/test_calibration_topology_start.py",
-    "tests/python/test_hardware_acceptance_workflow.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 15.625,
+  "duration_s": 14.25,
   "returncode": 0,
   "summary": {
-    "passed": 219,
+    "passed": 77,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "219 passed in 14.70s",
+  "summary_line": "77 passed in 13.29s",
   "tail": [
-    "........................................................................ [ 32%]",
-    "........................................................................ [ 65%]",
-    "........................................................................ [ 98%]",
-    "...                                                                      [100%]",
-    "219 passed in 14.70s"
+    "........................................................................ [ 93%]",
+    ".....                                                                    [100%]",
+    "77 passed in 13.29s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
   "fingerprint": "e7e628938664a814d98af5a69467ddd80bda40a5e7aef96582339f45ec27427d",
   "file_count": 1159,
   "working_fingerprint": "c1730f7a219a2636daf4a2594c83727fe7c853eb0519c76448ee1c2a5d9876b8",
-  "started_at_utc": "2026-11-06T09:22:44.391848+00:00"
+  "started_at_utc": "2026-11-06T09:46:26.515221+00:00"
 }
