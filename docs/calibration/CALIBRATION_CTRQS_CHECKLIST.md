@@ -358,6 +358,22 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 >100 ms 且随后 `result=RETURN_TIMEOUT`，则定值超时成立，改为
 `max(100 ms, 4 × cycle_period)`（10 MHz 1 ms 周期仍取 100 ms，零回归）。
 
+**2026-11-06 20:3x–21:0x 追记（build `20261106125416`，`a0079130`）**：
+
+- 判别实验结论：ARM-only 下参考板 4-cycle 训练 `state=4/result=5`（RETURN_TIMEOUT）、
+  `return_seen=0`、`burst_ns=400000`、`tx_done - tx_start ≈ 2.06 s`；跟随板全程 `state=0`
+  （未收到训练请求，环未 START）。即"定值 100 ms 返回超时 < 一个 10 kHz 环回 600 ms"成立，
+  但在该状态下跟随板本来就不参与，不能单独据此定因。
+- **主因确认为开窗不同刻**：参考板在提交瞬间用本地 node-control 副本开窗，跟随板要等广播
+  （实测 trigger 扇出 20 s / 丢帧重放后 78 s），参考板 18 s FORWARD 预算在跟随板收到计划前就耗尽。
+- 修复路径评审：先试"等 required ACK 聚合再本地派发"——实测聚合走同一条慢路径，参考板反而
+  落后跟随板约 42 s（作废）；改为等**最后一个维护帧 ACK**（`refmem_cmd_load_transport_idle()`），
+  落后量降到 **16 s**，且参考板训练首次在 10 kHz 得到 `MASTER_COMPLETE + RETURN_OVERLAP`。
+- **残余（M6.1 未闭环）**：单 trial 仍可能超过一个 5300 ms slot——参考板在 trial 1 的 slot 末尾
+  abort 2367，快照为 `state=2(MASTER_RUNNING), tx_done 已观测, return=0`；四板 `trials_done` 仍 <4。
+  下一步：按 §6.2.1 的判别实验把"训练返回在 slot 内到达"的比例量化，再决定
+  `max(100 ms, k × cycle_period)` 的 k 与 slot 预算是否同时调整。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
