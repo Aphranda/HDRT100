@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "tdma_spsc_index.h"
+
 enum {
     TDMA_LONG_FRAME_OWNER_FREE = 0u,
     TDMA_LONG_FRAME_OWNER_TX_READY = 1u,
@@ -10,8 +12,7 @@ enum {
 
 static uint32_t next_index(uint32_t index, uint32_t count)
 {
-    index++;
-    return index == count ? 0u : index;
+    return tdma_spsc_next(index, count);
 }
 
 void tdma_long_frame_fifo_init(tdma_long_frame_fifo_t *fifo)
@@ -184,8 +185,7 @@ void tdma_long_frame_get_snapshot(const tdma_long_frame_fifo_t *fifo,
     snapshot->rx_reject_count = fifo->rx_reject_count;
     snapshot->rx_acquire_count = fifo->rx_acquire_count;
     snapshot->rx_release_count = fifo->rx_release_count;
-    snapshot->rx_queued_count =
-        (fifo->rx_head + TDMA_LONG_FRAME_RX_SLOTS - fifo->rx_tail) %
-        TDMA_LONG_FRAME_RX_SLOTS;
+    snapshot->rx_queued_count = tdma_spsc_depth(fifo->rx_tail, fifo->rx_head,
+                                                TDMA_LONG_FRAME_RX_SLOTS);
     snapshot->max_frame_size = TDMA_LONG_FRAME_MAX;
 }
