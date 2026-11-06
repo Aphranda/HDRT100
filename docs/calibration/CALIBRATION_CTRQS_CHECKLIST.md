@@ -6,6 +6,41 @@ Canonical: `docs/calibration/CALIBRATION_CTRQS_CHECKLIST.md`（本文）
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`
 Last updated: 2026-11-06
 
+## 0. 新会话交接摘要（先读这一节）
+
+**当前结论**：七动作阶梯 **P1→P2→P3→T0→T1→T2→T3 已在 10 MHz 档四板全部跑通**（夜间目标 M1–M5）；
+**10 kHz 引导档**单板/跟随板均已通过 P1（4 trials），但**四板命令面在 10 kHz 下交付不可用**，
+因此四板 10 kHz 全链与 M6 设计档位收口未完成。两个夜间/日间目标均已到轮次上限（40/60）。
+
+**唯一关键阻塞（先修这个）**：10 kHz 下 REFMEM catalog 50/51 的跨板交付失败/极慢。
+- 实测：`CONFig 84` 发出后 74 s，COM4 的 `PLAN?` gen 仍为 83；trigger 出现分钟级延迟（244 晚于 245 到达）。
+- 根因：`distributed_refmem_control_submit()` 远程路径只入队（`refmem_control_submit.c:62-76`）；
+  fragment 经 `tdma_maintenance_runtime_submit()` **单次提交、失败不重试**（`refmem_cmd_load.c:200-212`）；
+  catalog 50/51 的 `timeout_us=0` → 无 issuer deadline（`refmem_cmd_load.c:241-249`）。
+- 修复点：fragment 有界重试（按环周期节拍）+ 50/51 rate-scaled deadline（或 submit 时按
+  `cycle_period` 覆盖 `snapshot.timeout_us`）+ 可选“四板读回 gen/epoch 一致”确认。
+
+**已完成并可直接复用**：
+- 10 MHz 七动作全链（四板）：`48b51f5c`（T3 复用 REBUILD 成环路径），证据见 §4 与 `f616ecef`。
+- 低速率引导环：`TOPO → RING:BRINGUP 1 → ARM → START`（BRINGUP 必须在静默屏障后设置；
+  T3/10 MHz 不得设置）——`fec92c17`/`ef...`。
+- 速率缩放：`app_ctrqs_staged_period_ms()`/`app_ctrqs_scaled_ms()`、t0=6 s+80×period、
+  FORWARD formed 驱动（`3bc8299d`/`fec92c17`/`0ef00a67`）。
+- 10 kHz P1：参考板 epoch 244、跟随板 epoch 241 均 4 trials COMPLETE（单板级）。
+
+**新会话第一步建议**：
+1. 先读本文 §2 硬约束、§6.1 动作布局、§7 台架注意；跑一次 P3 复位台架（`workflow_steps.py run
+   --preset pico2-v2-factory-candidate --tdma-only --reuse-topology out/HardwareAcceptance/20261105/p3-222113/p0t-topology/summary.json`）。
+2. 修命令面交付（上述 3 处），用受控测量验证 10 kHz 下 CONFig/trigger 秒级四板一致。
+3. 再跑四板 10 kHz P1→P2（成环/测量分离）→P3→T0–T2；最后 S 语义与 M6。
+4. 工作树有一处非本目标的未提交改动 `docs/tdma/TDMA_DOMAIN_TODO.md`（并发会话痕迹），勿误提交。
+
+**关键命令/字段**（详见 §6/§7）：
+`SYST:TDMA:GUIDE:CONFig <action>,<crc>,<gen>,<level>,<window>,<trials>,<count>,<c0..4>,<lo>,<hi>`；
+`TRIGger <action>,<epoch>`；`PLAN?` 共 22 字段（9 计划 + 13 执行器/Q/S 只读）。
+操作约束：CONFig 后先读回四板 `PLAN?` gen 一致再 trigger；trigger 后读回四板 epoch 一致；
+四板窗口未结束时发新命令会 -200（命令面依赖环 running + 四板 ACK）。
+
 ## 1. 目标（完成定义）
 
 低速环（10 kHz 引导环）承担全部前序标定训练：每个动作 **P1/P2/P3/T0/T1/T2/T3 各跑一次
@@ -274,3 +309,30 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
   其他命令的合成串仍按失败处理。
 - 验收抖动重试一次；失败证据保留在 `out/HardwareAcceptance/<date>/<run>/`。
 - 本会话两次违规（新建 ledger / 新建相位机）文件在 `out/rejected/`，**不要复用**。
+
+### 7.1 10 kHz 引导档复现步骤（交接实测配方）
+
+```text
+# 1) 清 stage + 应用低速率档（每板）
+CAL:TRAIN:STAGE:CLEAR
+SYST:TDMA:OPMode:STAGe 23
+SYST:TDMA:OPMode:APPLy
+
+# 2) 起 10 kHz 引导环（每板 TOPO，然后全板 BRINGUP，再跟随板/参考板 ARM+START）
+SYST:TDMA:RING:TOPology 4,<slot>,0
+SYST:TDMA:RING:BRINGUP 1
+SYST:TDMA:RING:ARM
+SYST:TDMA:RING:START
+
+# 3) P1 计划（level=23、window 4000、trials 4、candidates 4/16）
+SYST:TDMA:GUIDE:CONFig 1,<crc>,<gen>,23,4000,4,3,0,4,16,1,64
+
+# 4) 等四板 PLAN? 的 gen 一致后再触发（命令面在 10 kHz 下交付慢/易丢，见 §0）
+SYST:TDMA:GUIDE:TRIGger 1,<epoch>
+```
+
+实测时间预算（10 kHz）：窗口 t0 = 6 s + 80×150 ms = 18 s；P1 slot=5.3 s（16 cycles×2×150 ms+0.5）；
+4 trials 约 21 s；恢复另计。P1 计划可用 window=4000（执行器会自动放大 slot）。
+
+已验证结果：参考板 epoch 244、跟随板 epoch 241 均 `COMPLETE, trials_done=4`；四板同时通过仍需先解决
+§0 的命令面交付问题。
