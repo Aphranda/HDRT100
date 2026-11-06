@@ -594,6 +594,17 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 相应地 P1 需要新增 `TRIAL_DONE` 阶段：跟随板在 origin 窗口期间保持 FORWARD，收到
   `TRIAL_DONE` 后才进入自己的 TRIAL（只做 persona 计数），随后与 origin 一起按环序号重建。
 
+**2026-11-07 02:2x abort_site 归因（`5d15610c`，build `20261106181408`）**：
+
+- 参考板：`prog_status=3` 但 `trials_done=4, passed_mask=15, failed_mask=0, reason=14`——
+  **训练 4/4 全过，失败只在收尾 rebuild**。这个形态已连续多轮复现。
+- 跟随板：`abort_site=5(FORWARD), reason=11, trials_done=0`；`RING:PHASE? recv=0`。
+- **决定性**：phase 帧全部积压在 origin 的维护队列里——FANOUT 一进入就停环，队列再也没有
+  机会发出。所以"立即切换"式 phase 广播在窗口内不可达；协商帧必须在环还跑着时送出，
+  停环/起环按**未来环序号**对齐（各板在自己的 `ring_seq` 到达 `base+K` 时一起动作）。
+- 结论：M6.1 的剩余工作收敛为两件：① 把窗口的停环/起环改成环序号对齐（消息在环上发出）；
+  ② 收尾 rebuild 也走同一对齐，避免"参考板独自重建 → 14"。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
