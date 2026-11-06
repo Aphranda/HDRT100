@@ -468,6 +468,37 @@ epoch 高位标志）、10 MHz 档是否直通（其投递偏差 ms 级，可保
 **验收**：同一 build 上连续 2 次四板 P1 `progress_status=1, trials_done=4, passed_mask=0xF,
 failed_mask=0`，且四板 `PLAN?` 的 t0 派生量（环序号）一致。
 
+#### 6.2.3 环状态协商（barrier）：停环/起环必须先达成共识
+
+**问题（有实测证据）**：当前 C→T→R→Q→S 的每个交接点都是**本地独断**——每板在 FANOUT 后
+自己 `stop`，再自己 TOPO→ARM→START（`app.c:2802-2847`）。环是四板共享资源，于是：
+
+- 谁先进 TRIAL，环就被谁停掉；晚 16 s 到的参考板 `ring_formed()` 为假（23:46 实测）；
+- 三种投递边沿（ACK 聚合 +42 s / 帧 ACK 排空 +16 s / 已发 chunk −52 s）和两种"延迟收工"
+  全部无法补偿（§6.2.1 表）；
+- 结论：缺的不是某个更聪明的边沿，而是**没有协商**。类比以太网：停环/起环需要
+  link negotiation + barrier，交接才稳定。
+
+**设计**：把每个交接点做成 barrier——本板发布 `(phase, round)`，只有看到**四板都处于目标
+phase 且 round 相同**才允许推进；推进前再稳一个环回，避免"最后一板还没看到"。超时按环周期
+缩放并 fail-closed（记 reason，不进入下一段）。barrier 通过的瞬间即四板的共享边界，
+`FORMED → TRIAL` 这个 barrier 通过后同刻开窗——M6.1 的"共享起始时刻"便是它的自然结果，
+不需要绝对时钟，也不需要 §6.2.2 的环序号机制。
+
+**载体（唯一待拍板项）**：
+
+| 方案 | 时延 | 代价 |
+|---|---|---|
+| (a) flight process image 的每板 short slot（32 B）加 phase/round 字节 | 每环回可达（10 kHz ≈600 ms） | 改 payload class 布局：版本号 + 契约登记 + 双端同 build |
+| (b) 复用 REFMEM node-control 记录广播 phase | 维护通道 1 chunk/s，数十秒 | 零协议改动，只够做慢 barrier / 重启兜底 |
+| (c) 新增 catalog 命令（ring phase propose/ack） | 同 (b) | 新命令 id + 契约 |
+
+**倾向**：(a) 做快 barrier，(b) 作为跨代/重启后的兜底。落地前须先确认 flight short slot 的
+空闲字节与 payload 版本升级路径（`tdma_flight_engine.h:46-58` 的 payload 版本/槽位约束）。
+
+**验收**：barrier 完成时刻四板差 ≤1 环回；同一 build 连续 2 次四板 P1
+`passed_mask=0xF, failed_mask=0`。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
