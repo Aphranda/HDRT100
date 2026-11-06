@@ -551,6 +551,34 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   `tests/python/test_trigger_debug_*`、`tools/domains/trigger/*`）。按 §2.8，并发会话改源码时
   禁止跑验收；夜间每轮开跑 P3 前必须先 `git status` 确认无他人未提交的源码改动。
 
+**2026-11-07 01:1x 待冻结点 ① 裁决：不重载 T2 描述符**
+
+- 审计 `stage` 判定共 15 处（`trigger_t2_runtime.c:1021/1095/1103`、
+  `distributed_refmem_position.c:29-37`、`distributed_refmem.c:1156`、
+  `trigger_position_mailbox.h:42-43`、`trigger_position_descriptor.h:86/199/209/220` 等）。
+  新增 `STAGE_RING_PHASE` 会让其中至少 6 处非归档位置**拒绝或误路由**（mailbox 校验、
+  position 镜像封装、descriptor 编码都只接受 0/1/2）。
+- 结论：T2 描述符的语义是"转台位置预测"，把标定阶梯的环阶段塞进去会把两个域的契约绑在一起，
+  回归面覆盖 T2 全部路径——不符合 HAOFV"单一 canonical、不重复实现"的边界（复用**形态**，
+  不复用**语义**）。
+- 改用**兄弟通道**：origin 下发环阶段（沿用 T2 的"下发 + 按片重发"形态），跟随者经
+  **process image 每帧回报**（这是 T2 真正值得复用的部分），origin 收齐回报掩码再推进。
+- 下一步必须先确认**跟随者回报字节的落点**：flight node slot = 32 B（8 B 快头 + 24 B body），
+  需读 `TDMA_FLIGHT_MAILBOX_BODY_SIZE` 的生产者，确认 body 是否有 ≥2 B 空闲（phase+round），
+  再决定是否需要版本升级；若无空闲，则退回"维护面小消息 + 跟随者以 ACK 帧回报"的折中。
+
+**2026-11-07 01:4x 协商 v1 实测（`988f6bf2`，build `20261106172420`）**：
+
+- **下发-采纳已通**：参考板 `RING:PHASE?` `pub=5`，三块跟随板 `recv=5`、`local=6(TRIAL)`——
+  origin 广播 + 跟随者收到即采纳的链路成立（每环回到达，实测远快于命令面）。
+- **仍未开窗**：跟随板在 FORWARD 等到 90 s 预算耗尽（`reason=11`）；参考板进 FORWARD 约
+  0.7 s 就 `abort(NOT_ONLINE_SAFE=14)`——它自己的 ring START 失败（`enabled=0` +
+  `adapter_last_error`），而跟随板此时已长时间停在 FORWARD（等待 origin 的 TRIAL 广播）。
+- 新结论：协商解决的是"何时开窗"，但**起环本身变成了竞争**——origin 起环时跟随板已长期停在
+  FORWARD，START 被拒。下一步必须让 origin 的起环也走协商（跟随板在 origin 起环前保持
+  "待起环"可接受状态），并给 START 增加回读/重试（现有 `472`/`473` 之外的失败分支要带 reason）。
+- M6.1 仍 OPEN。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
