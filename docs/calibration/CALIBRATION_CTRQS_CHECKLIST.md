@@ -230,14 +230,14 @@ reconcile COMPLETE、ladder_index=3）。关键修复：P3 停止后必须等 `p
 
 1. 现状：level 23（10 kHz）清 stage 后 START 报 **274 = 0x100|18 = OWNER_TOPOLOGY_PHASE**
    （适配器 flight-map 门已放宽，物理层仍要求校准 stage）；level 7 + P3 的 10 MHz stage 可起环。
-2. 目标：生成与低速率档匹配的 stage，使 `enabled=1,adapter_started=1` 在 level 23 成立。
-3. 候选路径：
-   - 用 `calibration_marker_train.py` / `calibration_sck_train.py` / `calibration_data_train.py`
-     的 `--level 23`（或 25）在四板上重跑并导出矩阵，再 `trn03_stage.py --commit`（工具均接受
-     `--level`；需确认其 config 输入与 P3 工作流的矩阵 schema 一致）。
-   - 或给 `tdma_operating_profile` 的低速率档提供默认 phase 表（固件改动，需保持 274 fail-closed
-     边界之外的显式“无 stage 引导”开关，且仅台架诊断可用）。
-4. 验收：level 23 四板 START OK 后，把 P1–T3 全链复验到 10 kHz，只有 T3 的 S 允许 `ARM → START 10 MHz`。
+2. **突破（2026-11-06，实板已验证）**：`SYSTem:TDMA:RING:BRINGUP 1`（`TDMA_RING_FLAG_BRINGUP_NO_CAL`）
+   在 TOPO 之后设置，可让 level 23 四板 **ARM OK + START OK**（`enabled=1, adapter_started=1`）。
+   即低速率引导环走的是 bring-up no-cal 路径，不依赖校准 stage。
+3. 引导窗口需要在每次 TOPO 之后重新设置 BRINGUP（TOPO 重建 config 会清除该 flag），
+   与 `DIAGnostic 1` 同一位置；**T3/10 MHz 产品启动不得设置 BRINGUP**（否则绕过校准门）。
+4. 剩余设计点：P2 的 coded 测量需要 10 MHz（其 prep 会 apply level 7），与“低速引导环”冲突；
+   需要把 P2 的“成环档位”和“测量档位”分离（成环走 guide 档 + BRINGUP，停环后再 apply 测量档）。
+5. 验收：level 23 四板起环后，把 P1–T3 全链复验到引导档；只有 T3 的 S 允许 `ARM → START 10 MHz`。
 
 **T0 布局 v2 草案（待实现验证）**：T0 是 marker/residence 训练，身份字段（epoch/sequence/
 marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候选改为
