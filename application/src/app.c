@@ -3187,13 +3187,16 @@ static void app_ctrqs_service(void)
              * window close so the guide ring can be re-formed. */
             (void)calibration_manager_clear_training_stage();
             if (!calibration_manager_set_topology_probe_mode(
-                    true, s_ctrqs.p2_probe_phase) ||
-                !tdma_runtime_owner_stage_operating_profile(s_ctrqs.p2_level) ||
-                !tdma_runtime_owner_apply_operating_profile()) {
+                    true, s_ctrqs.p2_probe_phase)) {
                 app_ctrqs_abort(
                     (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
                 return;
             }
+            /* The ring is formed at the carrier the window was entered with
+             * (the guide level, with BRINGUP), not at the measurement profile:
+             * the measurement profile is applied after the teardown, when the
+             * coded link measurement actually runs.  Applying it here would ask
+             * a low-rate guide window to form a 10 MHz ring. */
             s_ctrqs.p2_prep_step = 1u;
             s_ctrqs.deadline_ms = now + APP_CTRQS_P2_STEP_MS;
             return;
@@ -3248,6 +3251,16 @@ static void app_ctrqs_service(void)
             return;
         }
         (void)calibration_manager_set_topology_probe_mode(false, 0u);
+        /* Ring torn down: switch to the measurement profile.  The coded link
+         * measurement needs its own carrier (10 MHz), while the ring that had
+         * to arm and align the four boards was formed at the guide level. */
+        if (s_ctrqs.p2_level != 0u &&
+            (!tdma_runtime_owner_stage_operating_profile(s_ctrqs.p2_level) ||
+             !tdma_runtime_owner_apply_operating_profile())) {
+            app_ctrqs_abort(
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            return;
+        }
         s_ctrqs.state = APP_CTRQS_P2_WAIT;
         s_ctrqs.deadline_ms = s_ctrqs.t0_ms + APP_CTRQS_P2_CODED_MS;
         s_ctrqs.p2_ref_start_ms = (uint32_t)(s_ctrqs.t0_ms +
