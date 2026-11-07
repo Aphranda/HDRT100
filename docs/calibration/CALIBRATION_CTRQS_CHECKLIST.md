@@ -962,6 +962,21 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 下一轮：给 `T3_ARM` 的三个前段步骤（topology / quiescent / arm）各加一个"停留站点"诊断位
   （复用 `abort_site` 的思路），一次上板即可定位卡点。
 
+**2026-11-07 12:3x T3_ARM 分层诊断结果（build `20261107041636`）**：
+
+- 新增 `abort_site = 100 + 站点` 诊断（站点：1 拓扑尝试 / 3 拓扑完成查 quiescent / 4 进入 arm 段 /
+  5 发出 arm / 7 已形成），实板读出 **`abort_site=104`**：四板都过了 quiescent、进入 arm 段。
+- **决定性**：`SYST:TDMA:RING:ARM:STATus?` 四板均返回 **1 = `DISTRIBUTED_REFMEM_TDMA_ARM_OK`**
+  （`distributed_refmem.h:97`）——**10 MHz 的 ARM 是成功的**，校准门（`CALIBRATION_GATE_REJECTED=7`）
+  也没有拒绝。
+- **真正卡点**：`T3_ARM` 后半段 `distributed_refmem_tdma_ring_start()` 的返回值被忽略
+  （`app.c:3640` `(void)`），随后只在 `restore_formed()` 成立时才算成功；实测 START 之后
+  环仍 `enabled=0`，60 s 到点 `abort(NOT_ONLINE_SAFE)`（stage 保持 104，因为下一拍又先置 4）。
+  即：**ARM 成功、START 没有把环带起来**，且 START 没有可回读的结果码。
+- 下一轮：给 START 段加同样的"站点 + 结果"诊断（记录 `ring_start()` 返回值与调用前后
+  `enabled/adapter_started/config_seq/applied_config_seq`），并核对 10 MHz profile 是否真的
+  被 `stage/apply` 接受（在 T3_PREP 记录 `stage/apply` 的返回值）。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
