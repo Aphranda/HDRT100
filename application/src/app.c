@@ -2008,10 +2008,17 @@ static bool app_ctrqs_restore_formed(void)
  * let the frozen boot steps rebuild it.  Fail-closed: the action never reaches
  * Q with a masked failure. */
 static uint32_t s_ctrqs_abort_site;
+/* Sub-step reached inside APP_CTRQS_T3_ARM.  Published through abort_site as
+ * 100 + stage when T3 aborts there: that path has several waits and otherwise
+ * the only visible outcome is "stuck in T3_ARM". */
+static uint32_t s_ctrqs_t3_stage;
 
 static void app_ctrqs_abort(uint32_t reason)
 {
     s_ctrqs_abort_site = s_ctrqs.state;
+    if (s_ctrqs.state == APP_CTRQS_T3_ARM) {
+        s_ctrqs_abort_site = 100u + s_ctrqs_t3_stage;
+    }
     s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
     s_ctrqs.progress.reason = reason;
     app_ctrqs_publish();
@@ -3581,10 +3588,12 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_T3_ARM:
         if (app_ctrqs_restore_formed()) {
+            s_ctrqs_t3_stage = 7u;
             app_ctrqs_t3_advance(true);
             return;
         }
         if (!s_ctrqs.t3_topo) {
+            s_ctrqs_t3_stage = 1u;
             if (!distributed_refmem_set_tdma_ring_topology(
                     s_ctrqs.local_slot, s_ctrqs.ref_slot,
                     (uint32_t)PROJECT_TDMA_GUIDE_NODES)) {
@@ -3598,6 +3607,7 @@ static void app_ctrqs_service(void)
             s_ctrqs.t3_topo = true;
             return;
         }
+        s_ctrqs_t3_stage = 3u;
         if (!app_ctrqs_ring_quiescent()) {
             app_ctrqs_stop_throttled(now);
             if (now >= s_ctrqs.deadline_ms) {
@@ -3606,10 +3616,12 @@ static void app_ctrqs_service(void)
             }
             return;
         }
+        s_ctrqs_t3_stage = 4u;
         if (!s_ctrqs.t3_armed) {
             if (now < s_ctrqs.arm_try_ms) {
                 return;
             }
+            s_ctrqs_t3_stage = 5u;
             s_ctrqs.arm_try_ms = (uint32_t)now + 300u;
             if (distributed_refmem_tdma_ring_arm() &&
                 distributed_refmem_tdma_ring_arm_last_result() ==
