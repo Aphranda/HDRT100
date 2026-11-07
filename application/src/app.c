@@ -1919,8 +1919,19 @@ static uint32_t app_ctrqs_staged_period_ms(void)
     return period_ms != 0u ? period_ms : 1u;
 }
 
-static uint32_t app_ctrqs_scaled_ms(uint32_t base_ms, uint32_t cycles)
+/* Marker-family training identity.  The wire field is 8 bits and the manager
+ * rejects train_epoch > UINT8_MAX, but the plan generation is 32 bits and grows
+ * monotonically; passing it through made T0/T1/T2 fail with
+ * CONFIG_VALIDATION_FAILED as soon as the generation left that range.  Every
+ * board derives the same bounded epoch from the shared generation, so the
+ * identity stays consistent across the ring while the full generation is still
+ * what the plan, the evidence and the progress record carry. */
+static uint32_t app_ctrqs_marker_epoch(void)
 {
+    return (uint32_t)(s_ctrqs.plan.generation % 255u) + 1u;
+}
+
+static uint32_t app_ctrqs_scaled_ms(uint32_t base_ms, uint32_t cycles){
     const uint64_t scaled =
         (uint64_t)cycles * app_ctrqs_staged_period_ms() + UINT64_C(500);
     return scaled > base_ms ? (uint32_t)scaled : base_ms;
@@ -2687,8 +2698,8 @@ static void app_ctrqs_t0_step(uint64_t now)
     }
     if (!s_ctrqs.t0_prepared) {
         if (!calibration_manager_request_marker_training(
-                s_ctrqs.t0_codebook, s_ctrqs.plan.generation,
-                s_ctrqs.plan.generation, s_ctrqs.plan.generation,
+                s_ctrqs.t0_codebook, app_ctrqs_marker_epoch(),
+                app_ctrqs_marker_epoch(), app_ctrqs_marker_epoch(),
                 s_ctrqs.plan.generation, s_ctrqs.t0_link_base_delay_ns,
                 (int32_t)s_ctrqs.t0_offset_samples, s_ctrqs.t0_origin_node,
                 0u)) {
@@ -2774,8 +2785,8 @@ static void app_ctrqs_t1_step(uint64_t now)
     }
     if (!s_ctrqs.t1_prepared) {
         if (!calibration_manager_request_sck_training(
-                source, destination, 1u, s_ctrqs.plan.generation,
-                s_ctrqs.plan.generation, s_ctrqs.plan.generation,
+                source, destination, 1u, app_ctrqs_marker_epoch(),
+                app_ctrqs_marker_epoch(), app_ctrqs_marker_epoch(),
                 s_ctrqs.t1_launch_guard, s_ctrqs.t1_link_delay_ns, 0,
                 s_ctrqs.t1_search_start, s_ctrqs.t1_search_end, 4u,
                 s_ctrqs.t1_max_distance, s_ctrqs.t1_min_margin)) {
@@ -2859,8 +2870,8 @@ static void app_ctrqs_t2_step(uint64_t now)
     }
     if (!s_ctrqs.t2_prepared) {
         if (!calibration_manager_request_data_training(
-                source, destination, 1u, s_ctrqs.plan.generation,
-                s_ctrqs.plan.generation, s_ctrqs.plan.generation,
+                source, destination, 1u, app_ctrqs_marker_epoch(),
+                app_ctrqs_marker_epoch(), app_ctrqs_marker_epoch(),
                 s_ctrqs.t2_marker_to_data, s_ctrqs.t2_link_delay_ns, 0, 0,
                 s_ctrqs.t2_search_start, s_ctrqs.t2_search_end, 4u,
                 s_ctrqs.t2_max_distance, s_ctrqs.t2_min_margin, 0u, 0u, 0u)) {
