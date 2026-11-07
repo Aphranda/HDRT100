@@ -720,6 +720,21 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   实测 offset 与判据差多少），而不是再动执行器。
 - M6.4 仍 **⏳**：判据要求四板全部链路×重复通过。
 
+**2026-11-07 08:1x P3 形态改判（`18e495a2`，build `20261107001844`）**：
+
+- 只读子代理 `91c46f6a` 独立取证 + 主会话复核后**改判**：NO.3 `0x7` / NO.4 `0x3F`
+  **不是"逐链路物理不对称"**，而是 P3 执行器缺陷——`app_ctrqs_p3_advance()` 不恢复
+  `state=APP_CTRQS_P3_RUN`（该常量只在 P3_PREP 赋值），一旦某个 trial 以 `P3_STOP` 结束，
+  状态机永久停在 STOP，之后每个 service 拍用**同一陈旧判决**盖章剩余 trial → 纯前缀掩码。
+  NO.3/NO.4 通过的位全是 **no-op pass**（该板既非 source 也非 destination，代码注释明说
+  "reports no hardware evidence"）；NO.1/NO.2 的 `0xFFF` 同样**不能当作 12 次实测证据**。
+  T0/T1/T2 都显式恢复 run 态（`app.c:2666/2742/2829`），只有 P3 漏了。
+- 第二处：`finalize()` 只对 P1 检查 `failed_mask`，P3 即使真实 trial 全失败也报 COMPLETE
+  并让阶梯推进到 `ladder_idx=3`（**在失败证据上推进**）。已改为对全部动作遵守
+  `failed_mask==0` 才 COMPLETE。
+- 因此 M6.4 的"12 trial 全覆盖"判据在修复前**不可达**；修复后尚未取得实板证据（本轮随后
+  台架 bring-up 失败 + 命令面停摆，阶梯未能重跑）。M6.4 仍 **⏳**。
+
 ## 7. 台架与操作注意- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
