@@ -181,6 +181,7 @@ docs/
 | `docs/check/submissions/TDMA_CROSS_REVIEW_01.md` | 首份核验提交单：HAOFV-879 seqlock 偏差（ACCEPT_WITH_DEVIATION，2026-08-19）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_02.md` | TDMA mandatory-first process image 的 HAOFV/VDC/RefMem 层间核验（pending，2026-08-28）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_03.md` | TDMA bounded recovery 双 buffer、原 Node offset 与实时诊断边界层间核验（pending，2026-08-28）。 |
+| `docs/check/submissions/TDMA_BOOTPROFILE_CROSS_REVIEW_01.md` | 单口启环 boot profile provisioning（`TDMA-BOOTPROFILE-01`）的 C11 复核：首版 REJECT（STOP-only fail-open、损坏记录死锁），F1–F15 处置与实板发现的两个 flash 寻址/策略 bug。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_04.md` | TDMA resident process image、单轮多 Node overlay 与状态机生命周期层间核验（pending，2026-09-02）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_05.md` | TDMA Core1 phase 预算归因：500 µs 目标下未达（实测 667–692 µs），缺口归因到 adapter RX 路径并建立优化队列；2026-09-14 判据修订（预算升至 850 µs）后改判 `MET`（有限窗口快照，非事实源；C11 pending）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_06.md` | TDMA 对 DPLL 的支撑能力核验：`PARTIAL_SUPPORT`——硬件 latch 8 ns/非 diagnostic/链路零误码已成立，同圈关联与生产准入未闭合；给出 P1–P5 优先任务（有限窗口快照，非事实源；C11 pending，2026-09-14）。 |

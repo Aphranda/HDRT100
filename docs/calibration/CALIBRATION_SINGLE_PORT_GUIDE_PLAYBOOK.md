@@ -697,7 +697,9 @@ pathspec 提交会被 hook 判"未暂存差异"、整索引提交会带上该批
 
 ### 9.17 M0 实测（2026-11-05，v2 单口引导期）
 
-**自组**（build `20261105032420`，`PROJECT_TDMA_GUIDE_AUTOFORM=ON`，四板同 build，无任何起环命令）：
+**自组**（build `20261105032420`，`PROJECT_TDMA_GUIDE_AUTOFORM=ON`，四板同 build，无任何起环命令；
+**注**：该编译开关已被 `TDMA-BOOTPROFILE-01` 取代——单口自组现在由运行时 provisioning 的
+`SYSTem:TDMA:BOOT:PROFile` 驱动，P3 镜像即台架镜像，AUTOFORM 只保留为历史证据的构建方式）：
 
 | 板 | slot | up | down | tx | rx | half_ring |
 |---|---|---|---|---|---|---|
@@ -1258,8 +1260,12 @@ ARM(带屏障)→START→采样→STOP` + 重放 boot 步骤复环）可直接�
 **S 段实板测试步骤（待 matrix 就绪后执行）**：
 
 1. 完整验收链产出 `trn03-matrix.json`（`workflow_steps.py run` 的 21 步）；
-2. 刷 bench 镜像变体 `PROJECT_TDMA_GUIDE_STAGE_BOOT=ON`（其余同 `m1-self`：v2 + AUTOFORM、
-   `GUIDE_SCAN=OFF`），逐板写回 `SYST:BOARD:NO`；
+2. S 段 boot override 目前仍是编译开关 `PROJECT_TDMA_GUIDE_STAGE_BOOT`，与
+   `TDMA-BOOTPROFILE-01` 的"P3 镜像即台架镜像"原则冲突；在改为运行期判定（有已提交 TRN-03 stage
+   即按其 level 起环）之前，**不得**把它当作单口验收路径。单口验收只用引导档 +
+   `SYSTem:TDMA:BOOT:PROFile` provisioning。以下步骤仅作为该实验的历史记录保留：
+   （原第 2 步：刷 `PROJECT_TDMA_GUIDE_STAGE_BOOT=ON` 的 bench 变体，其余同 `m1-self`：v2 +
+   AUTOFORM、`GUIDE_SCAN=OFF`，逐板写回 `SYST:BOARD:NO`——该变体不再允许用于单口验收）
 3. `trn03_stage.py --board-id <NO.1..4 串口序> --config <matrix> --commit`，
    复核 `READ:CALibration:TRAINing:STAGe:PERSistence?` 为 `persisted_valid=1, loaded=1, reject=0`；
 4. 同步重启四板 → 期望 `SYST:TDMA:OPMode?` 的活动档 = matrix 的 level（不是 23）、

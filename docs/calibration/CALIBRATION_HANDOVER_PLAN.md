@@ -18,8 +18,9 @@ Last updated: 2026-11-07
 
 | 能力 | 证据锚点 |
 |---|---|
-| 10 kHz 引导环启环（**四口**）可重复 | 探针 `up` 后四板 `enabled=1, nodes=4, up=1, down=1, adapter=1` |
-| GUIDE `CONFig`/`TRIGger` **单口**下发 | 只开 NO.1 发命令；四板 `PLAN?` 的 `gen/epoch` 一致后才触发 |
+| 10 kHz 引导环**零口**自组（同一 P3 镜像，无任何起环 SCPI） | 四板 provisioning 后冷启动：`BOOT:PLAN?` `START_REF/LISTEN`、`fail_step=0`、`boot_done=1`；`RING:STATus?` `enabled=1,node_count=4,up=1,down=1,adapter=1`；探针 `boot` PASS 归档 `out/calibration/guide-10k/evidence/20261107-234127-boot-night1/`、`...-boot-night2/` |
+| 10 kHz 引导环启环（**四口**，旧路径）可重复 | 探针 `up` 后四板 `enabled=1, nodes=4, up=1, down=1, adapter=1` |
+| GUIDE `CONFig`/`TRIGger` 单口下发 | **OPEN**：命令返回 `"OK"` 但 `CMD:STATus?` `q_depth=1,deq=0,tx_ok=0`，四板 `PLAN?` 60 s 未更新；四口起环后同样复现（非自组环特有） |
 | 七动作阶梯 P1→T3 四板推进 | 多轮 `ladder_idx=6`、`ladder_step=2(DONE)` |
 | T3 四板 COMPLETE + 载波可读 `10 MHz / 1 ms` | `RING:STATus?` 尾字段 `baud_hz=10000000, cycle_period_ns=1000000` |
 | S 段语义冻结 | 契约 `CALIBRATION-SGATE-01`（`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` §12） |
@@ -27,14 +28,24 @@ Last updated: 2026-11-07
 
 ## 3. 未达成（下一会话的工作清单）
 
-### 3.1 启环单口化（首要）
+### 3.1 启环单口化（首要）——路线已定，证据待补
 
-- 现状：`guide_cmdplane_probe.py` 的 `configure_level()` 与 `bring_up()` 对四板逐个发
-  `CAL:TRAIN:STAGE:CLEAR` / `OPMode:STAGe` / `OPMode:APPLy` / `RING:TOPology` /
-  `RING:BRINGUP` / `RING:ARM` / `RING:START`。
-- 目标：这些动作改走 REFMEM 命令面（固件已有 `distributed_refmem_set_tdma_ring_topology`
-  一类原语），只开一个端口完成；并给出"只开 NO.1 也能起环"的四板读回证据。
-- 前置判断：先确认 `OPMode:STAGe/APPLy` 是否有 REFMEM 命令面可用；没有则先补命令面（契约登记）。
+**代码事实（2026-11-07 复核，勿再按旧假设动手）**：
+
+- REFMEM 远程命令面**不能自举环**：远程提交要求 ring transport 已就绪
+  （`components/distributed_refmem/src/refmem_control_submit.c`），命令目录没有
+  OPMode/BRINGUP/ARM/START 条目，`TDMA_RING_TOPOLOGY` 的远程 handler 也恒拒。环停时"只开 COM5 发命令
+  起环"不可能，不是补几行目录能解决的。
+- 可行路线是**开机重建 + 运行时 provisioning**：v2 地图的 boot profile store（CALIBRATION_NVS 双扇区）
+  + `SYSTem:TDMA:BOOT:PROFile`，上电后四板无任何主机命令自组 10 kHz 引导环，之后所有动作与读回只走
+  COM5。P3 验收镜像与台架镜像是**同一构建**；契约 `TDMA-BOOTPROFILE-01`。
+- 台架编译开关 `PROJECT_TDMA_GUIDE_AUTOFORM` 只作历史证据；不得再为台架另立镜像
+  （用户 2026-11-07 裁决：P3 镜像即最新镜像，不接受第二份镜像）。
+- 单口验收的启动序列：`BOOT:PLAN? boot_done=1`（或 ≥33 s）→ 四板 provisioning → 同步重启 →
+  四板 `BOOT:PLAN?`/`RING:STATus?` 零口自组判据 → 只用 COM5 下发 C/T。
+
+**状态**：实现已落（写入/读回/清除、fail-closed、错误码分层、host 用例）；P3 与四板 provisioning
+证据见 §7；未拿到证据前本项不得写成完成。
 
 ### 3.2 帧活性归属（R39）
 
@@ -87,7 +98,9 @@ Last updated: 2026-11-07
 ## 6. 起步检查清单（第 1 轮）
 
 1. 读本文件 + 台账残余表 + playbook §10。
-2. 四板同 build：`*IDN?` 与 `SYSTem:FW:BUILD?` 一致。
-3. 检查 §3.1 的前置：`OPMode:STAGe/APPLy` 是否有 REFMEM 命令面；没有则先补。
-4. 只开 NO.1 一个端口，尝试完成 STAGE/APPLY/TOPO/BRINGUP/ARM/START，并读四板 `RING:STATus?` 验证。
+2. 四板同 build：`*IDN?` 与 `SYSTem:FW:BUILD?` 一致（build 必须来自 P3 那次构建）。
+3. 单口启环走 §3.1 的路线：先 `boot` 判据确认零口自组，再只开 COM5。**不要**再逐板发
+   STAGE/TOPO/BRINGUP/ARM/START，也不要为台架另刷镜像。
+4. provisioning 是一次性、逐板的（`SYST:TDMA:BOOT:PROFile 23,4,<slot>,1,<crc>`，STOP-only）；
+   写完必须重启，`BOOT:PLAN?` 在重启前不会变。
 5. 每步结论只用归档读数；单口失败即按 §5-5 恢复台架，不要用第二个端口"绕过去"。

@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-11-04
+Last updated: 2026-11-07
 
 ## 文档接口与范围
 
@@ -466,6 +466,66 @@ slot × N          ≤ UINT32_MAX
 **禁止改。** `clk_sys`；PIO 程序与 `TDMA_ORIGIN_CONTROL_CYCLES_PER_BIT` / guard 常量；`physical_bytes` 上界；wire 帧型/长度；标定 flash 单记录 schema；Core1 相内阻塞；运行中热切换。不得把低速档设为 `PROJECT_TDMA_SPI_BAUD_HZ` 的编译期默认值：CMake 白名单只服务 10–50 MHz 的默认构建，低速默认值会让 `APP_REALTIME_WIRE_MAX_CYCLES` 断言直接失败。低速会话只 `clear_calibration_stage()`，**禁止 commit**，避免覆盖 flash 唯一标定记录。
 
 **未决项（台架）。** 100 µs 位宽与 139 ms CS 低电平在 ISO1452/线缆上的眼图与共模；从板 RX→TX 重装（cut-through）延迟的实测上界，它决定 slot 余量而不是 guard 量子；600 ms 圈 + 1.5 ms Core1 服务下发射相位抖动与环内多帧重叠；`tdma_event_observer` 在 600 ms 周期下的 `join_timeout_cycles` 与 history 容量；OTA/BOOTSEL 刷写路径的 counter/签名门禁。以上均需实测，不能由 host 结果替代。
+
+### 开机重建与单口启环（`TDMA-BOOTPROFILE-01`）
+
+**唯一镜像。** 引导期的 10 kHz 环不在启动时由主机逐板下发，也不靠编译期台架开关：每板持久化一份
+boot profile（v2 地图的 CALIBRATION_NVS 双扇区记录），上电后由 `app_guide_boot_service` 按板号定序
+重建。P3 验收镜像与台架镜像是**同一构建**（都按 `pico2-v2-factory-candidate` 预设），差异只在
+provisioned 状态，不在 image；不得为台架另立镜像。唯一的编译期前提是 v2 部署地图（`v2_candidate`），
+这是分区布局而不是本功能的开关。
+
+**记录语义。** `tdma_boot_profile_t`：`version / profile_level / node_count / local_slot / flags /
+topology_crc32 / generation` + CRC32（`tdma_boot_profile.h`，32 B 定长）。`BRINGUP_NO_CAL` 位允许无
+标定 ARM（`TDMA_RING_FLAG_BRINGUP_NO_CAL`），本镜像开机没有 calibration stage，因此**写入口拒绝
+缺该位的 profile**（否则每次上电都会重放一个必然失败的 ARM）。`topology_crc32` 只是主机对账身份：
+`tdma_boot_plan_decide` 不比较它，开机裁决只看 profile 合法性与 slot/node 一致性。
+
+**存储所有权。** boot profile 落在 v2 地图 CALIBRATION_NVS 的第三个子区（calibration store 与
+seat mount store 之后各两个擦除扇区），仍由 `FLASH_TRANSACTION_REQUESTER_CALIBRATION` 写：flash 事务
+策略把该 requester 的合法范围扩展为"calibration 子区**或** boot profile 子区"，两区由 flash map 的
+静态断言保证互不重叠；单写者仍是 flash AO（core1 park → 写 → 重启环），SCPI 不得绕过它直接写 flash。
+
+**写入口。** `SYSTem:TDMA:BOOT:PROFile <level>,<nodes>,<slot>,<flags>,<topology_crc32>`：
+- **STOP-only 且 fail-closed**：`enabled` 或 `adapter_started` 为真**或环快照读不出**都拒绝。快照读不出
+  与"环在跑"相关（core1 每周期发布，guard 重试可能耗尽），而 flash AO 会为写入短暂停环再重启，
+  fail-open 会在测量窗口内静默改变环状态。
+- 参数区间：`level != 0`、`2 <= nodes <= min(TDMA_BOOT_PROFILE_NODE_MAX, PROJECT_NODE_CAPACITY)`、
+  `slot < nodes`、flags 是已定义位子集、`topology_crc32 != 0`。
+- generation 由 `tdma_boot_profile_store_next_generation()` 决定（重扫两扇区取最新可读记录 + 1，空
+  store 为 1，`0xFFFFFFFF` 直接拒绝），**严格大于**已存记录；`status.generation + 1` 不再使用（缓存
+  可能落后于 flash，且损坏记录会让板子永久卡在旧代）。
+- 成功回 `"BOOTPROF",generation,sequence,payload_crc32`。错误码分层：
+  `..._ARGUMENT`（缺参）/`..._RING_RUNNING`/`..._RANGE`/`..._FLAG`/`..._UNSUPPORTED`（v1 地图）/
+  `..._GENERATION`/`..._FLASH`/`..._VERIFY`/`..._RECORD`，主机可据此区分"不支持"与"写失败"。
+- 写入口会先擦除**无法解析的扇区**（旧 schema/object、坏区）再追加，避免一条旧记录永久阻断
+  provisioning；正常路径仍是 append + 代次选择 + 回读校验。
+
+**清除入口。** `SYSTem:TDMA:BOOT:PROFile:CLEar`：同一 STOP-only 门，擦除两个扇区并把状态恢复为
+`loaded=0, generation=0, reject_reason=EMPTY`，回 `"BOOTPROF","CLEARED"`。用于回到"无档"状态
+（例如需要冷环的验收）和从损坏记录恢复；清除后同样需要重启才改变开机行为。
+
+**读回。** `SYSTem:TDMA:BOOT:PROFile?` → `"BOOTPROF",supported,loaded,reject_reason,generation,
+sequence,payload_crc32,level,nodes,slot,flags,topology_crc32`。v1 兼容地图上 `supported=0`、写入/清除以
+`..._UNSUPPORTED` 拒绝，不得静默降级。
+
+**开机行为。** 写入后**需重启生效**：boot plan 在 `app_init` 时由 `tdma_boot_plan_decide` 冻结，重写
+profile 不改变本代的 `BOOT:PLAN?`（因此 `PROFile?` 可能显示新代而 `PLAN?` 仍是旧代，直到重启；主机
+不得用 `PLAN?` 判"写入是否生效"）。`tdma_boot_plan_decide`：slot 0 → `START_REF`，其余 → `LISTEN`；
+序列为 TOPOLOGY→STOP→STAGE→APPLY→BRINGUP_NO_CAL→ARM→START/LISTEN。`NODE_MISMATCH/SLOT_MISMATCH/
+REJECT` 分支在开机路径不可达（app 传入的 expected 正是 profile 自身），只在被其它调用方复用时生效。
+半环由 20 s 完整性窗口判定：`down_running` 为 0 即 `half_ring=1` 并 STOP；不得停留半环。
+
+**单口读回与重跑屏障。** `SYSTem:TDMA:BOOT:PLAN?` 现为 **19** 字段（原 17 字段后追加 `boot_done`、
+`boot_next_step`）。判据：四板 `boot_done=1`、`fail_step=0`，slot 0 `action=START_REF`、其余 `LISTEN`、
+`half_ring=0`；`RING:STATus?` `enabled=1,node_count=4,up_running=1,down_running=1,adapter_started=1` 且
+`total_up_tx/total_down_rx` 单调增长。**重跑验收**：boot 服务是 3–33 s 有界重试，ARM 失败还会从 STOP
+重放；主机在它飞行期间发 `RING:STOP` 会被下一次 ARM/START 撤销。因此 P0T 之前的屏障是
+`BOOT:PLAN?` `boot_done=1`（或固定等待 ≥33 s），不能假设复位后环立刻是停的。
+
+**禁止。** 环运行时（或环快照不可得时）写/清 boot profile；缺 `BRINGUP_NO_CAL` 的 profile；把 v1 地图
+的"不支持"当成功；用第二个端口或第二份镜像绕过单口目标。
+
 
 ### Ring reason code
 

@@ -4,11 +4,72 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-11-05
+Last updated: 2026-11-07
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20261107-046 - 单口启环收口：同一 P3 镜像 + 运行时 boot profile provisioning
+
+**章程**（用户 2026-11-07 裁决）：严格单口启环（只用协调口 COM5/NO.1），且**不接受第二份镜像**——
+P3 验收镜像就是台架镜像，台架必须跑最新代码的 P3 构建。
+
+**先查后做（推翻了交接 §3.1 的旧假设）**：
+
+- REFMEM 远程命令面**不能自举环**：远程提交要求 ring transport 已就绪（`refmem_control_submit.c`），
+  命令目录没有 OPMode/BRINGUP/ARM/START 条目，`TDMA_RING_TOPOLOGY` 远程 handler 恒拒（id 20）。
+  环停时"只开 COM5 发命令起环"不可能，不是补几行目录能解决的。
+- 可行路线是**开机重建**：v2 地图的 boot profile store（CALIBRATION_NVS 双扇区）+ 运行时
+  provisioning，上电后四板无任何主机命令自组 10 kHz 环，之后只用 COM5。台架编译开关
+  `PROJECT_TDMA_GUIDE_AUTOFORM` 只保留为历史证据。
+
+**实现**（契约 `TDMA-BOOTPROFILE-01`，pending）：
+
+- `SYSTem:TDMA:BOOT:PROFile <level>,<nodes>,<slot>,<flags>,<topology_crc32>`（STOP-only **fail-closed**，
+  环快照读不出也拒绝）、`...:PROFile?`（含扫描诊断 4 字段）、`...:PROFile:CLEar`；generation 由
+  store 重扫决定（严格大于最新可读记录），flags 必须含 `BRINGUP_NO_CAL`，node_count 受
+  `PROJECT_NODE_CAPACITY` 限制，错误码分层（ARGUMENT/RING_RUNNING/RANGE/FLAG/UNSUPPORTED/
+  GENERATION/FLASH/VERIFY/RECORD）。
+- `tdma_boot_profile_store_next_generation/erase`；无法解析的扇区在 commit 前擦除；
+  `BOOT:PLAN?` 追加 `boot_done`/`boot_next_step`（17→19 字段），给 P3 重跑提供"boot 服务已结束"屏障。
+- RAM：provisioning 让原本被 GC 的 commit 路径参与链接，v2 RAM 首次溢出 128 B；把 `s_program`
+  从整擦除扇区（4 KiB）改为按记录跨度计算（256 B）。
+- 测试：新增 `run_tdma_boot_profile_store_tests.ps1`（v2 地图、真实 commit/rotate/erase/next_generation）
+  与 `run_tdma_boot_plan_tests.ps1`（profile/plan/sequence/stage/region），均注册进
+  `run_host_unit_tests.ps1`；`tests/python/test_guide_boot_plan.py` 覆盖探针判据；修正
+  `test_tdma_boot_sequence.c` 与现行序列（TOPOLOGY 在 STOP 前）不一致、`run_flash_transaction_tests.ps1`
+  缺 `components/algo/inc`。
+
+**实板发现的三个真 bug**（都不是理论问题）：
+
+1. flash 事务策略：`FLASH_TRANSACTION_REQUESTER_CALIBRATION` 只允许 calibration 子区，boot profile
+   在 CALIBRATION_NVS 的 4·ERASE 偏移 → 写入被 PERMISSION 拒绝（`TDMA_BOOT_PROFILE_FLASH`）。
+2. store 的 XIP 绝对地址漏了子区相对偏移 → `scan_sector` 一直读 calibration store 的 TRN-03 记录
+   （object 不匹配），provisioning 恒 `RECORD`。host 单测的 stub 把绝对/相对坐标映射到同一窗口，
+   所以之前测不出来。
+3. 复用 build 目录导致 `PROJECT_BUILD_ID` 不更新：OTA 以 build id 判等，**同 id 时不换镜像**，
+   `*BUILD?` 因此可能"看起来没变"。修法：最终验收用新 build 目录。
+
+**证据**：
+
+- P3：`out/HardwareAcceptance/20261107/p3-bootprof6` 与 `p3-bootprof7` 均 **PASS**（counts: INFO 34,
+  WARN 0, ERROR 0, FATAL 0；`--preset pico2-v2-factory-candidate --tdma-only`，`--reuse-topology
+  out/m1-scan/p0t-night1/summary.json`）。注意：两次都复用 `out/build/p3-acceptance-20261107-225939`，
+  build id 停在 `20261107145954`，最终镜像需用新 build 目录重建后再验一次。
+- 零口自组：四板 provisioning（level 23 / nodes 4 / slot=NO−1 / flags=1 / crc=0x642F84A7）后冷启动，
+  无任何起环 SCPI；`guide_cmdplane_probe.py boot` 两次 PASS：
+  `out/calibration/guide-10k/evidence/20261107-234127-boot-night1/readback.json`、
+  `.../20261107-235054-boot-night2/readback.json`（四板 `action=START_REF/LISTEN`、`fail_step=0`、
+  `boot_done=1`、`up/down/adapter=1/1/1`、帧总量 2 s 内 69→73 / 185→189）。
+- **C/T 单口下发：OPEN**。自组环上只开 COM5 发 `GUIDE:CONFig`/`GUIDE:TRIGger` 返回 `"OK"`，但
+  `REFMEM:CMD:STATus?` 停在 `q_depth=1, enq=1, deq=0, tx_ok=0, await=0`；60 s 内四板 `PLAN?`
+  gen/epoch 均未更新。已排除"自组环特有"：四口 `down→stage 23→up` 后同样复现；冷启动后同样复现。
+  尚未排除：维护窗口调度/10 kHz ACK 超时/镜像代次。**不得写成已达成**。
+
+**下一步（按 ROI）**：① 用旧镜像 `out/build/p3-acceptance-20261107-215622` 做 C/T 二分（同台架）；
+② 新 build 目录重跑 P3 拿最终 build id，再 provisioning + `boot` 归档；③ 契约状态从 pending 提交 C11
+复审后转 active；④ R39/R26/M6.8。
 
 ## CAL-TASK-20261105-044 - M1 板端对表扫描：执行器跑通、检测未收敛
 
@@ -296,7 +357,7 @@ Last updated: 2026-11-05
 
 - WP-1/B7：引导档记录/存储（v2 CALIBRATION_NVS 子区）/决策/7 步序列 + `calibration_stage_derive`；
 - boot 执行器：`app_guide_boot_service()`（可续跑，3 s 预热 + 30 s 窗口），
-  `BOOT:PLAN?` 18 字段只读出口；
+  `BOOT:PLAN?` 17 字段只读出口（2026-11-07 追加 `boot_done`/`boot_next_step` 后为 19 字段）；
 - M0 实测：四板无主机命令上电自组 10 kHz（up/down=1、tx/rx 增长、`fail_step=0`），
   缺一块板时 `half_ring=1` 并 STOP，四板齐全不误杀；
 - P3 凭证：build `20261105035001` `PASS_WITH_WARNINGS`（sources=981，trials=8），host 77 passed；
