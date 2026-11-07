@@ -4,7 +4,7 @@ Status: Active
 Domain: calibration / refmem / tdma
 Canonical: `docs/calibration/CALIBRATION_CTRQS_CHECKLIST.md`（本文）
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`
-Last updated: 2026-11-07
+Last updated: 2026-11-08
 
 ## 0. 新会话交接摘要（先读这一节）
 
@@ -1294,7 +1294,7 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 | ID | 状态 | 证据锚点 | 关闭条件 |
 |---|---|---|---|
 | R25 | OPEN | REBUILD 对 baud<1 MHz 才置 BRINGUP；`ladder_is_last` 零调用 | 非 T3 动作恢复环回到引导档 |
-| R26（=M6.2b） | OPEN | 四板 `commit=2/1/0`，从未写 flash | 造新代 `calibration_generation` 后读到 `0/1/1` |
+| R26（=M6.2b） | **CLOSED（2026-11-08）** | 已造新代并首写：`trn03_stage.py --commit` 后四板 `READ:CAL:TRAIN:STAGE:PERSistence?` = `"TRN03NVS",1,1,0,0,1794072390,1,...`（persisted_valid=1、loaded=1、reject=0、record_generation=1794072390、record_sequence=**1**） | 归档 `out/calibration/trn03-r26/summary.json`（build `20261107162842`，四板同一 generation；记录首写 `record_sequence=1` 即新代第一次落 flash） |
 | R32 | OPEN | `verdict.json` 无原始向量/指纹 | `verify --archive` 落原始串 + build/IDN/指纹 |
 | R33（M6.6b） | OPEN | 窗口内无帧计数、`loop_time` 为 0 | 窗口内可观测载波（`OPMode?` 或新查询） |
 | R39 | OPEN | 帧活性缺"窗口内独占"归属（前后两次读都含恢复期） | 同一 ARM 会话内 ≥2 样本的对数判据 |

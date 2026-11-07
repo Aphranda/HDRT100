@@ -4,11 +4,25 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-11-07
+Last updated: 2026-11-08
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20261108-047 - M5：R26 首写闭环（新代 TRN-03 stage 首次落 flash）
+
+- **做法**：在 build `20261107162842` 的四板上跑
+  `trn03_stage.py --board-id <4> --config out/HardwareAcceptance/20261108/p3-final2/trn03-matrix.json
+  --expected-build 20261107162842 --commit`（`out/calibration/trn03-r26/summary.json`）。
+- **结果**：`persistence_after_commit` 四板一致：`persisted_valid=1, reject=0,
+  record_generation=1794072390, record_sequence=1`；直接 SCPI 复核
+  `READ:CALibration:TRAINing:STAGe:PERSistence?` =
+  `"TRN03NVS",1,1,0,0,1794072390,1,1487355668,1794072390,3671493230,...`。
+  `record_sequence=1` 即新 generation 的第一次写，R26 的"从未写 flash"不再成立。
+- **处置**：`CALIBRATION_CTRQS_CHECKLIST.md` 的 R26 行由 OPEN 改为 CLOSED（附上证据路径）。
+- **注**：commit 的 SCPI 响应在工具侧记为 `<timeout>`，但 `errors_drained_before/after` 均为
+  `0,"No error"` 且持久化读回一致；判定以读回为准（与既有"提交读回"口径一致）。
 
 ## CAL-TASK-20261107-046 - 单口启环收口：同一 P3 镜像 + 运行时 boot profile provisioning
 
@@ -56,41 +70,40 @@ P3 验收镜像就是台架镜像，台架必须跑最新代码的 P3 构建。
 5. 同参数重写被去重：commit 的身份只有 profile generation，clear 后重写同一 profile（同 gen/同内容）
    被当成重放 → `VERIFY`。修法：commit/erase 增加一次性 `nonce`（SCPI 传 boot uptime）折入指纹。
 
-**证据**：
+**证据（最终镜像 build `20261107162842`，源码含 F1–F16 全部修复）**：
 
-- P3：`out/HardwareAcceptance/20261107/p3-bootprof6` 与 `p3-bootprof7` 均 **PASS**（counts: INFO 34,
-  WARN 0, ERROR 0, FATAL 0；`--preset pico2-v2-factory-candidate --tdma-only`，`--reuse-topology
-  out/m1-scan/p0t-night1/summary.json`）。注意：两次都复用 `out/build/p3-acceptance-20261107-225939`，
-  build id 停在 `20261107145954`，最终镜像需用新 build 目录重建后再验一次。
-- 零口自组：四板 provisioning（level 23 / nodes 4 / slot=NO−1 / flags=1 / crc=0x642F84A7）后冷启动，
-  无任何起环 SCPI；`guide_cmdplane_probe.py boot` 两次 PASS：
-  `out/calibration/guide-10k/evidence/20261107-234127-boot-night1/readback.json`、
-  `.../20261107-235054-boot-night2/readback.json`（四板 `action=START_REF/LISTEN`、`fail_step=0`、
-  `boot_done=1`、`up/down/adapter=1/1/1`、帧总量 2 s 内 69→73 / 185→189）。
-- **C/T 单口下发：已定位并修复（待最终镜像复验）**。自组环上只开 COM5 发 `GUIDE:CONFig`/`TRIGger`
+- P3：`out/HardwareAcceptance/20261108/p3-final2` **PASS**（INFO 34 / WARN 0 / ERROR 0 / FATAL 0；
+  `--preset pico2-v2-factory-candidate --tdma-only --build-dir out/build/p3-acceptance-20261108-002825
+  --reuse-topology out/m1-scan/p0t-night3/summary.json`），P0T 为同 build 独立重测（全环
+  NO.1→2→3→4）。
+- 零口自组：四板 provisioning（level 23 / nodes 4 / slot=NO−1 / flags=1 / crc=0x642F84A7）后按
+  从板先、协调板最后重启，无任何起环 SCPI；`guide_cmdplane_probe.py boot final3` **PASS**：
+  `out/calibration/guide-10k/evidence/20261108-013330-boot-final3/readback.json`（四板
+  `action=START_REF/LISTEN`、`steps=8`、`fail_step=0`、`boot_done=1`、`up/down/adapter=1/1/1`，
+  帧总量 68→72）。
+- 单口 C/T：只开 COM5 发 `GUIDE:CONFig 950` 返回 `"OK"`，58.8 s 后四板 `PLAN? gen=950`（`valid=1`），
+  证据 `.../20261108-013432-ct-final3/readback.json`。`SET_FLIGHT_MODE` 修复生效。
+
+**OTA 阻塞归因（已解除）**：最终 P3 的 OTA 在 durable=512 处失败（`FT?` 为 MODE/17），换旧镜像
+（build `20261107135640`）同样复现 → 非固件问题；根因是台架连续 factory 刷写后 flash/OTA 元数据退化。
+恢复：`picotool_flash.py --full-erase` + 重刷 factory + `SYSTem:BOARD:NO <n>` 逐板写回；干净 flash 上
+OTA 单板 PASS，随后四板 P3 一次通过。**代价**：整片擦除清掉校准/板号，需重写板号（本次已恢复 NO.1–4）。
+- **C/T 单口下发：已修复并在最终镜像复验**。原始症状：自组环上只开 COM5 发 `GUIDE:CONFig`/`TRIGger`
   返回 `"OK"`，但 `REFMEM:CMD:STATus?` 停在 `q_depth=1, enq=1, deq=0, tx_ok=0`；60 s 内四板
   `PLAN?` 不变。只读子代理 `792dc544` 追到注入点：参考板 beacon 只在"无飞行 TX 排队"时才带一个维护
   chunk（`tdma_maintenance_runtime.c:135-195`），而 RefMem 飞行同步每个环回填 FIFO（10 kHz/level 23
-  每 600 ms），于是命令永远发不出去。**实板验证**：STOP 后四板 `SYSTem:TDMA:FLIGHT:MODE 1`（读回 2）
-  再 `stage 23`+`up`，`GUIDE:CONFig 920` 在 60 s 内四板 `PLAN? valid=1 gen=920`，`ack_ok` 增长、
-  `frag_done=1`。**修复**：boot 序列新增 `SET_FLIGHT_MODE`（STOP 后、ARM 前设置 resident process
-  image），使开机自组环天然具备命令面窗口；序列由 7 步变 8 步，`test_tdma_boot_sequence` 同步。
-  **仍未复验**：新序列需要最终镜像重跑 provisioning + 零口 + 单口 C/T。
+  每 600 ms），于是命令永远发不出去。**修复**：boot 序列新增 `SET_FLIGHT_MODE`（STOP 后、ARM 前设置
+  resident process image），使开机自组环天然具备命令面窗口；序列由 7 步变 8 步，
+  `test_tdma_boot_sequence` 同步。**最终镜像复验**：单口 CONFig 58.8 s 四板 `gen=950`（见上方证据）。
 
-**下一步（按 ROI）**：① 最终 P3 被 OTA 传输阻塞（`SYST:OTA:STREAM:STAT?` 在 durable=512 处
-`0,6,512,5002,5`，state=6 FAILED、result=5；单板/四板、重启前后、`--skip-pre-reboot`、legacy 传输都复现，
-直接 `ota_multi_update` 同样失败）。板端证据：`SYSTem:OTA:FT?` = `10,2,17,17,0,256,0,1`，即 flash 事务
-FAILED + `last_error=17`/`policy_gate_reason=17` = `FLASH_TRANSACTION_ERROR_MODE`，对应
-`flash_transaction_ao.c:91` 的 `ota_requester && !resource_arbiter_ota_admission_active()`；而
-`SYSTem:RESource?` = `130,0`（SPI0|LCD，无 FLASH 租约）、`RESource:TRAINing?` = `0,0`，说明不是资源占用。
-嫌疑集中在 `STReam:OPEN` 之后、第一个 DATA 之前 OTA admission 被释放的路径（`ota_ao_fail_no_progress`
-/ stream 写路径 / 进度看门狗），需要在板端加只读探针或交叉核对 `resource_arbiter_ota_admission_active()`
-的调用序列。不能用 `--method picotool` 的 record-only 结果当凭证；② provisioning + `boot` 归档
-（新序列 SET_FLIGHT_MODE 需在最终镜像上复验）；③ 契约状态从 pending 提交 C11 复审后转 active；
-④ R39/R26/M6.8。
+**下一步（按 ROI）**：① 契约 `TDMA-BOOTPROFILE-01` 从 pending → active：F1–F16 修完后提交 C11 复审，
+把复审结论与 build `20261107162842` 的三份证据（P3 / 零口 / 单口 C/T）写进提交单；② 固件按 lane 提交
+（`check-staged` 绑定 P3 指纹）；③ M5 残余：R39（同一 ARM 会话 ≥2 样本帧活性，可用本次 C/T 归档的
+`total_up_tx/down_rx` 单调性做起点）、R26（新代 stage 首写 0/1/1）、M6.8（先 stage 7 再 P1 的全 10 MHz
+回归）；④ 收口时把 `CALIBRATION-SGATE-01` 的 pending 状态与本次证据对齐。
 
-**当前台架**：四板 build `20261107162325`（含 SET_FLIGHT_MODE、XIP 地址、nonce、clear 回读修复），
-boot profile 已清空，环停止；固件未提交。
+**当前台架**：四板 build `20261107162842`（P3 PASS 镜像），boot profile 已 provisioning（level 23 /
+nodes 4 / crc 0x642F84A7），上电零口自组成 10 kHz 环；固件已具备提交条件（待 `check-staged`）。
 
 ## CAL-TASK-20261105-044 - M1 板端对表扫描：执行器跑通、检测未收敛
 
