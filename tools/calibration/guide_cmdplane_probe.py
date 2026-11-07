@@ -954,11 +954,16 @@ def guide_action(action: int, gen: int, epoch: int, level: int, window: int,
         # times per round and derive the carrier from a monotonic counter.  T3
         # finishes in ~1.5 s, so the interval has to be well under a second or
         # the window yields a single sample.
-        if int((time.monotonic() - t_poll) * 10) >= 4:
+        if int((time.monotonic() - t_poll) * 10) >= 1:
             t_poll = time.monotonic()
-            raw = boards[0].ring()
-            if isinstance(raw, list) and raw:
-                ring_samples.append((time.monotonic(), list(raw)))
+            stamp = round(time.monotonic(), 3)
+            per_board = []
+            for b in boards:
+                raw = b.ring()
+                if isinstance(raw, list) and raw:
+                    per_board.append([b.no, raw])
+            if per_board:
+                ring_samples.append((stamp, per_board))
         if all(len(s) > 4 and s[1] in (1, 2) and s[0] in (0, 26, 27)
                for s in states) and any(s[2] for s in states):
             break
@@ -1165,6 +1170,29 @@ def window_rate(tag: str, samples: list) -> None:
     first = samples[0]
     last = samples[-1]
     dt = last[0] - first[0]
+    if first[1] and isinstance(first[1][0], list):
+        # Per-board samples: report the carrier and the fastest counter
+        # growth for each board, which is what the milestone needs.
+        carriers = {}
+        for entry in last[1]:
+            no, values = entry[0], entry[1]
+            carriers[no] = (values[-2] if len(values) >= 2 else -1,
+                            values[-1] if len(values) >= 1 else -1,
+                            values[0] if values else -1,
+                            values[4] if len(values) > 4 else -1,
+                            values[5] if len(values) > 5 else -1)
+        print(f"{now()} carrier[baud,period,enabled,up,down] {carriers}")
+        for entry in last[1]:
+            no, values = entry[0], entry[1]
+            before = next((e[1] for e in first[1] if e[0] == no), None)
+            if before is None:
+                continue
+            ranked = sorted(
+                ((values[i] - before[i], i)
+                 for i in range(min(len(values), len(before)))),
+                reverse=True)[:2]
+            print(f"{now()} growth[NO.{no}] dt={dt:.1f}s top={ranked}")
+        return
     if dt <= 0:
         return
     best = (0, -1)
