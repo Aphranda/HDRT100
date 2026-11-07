@@ -1064,10 +1064,10 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
    `arm_tries` 与 FORWARD 路径共用（`app.c:3118` 只增不读）。改记 **MITIGATED-未验证**。
 2. **R16/R17**：仅**代码层** CLOSED（`:3666` 已捕获 START 返回值；`enabled` 唯一写点
    `tdma_ring_runtime.c:429/449`），T3 行为仍无实板证据。
-3. **正确凭证**：含四处改动的构建是 **`20261107051434` / `p3-131415`**（`app.c` mtime 13:09:44 <
-   打包 13:14:15）；`20261107045359`(12:53) **不含**这些改动。且该 P3 为
-   `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`、`strict_gates_passed=false`，其 `trn03-matrix` 与
-   `alarm_stage_sources.T3` **都不是** `SYST:TDMA:GUIDE:` 阶梯，**不可引作 T3 证据**。
+3. **正确凭证（以磁盘 receipt 为准）**：`p3-131415`（build `20261107051434`）含 round-36 的四处改动；
+   其后 `p3-133844`（build `20261107053903`）与 `p3-140351`（build `20261107060408`）分别含后续改动。
+   三者均为 `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`、`strict_gates_passed=false`，**不跑 GUIDE 阶梯**，
+   不可引作 T3/P1 等动作的证据。
 4. **新增残余 N4–N9**：
    - **N4（高）**：`PLAN?` 的 progress 是"上次 Q"的读数、不带 epoch；而复跑工具
      （`tools/domains/trigger/trigger_debug_demo/calibration_workflow.py:202-230`）只判
@@ -1097,9 +1097,11 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 2. **verify 的 P1 判据不可满足（已改）**：原要求 `trials_done==4 && passed_mask==0x1`，
    而 P1 每个 trial 置一位 ⇒ passed=0xF、failed=0xE，必被 `no_fail` 否掉。
    已按动作区分掩码：P1=0xF、P3=0xFFF、P2/T0/T1/T2/T3=0x1。
-3. **T3 的 10 MHz 仍缺证明链（已改）**：`RING:CONFig?` 读的是 **staged**、且无 baud 出参，
-   1 ms 周期对应 10–50 MHz 多个档位。`verify` 改为读 `RING:STATUS?` 尾字段
-   `loop_time.mean_period_ns`（四节点 10 MHz ⇒ ≈4 ms），要求 3.5–4.5 ms 区间。
+3. **T3 的 10 MHz 证明链（14:5x 再改）**：`RING:CONFig?` 读的是 **staged**、无 baud 出参；
+   而 `RING:STATUS?` 共 **47** 字段，`mean_period_ns` 是**倒数第二**（末字段是 `sample_count`），
+   且 T3 窗口关闭会重放 boot 档并 `memset(loop_time)` ⇒ **用环回周期证 10 MHz 不可实现**。
+   `verify` 改为断言**计划档位 `level == 7`**（=10 MHz/1 ms），并把 `ctrqs∈{28,29} + trigger_pending==0`
+   作为"本轮已完成"的必要条件（单看 `ctrqs==0` 会被"尚未 take"骗过）。
 4. **N8 经审核确认正确且必要**（abort 后若落回 formed 检查，同拍可把已 abort 的轮次改判成功）。
 5. **N7 无新死锁，但有"一次 START 后无恢复"窗口**：锁存取自 API 返回值，若环 `enabled=1`
    但 up/down 不起，只能等 60 s 超时。
@@ -1110,10 +1112,11 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
      **P1 专用** `verdict()`，任何非 P1 实跑都会打印 NOT-GREEN。
    - **N12（中）**：跟随板 P1 完成是"时间到 + 此刻处于 FORWARDING"一次性盖章全部 trials
      （`app.c:2104-2125`）⇒ `passed_mask=0xF` **不是逐 trial 证据**。
-   - **N13（低）**：`verify` 的 T3 周期检查在有 boot plan 的镜像上会恒 FAIL
-     （boot 重放把 staged 改回 15×10⁴ ns），只在无 boot plan 的台架镜像成立。
+   - **N13（低）**：`verify` 早期版本用"环回周期"做 T3 速率判据不可实现（见第 3 条）；
+     有 boot plan 的镜像在窗口关闭后会重放引导档（150 ms 周期，即 1.5×10⁸ ns），
+     台架无 boot plan 时走 REBUILD、staged 仍是 level 7——**该判据依赖镜像形态，已弃用**。
 7. **台账 ID 悬空**：R11/R12/R14/R15/R19 只在审核正文出现、无登记条目，需补登记或删引用；
-   另 `:1064/:1065` 引用的 `app.c` 行号已漂移。
+   另多处引用的 `app.c` 行号已随改动漂移（引用时以符号名为准，不要只写行号）。
 
 ## 7. 台架与操作注意
 
