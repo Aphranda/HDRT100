@@ -1727,6 +1727,7 @@ bool app_guide_scan_get_pair(uint32_t index,
  * and that carrier is 10 MHz: one 1 ms cycle per ring revolution.  These are the
  * values a T3 window must find in the staged profile; anything else (including
  * the 10 kHz guide level) fails closed instead of reporting success. */
+#define APP_CTRQS_T3_LEVEL 7u
 #define APP_CTRQS_T3_PERIOD_NS 1000000u
 #define APP_CTRQS_T3_BAUD_HZ 10000000u
 
@@ -2429,7 +2430,11 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         /* T3 is the final action: any candidate table is ignored, the stage
          * already carries the trained phases and only this action may start
          * the ring at 10 MHz (profile_level). */
-        plan_valid = plan_valid && plan->profile_level != 0u;
+        /* Fail fast: only the measurement level is admissible.  Any other
+         * level used to be accepted here and then rejected by the T3_PREP
+         * gate seconds later, which made a host mistake look like a bench
+         * timeout. */
+        plan_valid = plan_valid && plan->profile_level == APP_CTRQS_T3_LEVEL;
         s_ctrqs.trials = 1u;
         s_ctrqs.slot_ms = plan->window_ms;
     } else {
@@ -3745,8 +3750,13 @@ static void app_ctrqs_service(void)
             }
         }
         }
-        if (app_ctrqs_restore_formed() && app_ctrqs_t3_profile_formed()) {
-            app_ctrqs_t3_advance(true);
+        /* Unreachable in practice (an enabled ring always carries the staged
+         * period), but if it ever happens the cause is the profile, not the
+         * link, so fail with that reason instead of a generic timeout. */
+        if (app_ctrqs_restore_formed()) {
+            s_ctrqs_t3_stage = 11u;
+            app_ctrqs_abort(
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
             return;
         }
         if (now >= s_ctrqs.deadline_ms) {
