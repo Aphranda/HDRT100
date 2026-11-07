@@ -321,7 +321,7 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 | M6.3 | P2 成环档/测量档分离 | ✅ 同 build `20261106224625`：成环沿用窗口载体（引导档 + BRINGUP），停环后 apply 测量档（level 7）；四板 P2 `prog_status=1, trials_done=1/1, passed_mask=1, failed_mask=0, reason=0, reconcile=1, ladder_idx=2` | 四板 `PLAN?` + `p3-064615` | ✅ 完成（`740eb1f9`） |
 | M6.4 | P3 @10 kHz 四板 | ✅ 同 build `20261107003733`：四板 P3 `prog_status=1, trials_done=12, passed_mask=0xFFF, failed_mask=0, reason=0, ladder_idx=3`；执行器按 trial 逐个推进（`18e495a2` 修掉 state 锁存）。C 段须用链路速率（10 MHz）+ 5% 容差 | 四板 `PLAN?` + `p3-083723` | ✅ 完成（`18e495a2`） |
 | M6.5 | T0/T1/T2 @10 kHz 四板 | ✅ 同 build `20261107033453` 整链：T0 四板 `passed_mask=0x1`（base=40）、T1 四板 `passed_mask=0x1`（`guard=32`、search −10..10）、T2 四板 `passed_mask=0x1`（search −4..10，因 T2 guard 硬编码 4）；阶梯四板一致推进到 6 | 四板 `PLAN?` | ✅ 完成 |
-| M6.6 | T3 @10 kHz | T3 `COMPLETE` 后**仅其 S** 允许 `ARM → START 10 MHz`；四板 `enabled=1, adapter_started=1` | `RING:STATUS?` + `PLAN?` | M6.5 |
+| M6.6 | T3 @10 kHz | ✅ 同 build `20261107063505`：先跑满 P1→T2（四板 `ladder_idx=6`），T3 以 `level=7` 起环；四板 `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0, reason=0, reconcile=1, abort_site=0`，`verify 7 507 1407` = PASS；T3 后 `RING:CONFig?` 四板 `cycle_period_ns=1000000`（10 MHz/1 ms）、profile CRC 一致，`RING:STATUS?` 四板 `enabled/up/down/adapter=1` | 四板 `PLAN?` + `RING:CONFIG?` + `RING:STATUS?`；归档 `evidence/20261107-150558-M6.6-T3-PASS-epoch507/` | ✅ 完成 |
 | M6.7 | S 代数语义 + M6 收口 | S 代数语义冻结成文；P3 凭证 + host 凭证；本节全行 ✅ | 凭证 + 提交清单 | M6.6 |
 | M6.8 | 10 MHz 七动作全链回归 | `P1→T3` 四板 `COMPLETE`（改动后回归，防 10 kHz 修复伤高速档） | 四板 `PLAN?` + P3 | 可与 M6.1 并行 |
 | M6.9 | 探针工具归型 | `out/calibration/guide-10k/guide_cmdplane_probe.py` 或归型入库、或明确废弃并记录 | `tools/tool_workflow_triage.json` 条目或文档说明 | 收口前 |
@@ -1117,6 +1117,24 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
      台架无 boot plan 时走 REBUILD、staged 仍是 level 7——**该判据依赖镜像形态，已弃用**。
 7. **台账 ID 悬空**：R11/R12/R14/R15/R19 只在审核正文出现、无登记条目，需补登记或删引用；
    另多处引用的 `app.c` 行号已随改动漂移（引用时以符号名为准，不要只写行号）。
+
+**2026-11-07 15:0x M6.6 达成（T3 @10 kHz → ARM→START 10 MHz，四板全绿）**
+
+- 同一 build `20261107063505`、同一上电周期内连续跑完七动作阶梯：
+  P1（`verify 1 501 1401` = PASS，四板 `4/4, 0xF, failed=0`）→ P2 → P3（四板 `0xFFF`）→ T0 → T1 → T2（四板 `ladder_idx=6`）。
+- **T3**：`ga 7 1407 507 7 20000 …`，四板 `action=7, level=7, prog_status=1, trials_done=1,
+  passed_mask=0x1, failed_mask=0, reason=0, reconcile=1, abort_site=0`，`ladder_step=2(DONE)`；
+  `verify 7 507 1407` = **PASS**（四板，含 `fresh(epoch/gen)` 与 `level==7`）。
+- **10 MHz 硬证据**：T3 后立即读 `RING:CONFig?` —— 四板 `enabled=1, nodes=4,
+  cycle_period_ns=1000000`（1 ms ⇒ 10 MHz）、`operating_profile_crc32=1383759744` 四板一致；
+  `RING:STATUS?` 四板 `enabled=1, up=1, down=1, adapter=1, err=0`。
+- 归档：`out/calibration/guide-10k/evidence/20261107-150505-action7-gen1407/` 与
+  `…-150558-M6.6-T3-PASS-epoch507/`（四板 `PLAN?/RING:STATUS?/RING:PHASE?/ARM` 原始串）。
+- 口径说明：T3 的"只有它允许 10 MHz"由 `T3_PREP` 的 staged 硬门保证
+  （`APP_CTRQS_T3_PERIOD_NS/BAUD_HZ`，非 10 MHz/1 ms 直接 fail-closed）；
+  非 T3 动作仍走引导档（本阶梯 P1–T2 全程 `level=7` 仅为测量档参数，环本身由 150 ms 引导档成环）。
+- **仍 OPEN**：M6.7（S 代数语义冻结与收口）、M6.8（10 MHz 七动作回归）、M6.9（探针归型），
+  以及 N6（座位轮转）、N13（有 boot plan 镜像）等残余。
 
 ## 7. 台架与操作注意
 
