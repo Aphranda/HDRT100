@@ -748,6 +748,35 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   这是 M6.3 引入的分离规则在 P3 上的复用。
 - M6.4 ✅ 完成；阶梯已推进到 `ladder_idx=3`，下一动作是 T0。
 
+**2026-11-07 09:0x M6.5 T0 起始（build `20261107003733`）**：
+
+- T0 的 C 段：`origin_node, codebook(1..3), link_base_delay_ns, offset_sample_count, repeats(1..4)`；
+  `trials = repeats`，`slot = window/trials`（`app.c:2295-2317`）。
+- **坑 1（已定位）**：`offset_sample_count` 的上限是
+  `CALIBRATION_TRAINING_PHASE_MAX_OFFSET_SAMPLES = 10`（`calibration_training_phase.h:8`），
+  超过即 `reason=13`。传 32 时计划直接被拒。
+- **坑 2（待解）**：改成合法值后计划被接受（四板进入 FANOUT/T0_RUN），但
+  `calibration_manager_request_marker_training()` 返回失败 → `reason=13, status=2, trials=0/1`；
+  四板 `ladder_step=3`（同代数不推进，符合 M6.2 语义）。
+- 已给探针加通用入口 `ga <action> <gen> <epoch> <level> <window> <trials> <c1..c5> <lo> <hi>`，
+  便于 T0/T1/T2 逐个试参数而不必每次改代码。
+- 下一步：读 `calibration_manager_request_marker_training()` 的前置条件（codebook/offset/persona/
+  环状态），先判断是参数问题还是需要先切测量档（P2/P3 的分离规则可能同样适用于 T0）。
+
+**2026-11-07 09:3x T0 请求门槛（`00283cb5`，build `20261107010829`）**：
+
+- **根因**：T0/T1/T2 把 32 位 `plan.generation` 当 `train_epoch/sequence/marker_id` 传给
+  `calibration_manager_request_*_training()`，而 manager 要求 `train_epoch ∈ 1..255` 且三者相等
+  （`calibration_manager.c:3030-3031`）。generation 一旦 >255，T0/T1/T2 **必然**被拒
+  （`reason=13`），与窗口/档位/persona 无关。
+- 修法：`app_ctrqs_marker_epoch() = generation % 255 + 1`，四板由同一 generation 确定性派生，
+  身份一致；32 位 generation 继续用于计划与证据追溯。
+- 实板：修复前 T0 一进 T0_RUN 就 `reason=13, trials=0`；**修复后 T0 正常执行到 `trials=1/1`**，
+  但 marker 训练**超时**（`reason=11, failed_mask=0x1`）。即"请求被拒"已解决，
+  剩下的是训练时序/预算，归 M6.5 继续。
+- 另记：`CALIBRATION_TRAINING_PHASE_MAX_OFFSET_SAMPLES = 10`，T0 的 `offset_sample_count`
+  上限即 10（传 32 时计划被拒）。探针已加通用入口 `ga`，T0/T1/T2 可直接试参数。
+
 ## 7. 台架与操作注意- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
