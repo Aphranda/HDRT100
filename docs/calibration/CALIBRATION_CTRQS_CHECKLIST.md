@@ -320,7 +320,7 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 | M6.2b | S 段"同动作同代数只写一次" | ⏳ P1 不写 flash（`commit_appl=0`），该路径要到有 staged 载荷的动作（T3）才能验证 | 四板 `PLAN?` 的 commit 三字段 + flash 记录 | 并入 M6.7 |
 | M6.3 | P2 成环档/测量档分离 | ✅ 同 build `20261106224625`：成环沿用窗口载体（引导档 + BRINGUP），停环后 apply 测量档（level 7）；四板 P2 `prog_status=1, trials_done=1/1, passed_mask=1, failed_mask=0, reason=0, reconcile=1, ladder_idx=2` | 四板 `PLAN?` + `p3-064615` | ✅ 完成（`740eb1f9`） |
 | M6.4 | P3 @10 kHz 四板 | ✅ 同 build `20261107003733`：四板 P3 `prog_status=1, trials_done=12, passed_mask=0xFFF, failed_mask=0, reason=0, ladder_idx=3`；执行器按 trial 逐个推进（`18e495a2` 修掉 state 锁存）。C 段须用链路速率（10 MHz）+ 5% 容差 | 四板 `PLAN?` + `p3-083723` | ✅ 完成（`18e495a2`） |
-| M6.5 | T0/T1/T2 @10 kHz 四板 | 每动作一轮 C→T→R→Q→S 四板 `COMPLETE` | 四板 `PLAN?`（逐动作 gen/epoch 记录） | M6.4 |
+| M6.5 | T0/T1/T2 @10 kHz 四板 | ✅ 同 build `20261107033453` 整链：T0 四板 `passed_mask=0x1`（base=40）、T1 四板 `passed_mask=0x1`（`guard=32`、search −10..10）、T2 四板 `passed_mask=0x1`（search −4..10，因 T2 guard 硬编码 4）；阶梯四板一致推进到 6 | 四板 `PLAN?` | ✅ 完成 |
 | M6.6 | T3 @10 kHz | T3 `COMPLETE` 后**仅其 S** 允许 `ARM → START 10 MHz`；四板 `enabled=1, adapter_started=1` | `RING:STATUS?` + `PLAN?` | M6.5 |
 | M6.7 | S 代数语义 + M6 收口 | S 代数语义冻结成文；P3 凭证 + host 凭证；本节全行 ✅ | 凭证 + 提交清单 | M6.6 |
 | M6.8 | 10 MHz 七动作全链回归 | `P1→T3` 四板 `COMPLETE`（改动后回归，防 10 kHz 修复伤高速档） | 四板 `PLAN?` + P3 | 可与 M6.1 并行 |
@@ -918,6 +918,22 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   （如 32）；并建议在 app 的 `plan_valid` 里补同一判据，让失败提前到计划阶段而不是 T1_RUN。
 - 本轮末次复跑无效：`gen` 未更新（板仍 1025，`epoch` 96/95 不一致）→ 命令面投递失败，
   不作 T1 结论。
+
+**2026-11-07 11:5x M6.5 达成（T0/T1/T2 四板全绿，build `20261107033453`）**：
+
+- **T0（marker）**：`link_base_delay_ns = 40`（管线口径 = 实测 80 / 2）→ 四板
+  `prog_status=1, trials_done=1/1, passed_mask=0x1, failed_mask=0, reason=0`，阶梯→4。
+- **T1（SCK）**：计划 `launch_guard=32`、`search=-10..10` → 四板全绿，阶梯→5。
+  判据是外层 `guard − base_samples + search_start ≥ 0`（`calibration_manager.c:3430-3432`），
+  base=40 → base_samples=10，故 `guard ≥ 20`；**内层只要求 `guard > base`，两者不等价**。
+- **T2（DATA）**：`guard` 在 app 里**硬编码 4**（`app.c:2892`），故 `search_start` 必须满足
+  `10 + (search_start − 4) ≥ 0`，即 **≥ −6**；用 `search=-4..10` 后四板全绿，阶梯→6。
+- **重要教训（R13）**：T1 连续失败两次后，**每次后续请求都会被拒**——失败的请求留下了
+  未被 core1 消费的 intent（`pending.sequence != consumed`，`calibration_manager.c:3418-3421`），
+  只有重启后的首次尝试才能成功。这是"失败即不可重试"的可用性缺陷，需在 core1 侧保证
+  失败 intent 也被标记消费（或允许覆盖）。
+- **阶梯一致性**：T1 期间曾出现 NO.1/2 在 4、NO.3/4 在 5 的分叉（R10）；T2 两端板追平后
+  四板重新一致到 6。分叉期间非端点板的 no-op pass 会"空推进"阶梯，需机制约束。
 
 ## 7. 台架与操作注意
 
