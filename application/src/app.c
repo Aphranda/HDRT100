@@ -1859,6 +1859,10 @@ typedef struct {
     /* T3 (final staging + 10 MHz start): only this action may START 10 MHz. */
     bool t3_topo;
     bool t3_armed;
+    /* A successful START is latched so the 150 ms retry loop cannot tear down a
+     * ring that is still forming when the guard windows return a transient
+     * refusal. */
+    bool t3_started;
     uint32_t hard_fail_reason;
     uint64_t stop_try_ms;
     guide_action_progress_t progress;
@@ -2002,6 +2006,21 @@ static bool app_ctrqs_restore_formed(void)
            ring.node_count == s_ctrqs.restore_node_count &&
            ring.local_slot_id == s_ctrqs.restore_local_slot &&
            ring.reference_slot_id == s_ctrqs.restore_reference_slot;
+}
+
+/* T3 is the only action allowed to run at the measurement profile, so its
+ * success must be bound to that profile: a ring formed at the guide carrier
+ * would otherwise be indistinguishable from the real T3 result in PLAN?. */
+static bool app_ctrqs_t3_profile_formed(void)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    tdma_service_ring_runtime_config_t staged;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring) ||
+        !tdma_runtime_owner_get_staged_ring_config(&staged) ||
+        staged.cycle_period_ns == 0u) {
+        return false;
+    }
+    return ring.cycle_period_ns == staged.cycle_period_ns;
 }
 
 /* Abort the running window: keep the reason in the record, stop the ring and
@@ -3659,9 +3678,10 @@ static void app_ctrqs_service(void)
             return;
         }
         s_ctrqs_t3_stage = 10u;
-        if (now < s_ctrqs.arm_try_ms) {
-            return;
-        }
+        if (!s_ctrqs.t3_started) {
+            if (now < s_ctrqs.arm_try_ms) {
+                return;
+            }
         s_ctrqs.arm_try_ms = (uint32_t)now + 150u;
         const bool started = distributed_refmem_tdma_ring_start();
         /* Report which way START failed: the API only returns a bool and has no
@@ -3674,7 +3694,12 @@ static void app_ctrqs_service(void)
         s_ctrqs_t3_stage =
             started ? ((have_start_ring && start_ring.enabled != 0u) ? 6u : 61u)
                     : 60u;
-        if (!started) {
+        if (started) {
+            /* Latch: a successful START must not be repeated every 150 ms, or a
+             * transient refusal from the guard windows would tear down a ring
+             * that is still forming. */
+            s_ctrqs.t3_started = true;
+        } else {
             /* START refused.  Do NOT drop t3_topo: the topology step runs
              * before the quiescent gate and requires enabled==0, while a refused
              * START leaves enabled==1, so re-entering it would spin there until
@@ -3691,9 +3716,11 @@ static void app_ctrqs_service(void)
             if (s_ctrqs.arm_tries >= APP_CTRQS_ARM_RETRIES) {
                 app_ctrqs_abort(
                     (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
+                return;
             }
         }
-        if (app_ctrqs_restore_formed()) {
+        }
+        if (app_ctrqs_restore_formed() && app_ctrqs_t3_profile_formed()) {
             app_ctrqs_t3_advance(true);
             return;
         }
