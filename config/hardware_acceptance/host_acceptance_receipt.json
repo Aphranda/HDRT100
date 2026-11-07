@@ -19,7 +19,7 @@
     "tests/python/test_split_unit_hooks.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 9.937,
+  "duration_s": 8.953,
   "returncode": 0,
   "summary": {
     "passed": 77,
@@ -28,15 +28,15 @@
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "77 passed in 8.94s",
+  "summary_line": "77 passed in 8.21s",
   "tail": [
     "........................................................................ [ 93%]",
     ".....                                                                    [100%]",
-    "77 passed in 8.94s"
+    "77 passed in 8.21s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "ae96f59d0f29e012db3605308b33e771ddcd3abcd420b326cd61c81dae94e184",
-  "file_count": 1160,
-  "working_fingerprint": "eb107525eb374b01ff06a1cd583be564a318bf6a0659fe61a06bd0c198d6032d",
-  "started_at_utc": "2026-11-07T10:31:25.601337+00:00"
+  "fingerprint": "d28e29220d12d96960c7de9103309450933a3a408bb8071d3e9c3d257043f014",
+  "file_count": 1162,
+  "working_fingerprint": "4be5fd901697839633573b8e0a5c391425262c4a28e4c7c8fdc561e37f194998",
+  "started_at_utc": "2026-11-07T10:42:22.433786+00:00"
 }
