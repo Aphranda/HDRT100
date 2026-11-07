@@ -1236,6 +1236,40 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   本轮是**四板**同时通过硬门 + 判据 + 归档，且硬门已被证明会拒绝不合规的板。
 - 探针侧修正：`ladder_ok()` 改为**只比 `ladder_idx`**（原先还比 `step`，会把"失败板重试"误判为分叉）。
 
+**2026-11-07 19:2x N5 判据首次真正生效 + 同 build 全梯子复核**
+
+- **缺陷确认（子代理 `c602d037`）**：`T3_ARM` 顶部 `if (app_ctrqs_restore_formed()) { t3_advance(true); return; }`
+  先无条件返回，导致此后新增的 dwell 分支**以及 `c823922d` 起的 N5 判据（`app_ctrqs_t3_profile_formed()`）
+  都不可达**——即"T3 完成必须 10 MHz"自那次提交起从未真正执行，只有 `T3_PREP` 的 staged 硬门在起作用。
+- **修复（`58568ff3`）**：删除不可达的 dwell 与相关常量/字段；把顶部成功分支改为
+  `restore_formed() && t3_profile_formed()`，使该判据**可达**。
+  **但二次审核（`56854b8a`）证明它是恒真的（vacuous）**：只要环处于 `enabled`，
+  `ring.cycle_period_ns` 必然等于 `staged.cycle_period_ns`（staged 的唯一写入者都在
+  `enabled==0` 时才允许，ARM 一进入即 `enabled=1`）⇒ 当 `restore_formed()` 为真时
+  `t3_profile_formed()` 必为真，**抓不到任何东西**。因此"T3 完成必须 10 MHz"仍只由
+  `T3_PREP` 的 staged 硬门保证，**不能**表述为"完成判据已强制 10 MHz"。
+- **真正的缺口与修复（`53c59ba2`）**：`plan_valid` 原只要求 `profile_level != 0`，
+  而 `T3_PREP` 硬门要求恰好 (1 ms, 10 MHz)＝level 7 ⇒ level 8–13/20–22 会被**接受后 8 s 才失败**。
+  已改为**准入即要求 `APP_CTRQS_T3_LEVEL`**（fail fast，`abort_site=0`）；
+  并把下部不可达的 formed 块替换为"若成环但档位不符 → 专用站点 11 + `CONFIG_VALIDATION_FAILED`"，
+  避免退化到 60 s 超时（站点 110）造成误诊。
+- **已知残余（本轮未解决）**：boot 重放与执行器无互斥（`app_diag_service` 同拍先 boot 后 ctrqs），
+  可在 `T3_PREP` 门之后、ARM 之前把 staged 改回 150 ms（N13/R25 的真实变体）；
+  `RING:STATus?` 不导出 `cycle_period_ns`/`baud_hz`，上述两个操作数在主机侧**完全不可观测**。
+- **验证**：build `20261107110715`（P3 `p3-190656`，`PASS_WITH_WARNINGS`，0 ERROR/1 WARN）上跑完整梯子
+  P1→T2 四板全绿（`ladder_idx=6`），T3 首轮因 NO.1 的 CONFig 未落地而中止（命令面丢帧，非代码），
+  重发 `gen=2010, epoch=1010` 后**四板** `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0,
+  reason=0, abort_site=0, ladder_step=2(DONE)`，`verify 7 1010 2010` = **PASS**（含 `--archive`，
+  产物 `out/calibration/guide-10k/evidence/20261107-192431-verify-7/verdict.json`）。
+- T3 后 `RING:CONFig?` 四板 `enabled=1, cycle_period_ns=1000000, operating_profile_crc32=1383759744`。
+- **结论**：新判据可达、不误伤 T3；但仍是"staged 档 + 判据"，**不是窗口内载波实测**（M6.6b 仍 OPEN）。
+- 期间 T0 的 `passed_mask=0x1` 与 P1 的 `commit=0/0/0`（`have_stage=false`）与既有记录一致。
+- **口径更正（二次审核）**：上文"删除 dwell"在 git 里**不可见**——dwell 从未提交，`58568ff3`
+  对 `app.c` 的实际差异只有一处条件加 4 行注释（`git log -S APP_CTRQS_T3_DWELL_MS` 为空）。
+  因此不能把它算作"本提交删除的功能"。
+- 稳定性观察：同一 build 上 T3 首次因 NO.1 的 CONFig 未落地（gen 2005 vs 2006）而中止，
+  重发即通过 ⇒ **命令面丢帧仍是最高频的假失败源**（R10 的变体）。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
