@@ -1270,6 +1270,44 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 稳定性观察：同一 build 上 T3 首次因 NO.1 的 CONFig 未落地（gen 2005 vs 2006）而中止，
   重发即通过 ⇒ **命令面丢帧仍是最高频的假失败源**（R10 的变体）。
 
+**2026-11-07 20:0x 三次审核（子代理 `7909caad`）——RING:STATus? 追加字段与残余登记**
+
+1. **`RING:STATus?` 追加两个字段**（`scpi_tdma_snapshot_commands.c` 尾部）：
+   `baud_hz`（第 47）与 `cycle_period_ns`（第 48），使"环运行时实际载波"可被主机读到
+   （此前只能读 staged 的 `RING:CONFig?`，无法区分 10 kHz 与 10 MHz）。
+   字段总数 **47 → 49**；`loop_time` 七字段实际是 **40–46**（0 基），此前文档写 41–47 是错的。
+   **必须同步**：`tools/tdma_ring_monitor/tdma_field_parse.py` 的 `RUNTIME_FIELDS`（已加 2 项，顺序
+   `ring_baud_hz` 在前、`ring_cycle_period_ns` 在后）；所有严格解析器都按 `len(RUNTIME_FIELDS)` 校验，
+   不同步会让 P3 的 P0T/step10/12/13/24 全部以 `snapshot field count 49, expected 47` 失败
+   （已实测：`p3-194144` BLOCKED）。
+2. **撤回上一轮的 `stage=11` abort 块**：`t3_profile_formed()` 恒真（环 enabled 时 ring.period 必等于
+   staged.period），该块只会在 TOCTOU 窗口**误杀正常 T3**（写成 reason 13 / `abort_site=111`）。
+   已删除；真正该 fail-closed 的位置是 **ARM 之前重读 staged**（见下）。
+3. **R36 判为不成立（CLOSED）**：boot 重放只由 `app_guide_window_close()` 启动且有 30 s 硬截止
+   （`app.c:925-927`），而进入 T3 前必经 RESTORE_WAIT（最长 45 s）或 boot done ⇒ 重放在 T3 窗口内
+   早已 inert；台架镜像 `BOOT:PLAN?` 首字段为 0 更直接 done。**误归因已撤销**。
+   真正的同类风险是"**任何并发写 staged 的路径**"（`OPMode:STAGe/APPLy`、环停时的 `RING:TOPology`），
+   记为 **R37**。
+4. **`OPMode?` 已是零固件替代**：它返回 active+staged 的 `{level,baud,cycle,...}`，T3_PREP 的
+   stage/apply 会把 active 置 7 ⇒ 窗口内读 `OPMode?` 即可看到 7/10 MHz/1 ms。
+5. **残余登记表（首次成表）**：
+
+| ID | 状态 | 证据锚点 | 关闭条件 |
+|---|---|---|---|
+| R25 | OPEN | REBUILD 对 baud<1 MHz 才置 BRINGUP；`ladder_is_last` 零调用 | 非 T3 动作恢复环回到引导档 |
+| R26（=M6.2b） | OPEN | 四板 `commit=2/1/0`，从未写 flash | 造新代 `calibration_generation` 后读到 `0/1/1` |
+| R32 | OPEN | `verdict.json` 无原始向量/指纹 | `verify --archive` 落原始串 + build/IDN/指纹 |
+| R33（M6.6b） | OPEN | 窗口内无帧计数、`loop_time` 为 0 | 窗口内可观测载波（`OPMode?` 或新查询） |
+| R34 | OPEN | `visible_files` 用 `--cached --others` 并集 | 改为只比已提交集合 |
+| R35 | CLOSED | `plan_valid` 已要求 level 7 | — |
+| R36 | CLOSED | boot 重放 30 s 截止早于 T3 | — |
+| R37 | OPEN | `OPMode:STAGe/APPLy`/`TOPology` 可在 PREP→ARM 间改 staged | ARM 前重读 staged 并校验 1 ms/10 MHz |
+| N6 | OPEN | `restore_*` 取自开窗前，ref 取自 `candidates[0]` | 轮转用例通过 |
+| N9 | OPEN | 阶梯在 RAM，重启归零 | 持久化或用例自描述 |
+| N10 | OPEN | 台账凭证编号与磁盘不一致 | 以磁盘为准统一 |
+| N12 | OPEN | 跟随板 P1 一次性盖章 | 逐 trial 证据或改口径 |
+| 站点 111 | OPEN | 已随 `stage=11` 删除，但文档站点表未列 11 | 更新站点表或保持删除 |
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
