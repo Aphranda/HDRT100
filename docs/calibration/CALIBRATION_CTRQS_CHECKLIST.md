@@ -879,11 +879,16 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 
 - **不是残留活动**：四板 `READ:CALibration:ACTive?` 均返回 `"NONE","EMPTY",0,0,0,"NO_ACTIVE"`。
 - **不是 app 阶梯问题**：用 host 工具 `calibration_sck_train.py`（绕开 CTRQS 阶梯）在 link 0
-  直接发 `CALibration:SCK:ARM`，结果 `accepted=(1,)`——**只有一端被接受，另一端快照始终
-  `state=0`**；带 `--reuse-ring-identity`（跳过净场）与不带（走完整 STOP/OPMODE/TOPOLOGY）
-  结果相同。故这是 manager/训练前置问题，与阶梯编排无关。
+  直接发 `CALibration:SCK:ARM`，报 `SCK state timeout, accepted=(1,)`。
+  **注意语义**：`accepted` 是 `wait_states()` 的**期望状态元组**（`(1,)` = `STATE_PREPARED`），
+  **不是"被接受的板列表"**（`calibration_sck_train.py:601-613`）。真实情况是
+  **两块端点板都没到达 PREPARED**，且 ARM 命令本身返回 OK（否则工具会在 `sck_arm()` 里先抛
+  `SCK ARM rejected`，`:594-597`）。带 `--reuse-ring-identity`（跳过净场）与不带
+  （完整 STOP/OPMODE:APPLY/TOPOLOGY）结果相同。
 - 已排除：`launch_guard > base_samples`（12 > 10 满足）、offset/search 边界（±10 内）、
-  环状态（净场/非净场结果一致）、活动标志残留（NO_ACTIVE）。
+  环净场与否、活动标志残留（四板 `NO_ACTIVE`）。
+- **当前最可能**：ARM 被接受并发布了 intent，但 **core1 侧没有把它推进到 PREPARED**
+  （marker 路径同机制能到 state=4，说明不是全局握手坏了，而是 SCK 分支内部某步失败且未落快照）。
 - 下一步：在**被拒的那一端**读 `READ:CALibration:SCK?` 与 `READ:CALibration:ACTive?`，
   并逐项比对 `T1 请求参数 → calibration_training_sck_request_valid()` 的 18 条前置
   （`calibration_training_sck.c:35-63`），定位具体是哪一条不成立；必要时在该函数里
