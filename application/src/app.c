@@ -2115,9 +2115,14 @@ static void app_ctrqs_finalize(void)
          * ladder must not advance on it.  P1 was the only action checked here,
          * so P3 could finish with every real trial failed and still advance.
          * Both masks are published through PLAN? so the caller can tell the
-         * difference instead of trusting the status word. */
+         * difference instead of trusting the status word.  When the action
+         * recorded a specific hard failure (coded or marker reject reason), that
+         * reason is published instead of a generic timeout. */
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
-        s_ctrqs.progress.reason = (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
+        s_ctrqs.progress.reason =
+            s_ctrqs.hard_fail_reason != 0u
+                ? s_ctrqs.hard_fail_reason
+                : (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
     } else {
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_COMPLETE;
         s_ctrqs.progress.reason = 0u;
@@ -2314,8 +2319,12 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         s_ctrqs.t0_repeats = plan->candidates[4];
         plan_valid = plan_valid && plan->candidate_count == 5u &&
                      s_ctrqs.t0_origin_node < nodes &&
-                     s_ctrqs.t0_codebook >= 1u &&
-                     s_ctrqs.t0_codebook <= 3u &&
+                     /* The manager accepts 0..M255_MANCHESTER_32 and the
+                      * calibration tools default to codebook 0; requiring >= 1
+                      * here forced callers onto a codebook the phys does not
+                      * generate, and the marker then failed its CRC (reject 6). */
+                     s_ctrqs.t0_codebook <=
+                         CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32 &&
                      s_ctrqs.t0_link_base_delay_ns <= 1000000u &&
                      s_ctrqs.t0_offset_samples <=
                          CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES &&
@@ -2730,6 +2739,11 @@ static void app_ctrqs_t0_step(uint64_t now)
         snap.state == CALIBRATION_TRAINING_MARKER_REJECTED) {
         s_ctrqs.t0_trial_passed =
             snap.state == CALIBRATION_TRAINING_MARKER_ACCEPTED;
+        /* Carry the manager's reject reason out through prog_reason: without it
+         * a rejected marker training is indistinguishable from a timeout. */
+        if (!s_ctrqs.t0_trial_passed && snap.reject_reason != 0u) {
+            s_ctrqs.hard_fail_reason = (uint32_t)snap.reject_reason;
+        }
         calibration_manager_stop_marker_training();
         s_ctrqs.state = APP_CTRQS_T0_STOP;
         s_ctrqs.deadline_ms = now + APP_CTRQS_T0_STOP_MS;
