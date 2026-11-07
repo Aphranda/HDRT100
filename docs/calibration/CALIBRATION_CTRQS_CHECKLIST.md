@@ -1202,6 +1202,22 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 6. **残余 ID 欠登记**：R25/R26/R27 与 N1–N13 仍无登记行；且 R26≈M6.2b、R25≈旧 B4、
    R27≈N11/M6.9 属重复，需在 M6.7 收口时合并。
 
+**2026-11-07 19:2x M6.6b 实测尝试（三次 T3 窗口采样）**
+
+- 探针加了窗口内 `RING:STATUS?` 采样（`window_rate()`，每 0.4–1 s 一次，随归档保存）。
+  T3 轮次只存活 ~1.5 s，0.4 s 采样仅得 2 个点（dt=0.6 s）。
+- **结果：窗口内没有任何帧计数在增长**。top-3 增量只有 `idx9`（服务计数，+6…+9）
+  与 `idx38/39`（config/applied_seq，+3）；`RING:STATUS?` 的 41–46（`loop_time`）全 0。
+  索引对照（实测 dump）：`0=enabled 1=node_count 4=up 5=down 8=adapter_started
+  10/11/14=序列 16=trip_ns 38/39=config/applied seq 41–46=loop_time`。
+- **结论**：`RING:STATUS?` **不含帧计数器**，"用单调计数增量判速率"这条路不成立；
+  且窗口内序列不前进说明 **T3 窗口里的环可能只是"已配置/已 arm"，并未证明在跑帧**——
+  真正跑帧的证据只出现在窗口关闭后的恢复环上（`up=1/down=1`）。
+- **M6.6b 只能靠固件**：三选一 ——（a）让 `loop_time` 在非 origin 板也测（`rx.c:535` 的
+  `origin.active` 条件）；(b) T3_ARM 成功后加 2–3 s dwell 再 advance，让外部能采到
+  `up_tx_sequence` 增量；（c）新增一个帧计数回读字段。
+- 因此 M6.6 保持 **⏳**；"T3 以 10 MHz 起环"目前只有"staged 档 = level 7 + T3 COMPLETE"两级证据。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
