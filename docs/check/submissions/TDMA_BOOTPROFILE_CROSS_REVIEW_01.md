@@ -40,6 +40,7 @@ uint32 回绕被 `valid()` 拒绝、v1 地图只读/写入拒绝正确、commit 
 | F13 | NIT | "不得住宿半环" | 改为"不得停留半环" | CLOSED |
 | F14 | BLOCKER（实板发现） | 四板首次 provisioning 全部 `-200,"TDMA_BOOT_PROFILE_FLASH"`：`FLASH_TRANSACTION_REQUESTER_CALIBRATION` 只被允许写 calibration store 子区，boot profile 在 CALIBRATION_NVS 的 4·ERASE 偏移，被事务策略以 PERMISSION 拒绝 | `flash_transaction_fb.c` 的 calibration requester 规则扩展为"calibration 子区 **或** boot profile 子区（v2 地图）"，两者按 flash map 静态断言互不重叠；host `run_flash_transaction_tests.ps1` 全绿 | CLOSED（待 P3 + 实板 provisioning 复验） |
 | F15 | BLOCKER（实板发现） | 修完 F14 后仍 `-200,"TDMA_BOOT_PROFILE_RECORD"`：store 的 XIP 绝对地址只加 `..._STORE_OFFSET`（v2 地图上是 CALIBRATION_NVS 分区基址），漏了子区 `..._RELATIVE_OFFSET`（4·ERASE），于是 `scan_sector` 一直读 calibration store 的 TRN-03 记录（object 不匹配→ unusable），新加的"擦除不可解析扇区"逻辑也永远救不回来。host 单测的 stub 把绝对/相对坐标映射到同一窗口，故测不出来 | `sector_absolute()` 改为 `OFFSET + RELATIVE_OFFSET + sector·ERASE`；单测的 `REGION_BASE` 同步加 `RELATIVE_OFFSET`；store host 用例覆盖 commit/rotate/erase/next_generation 全绿 | CLOSED（待实板复验） |
+| F16 | BLOCKER（实板发现） | `CLEar` 返回 `CLEARED` 但记录仍在（重启后 `loaded=1`），随后同参数 re-provision 报 `TDMA_BOOT_PROFILE_VERIFY`：flash 完成日志按请求指纹去重，指纹含 `store_generation`，clear 固定用 1、commit 用 profile 的 generation → 相同操作被当作 COMPLETED 重放而不做物理 IO | clear 以"被删除的 generation"作身份，并在擦除后回读两扇区（非空即 `VERIFY` 拒绝，不再谎报 CLEARED）；`commit/erase` 增加 `nonce`（SCPI 层传 boot uptime）折入身份，同参数重写不再被去重 | CLOSED（实板 `CLEar`+`PROFile` 通过：clear 后写回 generation=1、`loaded=1`） |
 
 ## 未纳入本次（预存在，记录为 OPEN）
 

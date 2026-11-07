@@ -41,7 +41,7 @@ P3 验收镜像就是台架镜像，台架必须跑最新代码的 P3 构建。
   `test_tdma_boot_sequence.c` 与现行序列（TOPOLOGY 在 STOP 前）不一致、`run_flash_transaction_tests.ps1`
   缺 `components/algo/inc`。
 
-**实板发现的三个真 bug**（都不是理论问题）：
+**实板发现的五个真 bug**（都不是理论问题）：
 
 1. flash 事务策略：`FLASH_TRANSACTION_REQUESTER_CALIBRATION` 只允许 calibration 子区，boot profile
    在 CALIBRATION_NVS 的 4·ERASE 偏移 → 写入被 PERMISSION 拒绝（`TDMA_BOOT_PROFILE_FLASH`）。
@@ -50,6 +50,11 @@ P3 验收镜像就是台架镜像，台架必须跑最新代码的 P3 构建。
    所以之前测不出来。
 3. 复用 build 目录导致 `PROJECT_BUILD_ID` 不更新：OTA 以 build id 判等，**同 id 时不换镜像**，
    `*BUILD?` 因此可能"看起来没变"。修法：最终验收用新 build 目录。
+4. `CLEar` 谎报：flash 完成日志按请求指纹去重（指纹含 `store_generation`），clear 固定用 1 →
+   第二次 clear 是 COMPLETED 重放、无物理擦除，`CLEARED` 后记录仍在。修法：擦除后回读两扇区，
+   非空即 `VERIFY` 拒绝。
+5. 同参数重写被去重：commit 的身份只有 profile generation，clear 后重写同一 profile（同 gen/同内容）
+   被当成重放 → `VERIFY`。修法：commit/erase 增加一次性 `nonce`（SCPI 传 boot uptime）折入指纹。
 
 **证据**：
 
@@ -62,14 +67,24 @@ P3 验收镜像就是台架镜像，台架必须跑最新代码的 P3 构建。
   `out/calibration/guide-10k/evidence/20261107-234127-boot-night1/readback.json`、
   `.../20261107-235054-boot-night2/readback.json`（四板 `action=START_REF/LISTEN`、`fail_step=0`、
   `boot_done=1`、`up/down/adapter=1/1/1`、帧总量 2 s 内 69→73 / 185→189）。
-- **C/T 单口下发：OPEN**。自组环上只开 COM5 发 `GUIDE:CONFig`/`GUIDE:TRIGger` 返回 `"OK"`，但
-  `REFMEM:CMD:STATus?` 停在 `q_depth=1, enq=1, deq=0, tx_ok=0, await=0`；60 s 内四板 `PLAN?`
-  gen/epoch 均未更新。已排除"自组环特有"：四口 `down→stage 23→up` 后同样复现；冷启动后同样复现。
-  尚未排除：维护窗口调度/10 kHz ACK 超时/镜像代次。**不得写成已达成**。
+- **C/T 单口下发：已定位并修复（待最终镜像复验）**。自组环上只开 COM5 发 `GUIDE:CONFig`/`TRIGger`
+  返回 `"OK"`，但 `REFMEM:CMD:STATus?` 停在 `q_depth=1, enq=1, deq=0, tx_ok=0`；60 s 内四板
+  `PLAN?` 不变。只读子代理 `792dc544` 追到注入点：参考板 beacon 只在"无飞行 TX 排队"时才带一个维护
+  chunk（`tdma_maintenance_runtime.c:135-195`），而 RefMem 飞行同步每个环回填 FIFO（10 kHz/level 23
+  每 600 ms），于是命令永远发不出去。**实板验证**：STOP 后四板 `SYSTem:TDMA:FLIGHT:MODE 1`（读回 2）
+  再 `stage 23`+`up`，`GUIDE:CONFig 920` 在 60 s 内四板 `PLAN? valid=1 gen=920`，`ack_ok` 增长、
+  `frag_done=1`。**修复**：boot 序列新增 `SET_FLIGHT_MODE`（STOP 后、ARM 前设置 resident process
+  image），使开机自组环天然具备命令面窗口；序列由 7 步变 8 步，`test_tdma_boot_sequence` 同步。
+  **仍未复验**：新序列需要最终镜像重跑 provisioning + 零口 + 单口 C/T。
 
-**下一步（按 ROI）**：① 用旧镜像 `out/build/p3-acceptance-20261107-215622` 做 C/T 二分（同台架）；
-② 新 build 目录重跑 P3 拿最终 build id，再 provisioning + `boot` 归档；③ 契约状态从 pending 提交 C11
-复审后转 active；④ R39/R26/M6.8。
+**下一步（按 ROI）**：① 最终 P3 被 OTA 传输阻塞（`SYST:OTA:STREAM:STAT?` 在 durable=512 处
+`0,6,512,5002,5`，state=FAILED、result=5；单板/四板、重启前后都复现，直接 `ota_multi_update` 同样失败），
+需先定位板端 OTA 写路径（嫌疑：flash 完成日志/目标槽擦写/今晚高频刷写后的板端状态），不能把
+`--method picotool` 的 record-only 结果当凭证；② provisioning + `boot` 归档（新序列 SET_FLIGHT_MODE
+需在最终镜像上复验）；③ 契约状态从 pending 提交 C11 复审后转 active；④ R39/R26/M6.8。
+
+**当前台架**：四板 build `20261107162325`（含 SET_FLIGHT_MODE、XIP 地址、nonce、clear 回读修复），
+boot profile 已清空，环停止；固件未提交。
 
 ## CAL-TASK-20261105-044 - M1 板端对表扫描：执行器跑通、检测未收敛
 

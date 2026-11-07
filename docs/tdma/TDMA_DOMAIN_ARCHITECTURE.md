@@ -502,8 +502,11 @@ seat mount store 之后各两个擦除扇区），仍由 `FLASH_TRANSACTION_REQU
   provisioning；正常路径仍是 append + 代次选择 + 回读校验。
 
 **清除入口。** `SYSTem:TDMA:BOOT:PROFile:CLEar`：同一 STOP-only 门，擦除两个扇区并把状态恢复为
-`loaded=0, generation=0, reject_reason=EMPTY`，回 `"BOOTPROF","CLEARED"`。用于回到"无档"状态
-（例如需要冷环的验收）和从损坏记录恢复；清除后同样需要重启才改变开机行为。
+`loaded=0, generation=0, reject_reason=EMPTY`，回 `"BOOTPROF","CLEARED"`。擦除必须**回读验证**：两个
+扇区仍有可解析记录就回 `..._VERIFY`，不得谎报 CLEARED。flash 完成日志按"请求指纹"去重，指纹包含
+`store_generation`/`nonce`，因此 write 与 clear 都把调用方的一次性 nonce（SCPI 层取 boot uptime）折入
+身份——否则同参数重写或重复 clear 会被当成 COMPLETED 重放而不做物理 IO（实板 2026-11-08 实测：
+`CLEARED` 后记录仍在、同参数重写报 `VERIFY`）。清除后同样需要重启才改变开机行为。
 
 **读回。** `SYSTem:TDMA:BOOT:PROFile?` → `"BOOTPROF",supported,loaded,reject_reason,generation,
 sequence,payload_crc32,level,nodes,slot,flags,topology_crc32`。v1 兼容地图上 `supported=0`、写入/清除以
@@ -512,9 +515,17 @@ sequence,payload_crc32,level,nodes,slot,flags,topology_crc32`。v1 兼容地图�
 **开机行为。** 写入后**需重启生效**：boot plan 在 `app_init` 时由 `tdma_boot_plan_decide` 冻结，重写
 profile 不改变本代的 `BOOT:PLAN?`（因此 `PROFile?` 可能显示新代而 `PLAN?` 仍是旧代，直到重启；主机
 不得用 `PLAN?` 判"写入是否生效"）。`tdma_boot_plan_decide`：slot 0 → `START_REF`，其余 → `LISTEN`；
-序列为 TOPOLOGY→STOP→STAGE→APPLY→BRINGUP_NO_CAL→ARM→START/LISTEN。`NODE_MISMATCH/SLOT_MISMATCH/
-REJECT` 分支在开机路径不可达（app 传入的 expected 正是 profile 自身），只在被其它调用方复用时生效。
-半环由 20 s 完整性窗口判定：`down_running` 为 0 即 `half_ring=1` 并 STOP；不得停留半环。
+序列为 TOPOLOGY→STOP→STAGE→APPLY→BRINGUP_NO_CAL→**SET_FLIGHT_MODE**→ARM→START/LISTEN。
+`NODE_MISMATCH/SLOT_MISMATCH/REJECT` 分支在开机路径不可达（app 传入的 expected 正是 profile 自身），
+只在被其它调用方复用时生效。半环由 20 s 完整性窗口判定：`down_running` 为 0 即 `half_ring=1` 并
+STOP；不得停留半环。
+
+**SET_FLIGHT_MODE 是命令面的前置。** 默认 `PHYSICAL_FLIGHT` beacon 只有在"没有飞行 TX 排队"时才携带
+一个维护 chunk；而 RefMem 飞行同步每个环回都会填 FIFO（10 kHz/level 23 下每 600 ms 一次），所以
+provisioning 或 GUIDE 命令会永远留在队列里（2026-11-07 实板：`q_depth=1, tx_ok=0`，60 s 不动）。
+boot 序列在 STOP 之后设置 resident process image（`tdma_runtime_owner_set_flight_process_image_mode(true)`，
+STOP-only），同一命令随即排空并四板生效（`ack_ok` 增长、`frag_done=1`、四板 `PLAN?` gen 同步）。
+因此"开机自组环"必须带这一步，否则 `BOOT:PROFile` 虽然成功、环也 up，但单口 C/T 不可用。
 
 **单口读回与重跑屏障。** `SYSTem:TDMA:BOOT:PLAN?` 现为 **19** 字段（原 17 字段后追加 `boot_done`、
 `boot_next_step`）。判据：四板 `boot_done=1`、`fail_step=0`，slot 0 `action=START_REF`、其余 `LISTEN`、

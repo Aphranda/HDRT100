@@ -20,7 +20,7 @@ Last updated: 2026-11-07
 |---|---|
 | 10 kHz 引导环**零口**自组（同一 P3 镜像，无任何起环 SCPI） | 四板 provisioning 后冷启动：`BOOT:PLAN?` `START_REF/LISTEN`、`fail_step=0`、`boot_done=1`；`RING:STATus?` `enabled=1,node_count=4,up=1,down=1,adapter=1`；探针 `boot` PASS 归档 `out/calibration/guide-10k/evidence/20261107-234127-boot-night1/`、`...-boot-night2/` |
 | 10 kHz 引导环启环（**四口**，旧路径）可重复 | 探针 `up` 后四板 `enabled=1, nodes=4, up=1, down=1, adapter=1` |
-| GUIDE `CONFig`/`TRIGger` 单口下发 | **OPEN**：命令返回 `"OK"` 但 `CMD:STATus?` `q_depth=1,deq=0,tx_ok=0`，四板 `PLAN?` 60 s 未更新；四口起环后同样复现（非自组环特有） |
+| GUIDE `CONFig`/`TRIGger` 单口下发 | 机制已定位并修复（boot 序列加 `SET_FLIGHT_MODE`），待最终镜像复验 | 实板：resident 模式下四板 `PLAN? valid=1 gen=920`、`ack_ok` 增长；未修前 `q_depth=1,tx_ok=0` 60 s 不动 |
 | 七动作阶梯 P1→T3 四板推进 | 多轮 `ladder_idx=6`、`ladder_step=2(DONE)` |
 | T3 四板 COMPLETE + 载波可读 `10 MHz / 1 ms` | `RING:STATus?` 尾字段 `baud_hz=10000000, cycle_period_ns=1000000` |
 | S 段语义冻结 | 契约 `CALIBRATION-SGATE-01`（`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` §12） |
