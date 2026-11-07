@@ -948,6 +948,20 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 附带：T3 的 CONFig 在 NO.1 上首次投递失败（`gen` 停在 1056），重试后成功——
   命令面在长时间运行后偶发丢一次，属于台架已知抖动。
 
+**2026-11-07 12:0x M6.6 T3 进展（build `20261107035659`）**：
+
+- **修复生效**：T3 现在从 FANOUT → `T3_PREP` → **`T3_ARM`(25)**，不再直接掉进通用 REBUILD；
+  `T3_PREP` 也已 stage/apply 计划的 `profile_level`（只有 T3 允许以测量档起环）。
+- **仍失败**：`T3_ARM` 在 60 s 预算内未形成 10 MHz 环 → `abort(NOT_ONLINE_SAFE)`，
+  四板 `abort_site=25`。40 s 采样显示进入 `T3_ARM` 后 **`enabled/up/down/adapter` 全 0、
+  `ring_last_error=0`，状态与错误码都不再变化**——既看不到 arm 尝试，也没有错误，
+  说明卡在 `T3_ARM` 的**前段**（`set_tdma_ring_topology` 或 `ring_quiescent` 等待），
+  而不是 arm/start 被拒。
+- 已排除：S 段提交（`commit_appl=1, commit_ok=0` 在"同代已提交"时是预期：
+  `app.c:2164-2172` 只有 `COMMIT_ALLOW && applicable` 才调用提交；`decision=2` 非 ALLOW）。
+- 下一轮：给 `T3_ARM` 的三个前段步骤（topology / quiescent / arm）各加一个"停留站点"诊断位
+  （复用 `abort_site` 的思路），一次上板即可定位卡点。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
