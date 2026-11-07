@@ -3608,17 +3608,22 @@ static void app_ctrqs_service(void)
             s_ctrqs.t3_topo = true;
             return;
         }
-        s_ctrqs_t3_stage = 3u;
-        if (!app_ctrqs_ring_quiescent()) {
-            app_ctrqs_stop_throttled(now);
-            if (now >= s_ctrqs.deadline_ms) {
-                app_ctrqs_abort(
-                    (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
-            }
-            return;
-        }
-        s_ctrqs_t3_stage = 4u;
+        /* The stop-and-wait gate only applies before the ARM.  ARM sets
+         * enabled=1 synchronously, so re-entering this gate afterwards stopped
+         * the ring we had just armed and left every later START refused
+         * (measured: ARM_OK, enabled=0 for the remaining 60 s).  APP_CTRQS_ARM
+         * avoids the same trap by leaving the state in the same call. */
         if (!s_ctrqs.t3_armed) {
+            s_ctrqs_t3_stage = 3u;
+            if (!app_ctrqs_ring_quiescent()) {
+                app_ctrqs_stop_throttled(now);
+                if (now >= s_ctrqs.deadline_ms) {
+                    app_ctrqs_abort(
+                        (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
+                }
+                return;
+            }
+            s_ctrqs_t3_stage = 4u;
             if (now < s_ctrqs.arm_try_ms) {
                 return;
             }
@@ -3634,6 +3639,22 @@ static void app_ctrqs_service(void)
             }
             return;
         }
+        /* Armed: wait until Core1 has actually started the adapter for this
+         * configuration.  set_data_enabled() requires adapter_started and
+         * applied==config, so START before that is refused and would look like
+         * a start failure. */
+        s_ctrqs_t3_stage = 9u;
+        tdma_ring_runtime_snapshot_t armed_ring;
+        if (!tdma_runtime_owner_get_ring_snapshot(&armed_ring) ||
+            armed_ring.enabled == 0u || armed_ring.adapter_started == 0u ||
+            armed_ring.config_seq != armed_ring.applied_config_seq) {
+            if (now >= s_ctrqs.deadline_ms) {
+                app_ctrqs_abort(
+                    (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
+            }
+            return;
+        }
+        s_ctrqs_t3_stage = 10u;
         if (now < s_ctrqs.arm_try_ms) {
             return;
         }
@@ -3649,6 +3670,14 @@ static void app_ctrqs_service(void)
         s_ctrqs_t3_stage =
             started ? ((have_start_ring && start_ring.enabled != 0u) ? 6u : 61u)
                     : 60u;
+        if (!started) {
+            /* Do not spin on a refused START: drop the latched arm so the next
+             * tick re-arms deliberately (or the deadline aborts with a reason),
+             * instead of repeating a call that can only fail. */
+            s_ctrqs.t3_armed = false;
+            s_ctrqs.t3_topo = false;
+            s_ctrqs.arm_try_ms = 0u;
+        }
         if (app_ctrqs_restore_formed()) {
             app_ctrqs_t3_advance(true);
             return;
