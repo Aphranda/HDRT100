@@ -2252,10 +2252,10 @@ def test_runtime_status_exposes_bad_frame_classification() -> None:
         "ring_config_seq",
         "ring_applied_config_seq",
     )
-    # Seven loop-time fields are appended after this block (append-only
-    # SYSTem:TDMA:RING:STATus? page), so the classification block is the tail
-    # that immediately precedes the appended block.
-    assert trn03.RUNTIME_FIELDS[-len(expected) - 7:-7] == expected
+    # The appended tail is the seven loop-time fields plus the two carrier
+    # fields (baud, cycle period) added after them, so the classification block
+    # ends right before that nine-field tail.
+    assert trn03.RUNTIME_FIELDS[-len(expected) - 9:-9] == expected
     source = _read_scpi_snapshot()
     status = source.split(
         "scpi_cmd_system_tdma_ring_status_q", 1

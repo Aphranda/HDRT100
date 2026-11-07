@@ -162,6 +162,11 @@ def test_schema_preserves_the_complete_historical_health_field_sets():
         "ring_loop_time_max_ns",
         "ring_loop_time_mean_ns",
         "ring_loop_time_count",
+        # Appended after the loop-time block: the carrier the ring was
+        # armed with.  The sealed record stays a prefix of the live page,
+        # so these two are part of the appended tail as well.
+        "ring_baud_hz",
+        "ring_cycle_period_ns",
     )
     # The sealed fifo group likewise gained an explicitly named appended tail: the
     # type-B transmit reject counters of the origin ring lane.

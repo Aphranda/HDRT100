@@ -75,9 +75,12 @@ def _csv_fields(response: str) -> list[str]:
 
 def parse_runtime_status(response: str) -> dict[str, int]:
     fields = _csv_fields(response)
-    if len(fields) != RUNTIME_FIELD_COUNT:
+    # The SCPI page is append-only: read the fixed prefix this exporter
+    # needs and ignore any fields appended after it.
+    if len(fields) < RUNTIME_FIELD_COUNT:
         raise ValueError(
-            f"TDMA runtime field count {len(fields)}, expected {RUNTIME_FIELD_COUNT}")
+            f"TDMA runtime field count {len(fields)}, expected at least "
+            f"{RUNTIME_FIELD_COUNT}")
     try:
         values = [int(value, 0) for value in fields]
     except ValueError as exc:

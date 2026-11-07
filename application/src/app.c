@@ -3621,10 +3621,13 @@ static void app_ctrqs_service(void)
          * 10 kHz level would look identical.  Check the staged period itself
          * and fail closed otherwise. */
         {
-            tdma_service_ring_runtime_config_t t3_profile;
-            if (!tdma_runtime_owner_get_staged_ring_config(&t3_profile) ||
-                t3_profile.cycle_period_ns != APP_CTRQS_T3_PERIOD_NS ||
-                t3_profile.baud_hz != APP_CTRQS_T3_BAUD_HZ) {
+            /* Check the applied operating profile, not the staged ring
+             * config: the latter reports enabled==0 whenever the board has no
+             * ring configured yet, which made this gate reject a different
+             * board on each run. */
+            tdma_operating_profile_manager_t t3_manager;
+            if (!tdma_runtime_owner_get_operating_profile(&t3_manager) ||
+                t3_manager.active.level != APP_CTRQS_T3_LEVEL) {
                 app_ctrqs_abort(
                     (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
                 return;
