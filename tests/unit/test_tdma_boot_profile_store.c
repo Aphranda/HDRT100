@@ -177,6 +177,16 @@ int main(void)
     assert(cached.generation == 1u && cached.local_slot == 2u);
     assert(tdma_boot_profile_store_next_generation(&next) && next == 2u);
 
+    /* A readable-but-garbage sector must be physically erased by clear, not
+     * reported CLEARED while still dirty. (The stub cannot model the journal's
+     * COMPLETED dedup; that path is covered by the bench F16 evidence.) */
+    memset(s_flash, 0x5Au, REGION_SIZE);
+    assert(tdma_boot_profile_store_erase(11u));
+    assert(drv_flash_is_erased(REGION_BASE, REGION_SIZE));
+    tdma_boot_profile_store_status(&status);
+    assert(!status.loaded);
+    assert(status.reject_reason == TDMA_BOOT_PROFILE_STORE_REJECT_EMPTY);
+
     printf("tdma boot profile store host tests passed\n");
     return 0;
 }

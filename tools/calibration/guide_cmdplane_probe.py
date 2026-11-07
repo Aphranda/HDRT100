@@ -17,6 +17,8 @@ Subcommands:
   boot write <level> <flags> <topology_crc>
                    provision the durable boot profile on every board
                    (slot = NO-1; reboot is required before the verdict)
+  ct <gen> [tag]   single-port C/T: send GUIDE:CONFig from COM5 only, then
+                   read all four boards back and archive the evidence
   down             RING:STOP on all boards
   ga <action> ...  run one guide action (ladder guard + strict verdict + archive)
   verify <a> <epoch> [gen] [repeats]
@@ -1393,6 +1395,90 @@ def boot(tag: str = "", write: tuple[int, int, int] | None = None,
     return ok
 
 
+def ct(gen: int, tag: str = "", level: int = LEVEL_10K) -> bool:
+    """Single-port C/T: only the coordinator port sends; four-port readback.
+
+    The CONFig is sent with every other port closed, so the evidence file can
+    state the command port and the exact response. The following four-port read
+    is the documented verification step: it confirms the plan reached every
+    board over the ring. Archived with the host fingerprint so the claim
+    "single port" is reproducible from the file.
+    """
+    ref = Board(PORTS[0])
+    ref.probe()
+    text = (f"SYST:TDMA:GUIDE:CONFig 1,{0x12340000 + gen},{gen},{level},"
+            f"4000,4,{CAND}")
+    t0 = time.monotonic()
+    command = "SYST:TDMA:GUIDE:CONFig"
+    response = ref.cmd(text)
+    send_s = time.monotonic() - t0
+    ref_idn, ref_build = ref.idn, ref.build
+    ref.close()
+    print(f"{now()} CONFig sent from {PORTS[0]} only ({send_s:.1f}s) -> "
+          f"{response}")
+
+    boards = open_boards()
+    deadline = time.monotonic() + 150.0
+    seen: dict[int, int] = {}
+    while time.monotonic() < deadline:
+        for b in boards:
+            vals = b.plan()
+            seen[b.no] = vals[3] if len(vals) > 3 else -1
+        if len(seen) == len(boards) and all(g == gen for g in seen.values()):
+            break
+        time.sleep(1.0)
+    elapsed = time.monotonic() - t0
+    ok = len(seen) == len(boards) and all(g == gen for g in seen.values())
+    rows = []
+    for b in boards:
+        rows.append({
+            "no": b.no,
+            "idn": b.cmd("*IDN?"),
+            "build": b.cmd("SYSTem:FW:BUILD?"),
+            "plan": b.cmd("SYST:TDMA:GUIDE:PLAN?"),
+            "ring": b.cmd("SYST:TDMA:RING:STATus?"),
+            "cmd_status": b.cmd("SYSTem:REFMEM:CMD:STATus?"),
+        })
+    for b in boards:
+        b.close()
+    print(f"{now()} ct={'PASS' if ok else 'FAIL'} gen={gen} elapsed={elapsed:.1f}s "
+          f"gens={seen}")
+
+    import json as _json
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    root = os.path.join(
+        repo_root, "out", "calibration", "guide-10k", "evidence",
+        time.strftime("%Y%m%d-%H%M%S") + f"-ct-{tag or 'single'}")
+    os.makedirs(root, exist_ok=True)
+    payload = {
+        "tag": tag,
+        "gen": gen,
+        "level": level,
+        "command_port": PORTS[0],
+        "command": command,
+        "text": text,
+        "response": response,
+        "send_s": round(send_s, 2),
+        "elapsed_s": round(elapsed, 1),
+        "pass": ok,
+        "gens": {str(k): v for k, v in seen.items()},
+        "boards": rows,
+        "coordinator": {"idn": ref_idn, "build": ref_build},
+    }
+    try:
+        from tools.hardware_acceptance.source_scope import (
+            working_source_fingerprint)
+        digest, count = working_source_fingerprint()
+        payload["host"] = {"fingerprint": digest, "fingerprint_files": count}
+    except Exception as exc:  # pragma: no cover - diagnostic only
+        payload["host"] = {"fingerprint": f"unavailable: {exc}"}
+    with open(os.path.join(root, "readback.json"), "w", encoding="utf-8") as fh:
+        _json.dump(payload, fh, ensure_ascii=False, indent=2)
+    print(f"{now()} evidence -> {root}")
+    return ok
+
+
 def status() -> None:
     boards = open_boards()
     for b in boards:
@@ -1426,6 +1512,13 @@ def main(argv: list[str]) -> int:
             topology_crc = int(argv[5], 0) if len(argv) > 5 else 0
             return 0 if boot(write=(level, flags, topology_crc)) else 1
         return 0 if boot(argv[2] if len(argv) > 2 else "") else 1
+    if what == "ct":
+        if len(argv) < 3:
+            print("usage: ct <gen> [tag]")
+            return 2
+        gen = int(argv[2])
+        tag = argv[3] if len(argv) > 3 else ""
+        return 0 if ct(gen, tag) else 1
     if what == "down":
         tear_down()
         return 0
