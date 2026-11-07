@@ -1218,6 +1218,24 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   `up_tx_sequence` 增量；（c）新增一个帧计数回读字段。
 - 因此 M6.6 保持 **⏳**；"T3 以 10 MHz 起环"目前只有"staged 档 = level 7 + T3 COMPLETE"两级证据。
 
+**2026-11-07 18:2x 同 build 全梯子复跑（P1→T3，四板）**
+
+- build `20261107101158`（验收 `p3-181140` 刷入），同一上电周期内连续跑完七动作：
+  P1（`verify 1 800 1800` = PASS，四板 `4/4, 0xF, failed=0`）→ P2 → P3（四板 `0xFFF`）→ T0 → T1 → T2
+  → 四板 `ladder_idx=6`。
+- **T3 首次四板未齐**：NO.4 被新增的 10 MHz 硬门拦下（`prog_status=2, reason=13,
+  abort_site=24=T3_PREP`），另三板 COMPLETE ⇒ **硬门按设计生效，且抓到了真实的分歧**。
+- **T3 重试四板全绿**：重发 action 7（`gen=1911, epoch=911`），四板
+  `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0, reason=0, reconcile=1,
+  abort_site=0, ladder_step=2(DONE)`；`verify 7 911 1911` = **PASS**。
+- T3 后 `RING:CONFig?`：四板 `enabled=1, cycle_period_ns=1000000, operating_profile_crc32=1383759744`
+  （level 7 = 10 MHz/1 ms）**四板一致**。
+- 归档：`out/calibration/guide-10k/evidence/20261107-182424-M6.8-P1-10kHz-gen1800/` 与
+  `…-182832-M6.6-rerun-T3-all4-epoch911/`（含 `build`、`idn`、`RING:CONFig?`、host fingerprint）。
+- **口径不变**：这仍不是"T3 窗口内实测 10 MHz"（M6.6b 需固件通道）；但相对 15:0x 的一轮，
+  本轮是**四板**同时通过硬门 + 判据 + 归档，且硬门已被证明会拒绝不合规的板。
+- 探针侧修正：`ladder_ok()` 改为**只比 `ladder_idx`**（原先还比 `step`，会把"失败板重试"误判为分叉）。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。

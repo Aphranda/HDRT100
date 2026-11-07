@@ -161,6 +161,22 @@
       "tool": "TOOL-ARCHIVE",
       "form": "LIBRARY",
       "reason": "归档冻结件只作历史追溯，从不执行；无入口。"
+    },
+    {
+      "tool": "TOOL-CALIBRATION-GUIDE",
+      "form": "STANDALONE",
+      "entry": "tools/calibration/guide_cmdplane_probe.py",
+      "evidence_root": "out/calibration/guide-10k/evidence/",
+      "resume": "guide_cmdplane_probe.py ga <action> <gen> <epoch> ... (single action); verify <action> <epoch> <gen> <repeats> for the strict verdict",
+      "reason": "在 10 kHz 引导档上驱动单个 CTRQS 动作并取证：每动作前校验四板 ladder 一致、动作后按严格判据判定并把四板 PLAN?/RING:STATUS?/RING:CONFIG?/build/IDN/fingerprint 归档。验收凭证（P3 QUICK_DIAGNOSTIC）不覆盖 GUIDE 阶梯，故这些动作的可复跑证据只能来自本工具。"
+    },
+    {
+      "tool": "TOOL-CAL-GUIDE-WORKFLOW",
+      "form": "WORKFLOW",
+      "entry": "tools/domains/trigger/trigger_debug_demo/calibration_workflow.py",
+      "evidence_root": "out/trigger_debug_demo/ (WorkflowRunner state_dir/report_root supplied by the demo app)",
+      "resume": "WorkflowRunner.load(run_id) then continue from the same state",
+      "reason": "单口（仅协调口）校准引导流程：发送 GUIDE C/T 并在同一口确认 gen/epoch/progress；四板一致性由调用方负责。为解除共享提交门禁按事实登记，生命周期待其属主判定。"
     }
   ]
 }

@@ -1095,6 +1095,10 @@
           "role": "module"
         },
         {
+          "path": "tools/domains/trigger/trigger_debug_demo/calibration_page.py",
+          "role": "module"
+        },
+        {
           "path": "tools/domains/trigger/trigger_debug_demo/ui/__init__.py",
           "role": "module"
         },
@@ -5865,6 +5869,56 @@
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-CALIBRATION-GUIDE",
+      "purpose": "Drive one CTRQS guide action on the bench (ladder guard, strict verdict, four-board readback archive) — the only reproducible evidence path for SYST:TDMA:GUIDE: actions.",
+      "domain": "CALIBRATION",
+      "owner": "CALIBRATION guide ladder",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "MIXED",
+      "entrypoints": [
+        "tools/calibration/guide_cmdplane_probe.py"
+      ],
+      "files": [
+        {
+          "path": "tools/calibration/guide_cmdplane_probe.py",
+          "role": "entrypoint"
+        }
+      ],
+      "notes": "Bench driver for the CTRQS guide ladder: per-action ladder guard, strict verdict (freshness/terminal state/mask/no abort) and four-board readout archive. The P3 credential is scoped to FOUR_NODE_TDMA_QUICK_DIAGNOSTIC and does not exercise SYST:TDMA:GUIDE: actions, so this tool is the evidence path for those milestones.",
+      "handoff_evidence": null,
+      "validation": [],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": []
+    },
+    {
+      "id": "TOOL-CAL-GUIDE-WORKFLOW",
+      "purpose": "Single-port calibration guide workflow: sends the GUIDE C/T commands over one coordinator port and confirms gen/epoch/progress through that port PLAN? readback.",
+      "domain": "CALIBRATION",
+      "owner": "CONSOLE trigger debug demo (another lane)",
+      "lifecycle": "UNASSESSED",
+      "operation": "MIXED",
+      "entrypoints": [
+        "tools/domains/trigger/trigger_debug_demo/calibration_workflow.py"
+      ],
+      "files": [
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/calibration_workflow.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [
+        "pyserial"
+      ],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Registered factually (WorkflowSpec + WorkflowRunner with a caller-supplied state_dir) so the shared tool-governance gate can pass; lifecycle stays UNASSESSED until its owner judges it."
     }
   ]
 }
