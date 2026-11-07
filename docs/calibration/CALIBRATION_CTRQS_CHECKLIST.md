@@ -789,6 +789,20 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 结论：R5 从"预算被吃掉"推进到"训练本身不完成"——下一步要读 marker 训练快照
   （state/结果位/consume 计数）判断是未注入、未同步还是被拒。
 
+**2026-11-07 10:1x T0 立即超时的下一步取证（build `20261107013327`）**：
+
+- 探针补了"等执行器回 IDLE 再触发"（此前在 RESTORE_WAIT 期间触发会被静默挂起，
+  计划进度保留上一动作的数字——这也是之前 NO.1 显示陈旧 P3 结果的原因）。
+- 加上空闲等待后，T0 四板都进入 `T0_PREP(16)`，约 0.5 s 后统一进 `27(REBUILD)`。
+- `PLAN?` 显示 `prog_status=2, prog_reason=11, trials_done=1, failed_mask=1, **abort_site=0**`：
+  即失败**不是** `app_ctrqs_abort()` 造成的（那会写 abort_site），而是
+  `app_ctrqs_t0_step()` 顶部的 `now >= deadline` 分支（`app.c:2689-2695`）直接判失败，
+  随后 finalize 按"有 failed_mask 即 STOPPED"报 `reason=11`。
+- 矛盾点（下一轮首要）：PREP→RUN 已把 `deadline = now + APP_CTRQS_T0_STEP_MS(6000)` 锚在 now，
+  但实测 0.5 s 就判过期 → 说明 `deadline_ms` 在 PREP 与 RUN 之间被别处覆写，或 RUN 用的不是
+  这个字段。下一步在 `t0_step` 里把 `now/t0_trial_t0_ms/deadline_ms` 三者一起打进诊断
+  （或逐个检查 `deadline_ms` 的其它写入点）再修。
+
 ## 7. 台架与操作注意- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
