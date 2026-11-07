@@ -2255,7 +2255,7 @@ def test_runtime_status_exposes_bad_frame_classification() -> None:
     # The appended tail is the seven loop-time fields plus the two carrier
     # fields (baud, cycle period) added after them, so the classification block
     # ends right before that nine-field tail.
-    assert trn03.RUNTIME_FIELDS[-len(expected) - 9:-9] == expected
+    assert trn03.RUNTIME_FIELDS[-len(expected) - 11:-11] == expected
     source = _read_scpi_snapshot()
     status = source.split(
         "scpi_cmd_system_tdma_ring_status_q", 1

@@ -8,6 +8,8 @@
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_tdma_board_record.py",
+    "tests/python/test_trn03_closed_loop.py",
     "tests/python/test_vdc_host_harness.py",
     "-q",
     "-p",
@@ -17,26 +19,32 @@
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_tdma_board_record.py",
+    "tests/python/test_trn03_closed_loop.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 12.047,
+  "duration_s": 21.109,
   "returncode": 0,
   "summary": {
-    "passed": 77,
+    "passed": 229,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
-    "xfailed": 0
+    "xfailed": 1
   },
-  "summary_line": "77 passed in 10.81s",
+  "summary_line": "229 passed, 1 xfailed in 20.30s",
   "tail": [
+    "........................................................................ [ 31%]",
+    "........................................x............................... [ 62%]",
     "........................................................................ [ 93%]",
-    ".....                                                                    [100%]",
-    "77 passed in 10.81s"
+    "..............                                                           [100%]",
+    "=========================== short test summary info ===========================",
+    "XFAIL tests/python/test_trn03_closed_loop.py::test_load_mask_releases_only_newly_enabled_loads - pre-existing: app.c quarantine release now includes the foundation mask (~ (newly_enabled | APP_REALTIME_LOAD_FOUNDATION_MASK)); the assertion predates that change and needs an owner decision",
+    "229 passed, 1 xfailed in 20.30s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "d306014d225ec8e01965e678ae10614c15cd2a043fa512b3188c60446543dacf",
+  "fingerprint": "2225111e4fa7c3369bac83b372baf5b9df6fa4a543bfdf08d416d48e03f302cb",
   "file_count": 1162,
-  "working_fingerprint": "ddc55075d3e4c3d38e96485f1bc0f39fd51395816dbf37e8171bc45cbd6b343b",
-  "started_at_utc": "2026-11-07T12:53:34.645256+00:00"
+  "working_fingerprint": "8c788a577e947dda71cfe473e9eff103c9e0cc48381ecf247eb4166a617a69b6",
+  "started_at_utc": "2026-11-07T13:10:14.576312+00:00"
 }

@@ -868,6 +868,16 @@ publish:
     runtime->last_reason = (uint32_t)reason;
     runtime->simultaneous_feedback_loop_evidence =
         feedback_correlated ? 1u : 0u;
+    /* Accumulate the delta before overwriting: a restart (sequence went
+     * backwards) contributes nothing, but the total never decreases. */
+    if (adapter_status.up_tx_sequence >= runtime->up_tx_sequence) {
+        runtime->total_up_tx +=
+            adapter_status.up_tx_sequence - runtime->up_tx_sequence;
+    }
+    if (adapter_status.down_rx_sequence >= runtime->down_rx_sequence) {
+        runtime->total_down_rx +=
+            adapter_status.down_rx_sequence - runtime->down_rx_sequence;
+    }
     runtime->up_tx_sequence = adapter_status.up_tx_sequence;
     runtime->down_rx_sequence = adapter_status.down_rx_sequence;
     runtime->up_tx_frame_crc32 = adapter_status.up_tx_frame_crc32;
@@ -998,6 +1008,8 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->adapter_last_error = runtime->adapter_last_error;
         snapshot->up_tx_sequence = runtime->up_tx_sequence;
         snapshot->down_rx_sequence = runtime->down_rx_sequence;
+        snapshot->total_up_tx = runtime->total_up_tx;
+        snapshot->total_down_rx = runtime->total_down_rx;
         snapshot->up_tx_frame_crc32 = runtime->up_tx_frame_crc32;
         snapshot->down_rx_frame_crc32 = runtime->down_rx_frame_crc32;
         snapshot->timestamp_resolution_ns = runtime->timestamp_resolution_ns;

@@ -232,6 +232,11 @@ typedef struct {
     uint32_t down_running;
     uint32_t up_tx_sequence;
     uint32_t down_rx_sequence;
+    /* Monotonic totals: they keep accumulating across STOP/ARM and
+     * configure(), so a reader can tell that frames flowed even when
+     * the per-config sequences restarted. */
+    uint32_t total_up_tx;
+    uint32_t total_down_rx;
     uint32_t up_tx_frame_crc32;
     uint32_t down_rx_frame_crc32;
     uint32_t schedule_crc32;
@@ -320,6 +325,8 @@ typedef struct {
     uint32_t adapter_last_error;
     uint32_t up_tx_sequence;
     uint32_t down_rx_sequence;
+    uint32_t total_up_tx;
+    uint32_t total_down_rx;
     uint32_t up_tx_frame_crc32;
     uint32_t down_rx_frame_crc32;
     uint32_t timestamp_resolution_ns;
@@ -419,6 +426,8 @@ typedef struct {
     volatile uint32_t adapter_last_error;
     volatile uint32_t up_tx_sequence;
     volatile uint32_t down_rx_sequence;
+    volatile uint32_t total_up_tx;
+    volatile uint32_t total_down_rx;
     volatile uint32_t up_tx_frame_crc32;
     volatile uint32_t down_rx_frame_crc32;
     volatile uint32_t timestamp_resolution_ns;

@@ -98,6 +98,9 @@ RUNTIME_FIELDS = (
     # the firmware result order (baud first, then cycle period).
     "ring_baud_hz",
     "ring_cycle_period_ns",
+    # Appended: monotonic frame totals (survive reconfiguration).
+    "ring_total_up_tx",
+    "ring_total_down_rx",
 )
 
 

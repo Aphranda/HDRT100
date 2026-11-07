@@ -925,6 +925,11 @@ scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context)
      * existing positions are unchanged. */
     SCPI_ResultUInt32(context, snapshot.baud_hz);
     SCPI_ResultUInt32(context, snapshot.cycle_period_ns);
+    /* Appended: monotonic frame totals.  The per-config sequences restart
+     * on every configure(), so these are the only counters that can
+     * show "frames flowed" across an ARM/STOP cycle. */
+    SCPI_ResultUInt32(context, snapshot.total_up_tx);
+    SCPI_ResultUInt32(context, snapshot.total_down_rx);
     return SCPI_RES_OK;
 }
 

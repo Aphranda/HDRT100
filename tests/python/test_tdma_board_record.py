@@ -167,6 +167,8 @@ def test_schema_preserves_the_complete_historical_health_field_sets():
         # so these two are part of the appended tail as well.
         "ring_baud_hz",
         "ring_cycle_period_ns",
+        "ring_total_up_tx",
+        "ring_total_down_rx",
     )
     # The sealed fifo group likewise gained an explicitly named appended tail: the
     # type-B transmit reject counters of the origin ring lane.
