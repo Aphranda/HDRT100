@@ -2015,8 +2015,7 @@ static uint32_t s_ctrqs_t3_stage;
 
 static void app_ctrqs_abort(uint32_t reason)
 {
-    s_ctrqs_abort_site = s_ctrqs.state;
-    if (s_ctrqs.state == APP_CTRQS_T3_ARM) {
+    s_ctrqs_abort_site = s_ctrqs.state;    if (s_ctrqs.state == APP_CTRQS_T3_ARM) {
         s_ctrqs_abort_site = 100u + s_ctrqs_t3_stage;
     }
     s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
@@ -2186,6 +2185,11 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
     const uint64_t now = app_ctrqs_now_ms();
     const uint32_t nodes = (uint32_t)PROJECT_TDMA_GUIDE_NODES;
     memset(&s_ctrqs, 0, sizeof(s_ctrqs));
+    /* Per-round diagnostics: the abort site is a plain static (not part of the
+     * struct), so without this reset a previous round's site is read back as if
+     * it belonged to the current one. */
+    s_ctrqs_abort_site = 0u;
+    s_ctrqs_t3_stage = 0u;
     s_ctrqs.plan = *plan;
     s_ctrqs.epoch = epoch;
     s_ctrqs.local_slot = distributed_refmem_local_slot();
@@ -3671,12 +3675,23 @@ static void app_ctrqs_service(void)
             started ? ((have_start_ring && start_ring.enabled != 0u) ? 6u : 61u)
                     : 60u;
         if (!started) {
-            /* Do not spin on a refused START: drop the latched arm so the next
-             * tick re-arms deliberately (or the deadline aborts with a reason),
-             * instead of repeating a call that can only fail. */
+            /* START refused.  Do NOT drop t3_topo: the topology step runs
+             * before the quiescent gate and requires enabled==0, while a refused
+             * START leaves enabled==1, so re-entering it would spin there until
+             * the deadline and never stop the ring.  Dropping the arm instead
+             * lets the existing !t3_armed gate stop to full quiescence, after
+             * which the staged 10 MHz config can be armed again. */
             s_ctrqs.t3_armed = false;
-            s_ctrqs.t3_topo = false;
             s_ctrqs.arm_try_ms = 0u;
+            app_ctrqs_stop_throttled(now);
+            /* Bounded retries: without a cap the 60 s window is spent repeating
+             * the same stop/arm cycle and the only visible outcome is a generic
+             * NOT_ONLINE_SAFE. */
+            s_ctrqs.arm_tries++;
+            if (s_ctrqs.arm_tries >= APP_CTRQS_ARM_RETRIES) {
+                app_ctrqs_abort(
+                    (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
+            }
         }
         if (app_ctrqs_restore_formed()) {
             app_ctrqs_t3_advance(true);
@@ -3713,19 +3728,11 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_REBUILD:
         if (app_ctrqs_restore_formed()) {
-            if (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_T3 &&
-                s_ctrqs.progress.trials_done == 0u) {
-                /* T3's trial is exactly this: the trained stage forms a
-                 * 10 MHz ring.  Record it before Q so the reconcile and the
-                 * S gate see a completed action. */
-                s_ctrqs.progress.passed_mask |= 1u;
-                s_ctrqs.progress.trials_done = 1u;
-                s_ctrqs.progress.deepest_trial = 0u;
-                s_ctrqs.progress.status =
-                    (uint32_t)GUIDE_ACTION_PROGRESS_COMPLETE;
-                s_ctrqs.progress.reason = 0u;
-                app_ctrqs_publish();
-            }
+            /* T3's result must come from its own arm/start path
+             * (app_ctrqs_t3_advance); this rebuild is the post-abort fallback
+             * that merely restores the ring.  Marking T3 complete here reported
+             * a failed action as COMPLETE (and made a rerun pass on evidence
+             * that came from the recovery path). */
             s_ctrqs.state = APP_CTRQS_Q;
             return;
         }
