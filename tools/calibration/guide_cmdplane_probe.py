@@ -965,14 +965,15 @@ def guide_action(action: int, gen: int, epoch: int, level: int, window: int,
         time.sleep(0.5)
     window_rate(f"action{action}", ring_samples)
     archive_evidence(f"action{action}-gen{gen}", boards, action, gen, epoch,
-                     ring_samples)
+                     ring_samples, text)
     for b in boards:
         b.close()
     verdict()
 
 
 def archive_evidence(tag: str, boards, action: int, gen: int, epoch: int,
-                     ring_samples: list | None = None) -> None:
+                     ring_samples: list | None = None,
+                     cseg: str | None = None) -> None:
     """Persist the four-board readback so a verdict can be re-run and audited.
 
     The acceptance credential does not cover the GUIDE ladder, so the only
@@ -994,7 +995,8 @@ def archive_evidence(tag: str, boards, action: int, gen: int, epoch: int,
     # so a later reader can tell whether this evidence belongs to this tree.
     payload = {"tag": tag, "action": action, "gen": gen, "epoch": epoch,
                "stamp": stamp, "host": {}, "boards": [],
-               "ring_samples": [[round(t, 3), s] for t, s in (ring_samples or [])]}
+               "ring_samples": [[round(t, 3), s] for t, s in (ring_samples or [])],
+               "cseg": cseg}
     try:
         from tools.hardware_acceptance.source_scope import (
             working_source_fingerprint)
@@ -1020,7 +1022,8 @@ def archive_evidence(tag: str, boards, action: int, gen: int, epoch: int,
     print(f"{now()} evidence -> {root}")
 
 
-def verify(action: int, epoch: int, gen: int = 0, repeats: int = 3) -> bool:
+def verify(action: int, epoch: int, gen: int = 0, repeats: int = 3,
+           archive: bool = False) -> bool:
     """Strict verdict for one action: freshness, terminal state, no abort.
 
     The PLAN? progress fields keep the *previous* Q reading until this round
@@ -1033,6 +1036,7 @@ def verify(action: int, epoch: int, gen: int = 0, repeats: int = 3) -> bool:
     """
     boards = open_boards()
     ok = True
+    lines: list[str] = []
     # Trial count and pass mask are set by the executor, not by the plan for
     # every action: P1 sets one bit per trial (4), P3 runs nodes x repeats,
     # T0 runs t0_repeats (candidates[4]), T1/T2 use the plan's trial_count and
@@ -1087,15 +1091,30 @@ def verify(action: int, epoch: int, gen: int = 0, repeats: int = 3) -> bool:
                 counted and passed_ok and no_fail and no_abort and reconciled
                 and rate_ok)
         ok = ok and good
-        print(f"NO.{b.no} {'PASS' if good else 'FAIL'} "
+        line = (f"NO.{b.no} {'PASS' if good else 'FAIL'} "
               f"fresh={fresh}(epoch={v[8]}/{epoch} gen={v[3]}/{gen}) "
               f"action={v[1]}/{action} idle={idle} pvalid={prog_valid} "
               f"status={v[11]} rec={v[15]} trials={v[12]}/{want_trials} "
               f"passed=0x{v[22]:X}/0x{want_mask:X} failed=0x{v[23]:X} "
               f"abort_site={v[24]} rate_ok={rate_ok}")
+        lines.append(line)
     for b in boards:
         b.close()
     print(f"verify={'PASS' if ok else 'FAIL'} action={action}")
+    if archive:
+        import json as _json
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        root = os.path.join(repo_root, 'out', 'calibration', 'guide-10k',
+                            'evidence',
+                            time.strftime('%Y%m%d-%H%M%S') + f'-verify-{action}')
+        os.makedirs(root, exist_ok=True)
+        with open(os.path.join(root, 'verdict.json'), 'w',
+                  encoding='utf-8') as fh:
+            _json.dump({'action': action, 'epoch': epoch, 'gen': gen,
+                        'repeats': repeats, 'pass': ok, 'lines': lines},
+                       fh, ensure_ascii=False, indent=2)
+        print(f"{now()} verdict -> {root}")
     return ok
 
 
@@ -1218,7 +1237,8 @@ def main(argv: list[str]) -> int:
             print("verify: epoch 0 is rejected (CONFig clears the epoch; a stale "
                   "Q would then look like this round)")
             return 2
-        return 0 if verify(action, epoch, gen, repeats) else 1
+        archive = len(argv) > 6 and argv[6] not in ('0', 'no', 'false')
+        return 0 if verify(action, epoch, gen, repeats, archive) else 1
     if what == "p2":
         gen = int(argv[2]) if len(argv) > 2 else 700
         epoch = int(argv[3]) if len(argv) > 3 else 800
