@@ -248,6 +248,9 @@ typedef struct {
     uint32_t tx_count;
     uint32_t rx_count;
     uint32_t rx_bad_count;
+    /* Monotonic success totals published by the adapter. */
+    uint32_t total_tx_ok;
+    uint32_t total_rx_ok;
     uint32_t rx_transport_bad_count;
     uint32_t rx_schedule_bad_count;
     uint32_t rx_profile_bad_count;

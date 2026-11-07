@@ -385,6 +385,8 @@ static void tdma_pio_spi_ring_adapter_publish_status(
     status->last_error = adapter->last_error;
     status->tx_count = adapter->tx_count;
     status->rx_count = adapter->rx_count;
+    status->total_tx_ok = adapter->total_tx_ok;
+    status->total_rx_ok = adapter->total_rx_ok;
     status->rx_bad_count = adapter->rx_bad_count;
     status->rx_transport_bad_count = adapter->rx_transport_bad_count;
     status->rx_schedule_bad_count = adapter->rx_schedule_bad_count;
@@ -705,6 +707,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
                 adapter->up_tx_frame_crc32 = adapter->down_rx_frame_crc32;
                 adapter->forward_count++;
                 adapter->tx_count++;
+                adapter->total_tx_ok++;
             }
             if (adapter->forwarding_mode ==
                     TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&

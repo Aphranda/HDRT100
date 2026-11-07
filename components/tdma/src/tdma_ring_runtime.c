@@ -868,16 +868,10 @@ publish:
     runtime->last_reason = (uint32_t)reason;
     runtime->simultaneous_feedback_loop_evidence =
         feedback_correlated ? 1u : 0u;
-    /* Accumulate the delta before overwriting: a restart (sequence went
-     * backwards) contributes nothing, but the total never decreases. */
-    if (adapter_status.up_tx_sequence >= runtime->up_tx_sequence) {
-        runtime->total_up_tx +=
-            adapter_status.up_tx_sequence - runtime->up_tx_sequence;
-    }
-    if (adapter_status.down_rx_sequence >= runtime->down_rx_sequence) {
-        runtime->total_down_rx +=
-            adapter_status.down_rx_sequence - runtime->down_rx_sequence;
-    }
+    /* The totals come from the adapter, which counts each successful
+     * transmit/receive once and clears them only at init.  Copying (rather
+     * than accumulating a delta) means a skipped publish cannot double-count
+     * and a STOP/ARM cycle cannot lose or duplicate frames. */
     runtime->up_tx_sequence = adapter_status.up_tx_sequence;
     runtime->down_rx_sequence = adapter_status.down_rx_sequence;
     runtime->up_tx_frame_crc32 = adapter_status.up_tx_frame_crc32;
@@ -888,6 +882,8 @@ publish:
     runtime->idle_beacon_tx_count = adapter_status.idle_beacon_tx_count;
     runtime->idle_beacon_rx_count = adapter_status.idle_beacon_rx_count;
     runtime->feedback_round_trip_ns = round_trip_ns;
+    runtime->total_up_tx = adapter_status.total_tx_ok;
+    runtime->total_down_rx = adapter_status.total_rx_ok;
     runtime->adapter_tx_count = adapter_status.tx_count;
     runtime->adapter_rx_count = adapter_status.rx_count;
     runtime->adapter_rx_bad_count = adapter_status.rx_bad_count;

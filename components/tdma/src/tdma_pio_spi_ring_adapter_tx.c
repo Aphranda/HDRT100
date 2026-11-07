@@ -826,6 +826,7 @@ bool tdma_pio_spi_ring_adapter_launch_reference(
     adapter->up_sequence = view->transport_sequence;
     adapter->up_tx_frame_crc32 = view->identity_crc32;
     adapter->tx_count++;
+    adapter->total_tx_ok++;
     adapter->idle_beacon_tx_count++;
     adapter->resident_seeded = resident;
     if (resident && !bootstrap_retry) {

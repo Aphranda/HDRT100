@@ -685,6 +685,10 @@ typedef struct {
     uint32_t idle_beacon_tx_count;
     uint32_t idle_beacon_rx_count;
     uint32_t tx_count;
+    /* Monotonic success totals: cleared only by adapter init, so they stay
+     * valid across STOP/ARM and can be read as frame activity. */
+    uint32_t total_tx_ok;
+    uint32_t total_rx_ok;
     /* Accepted physical submissions in this ARM; retained across STOP. */
     uint32_t diagnostic_burst_launched;
     uint32_t diagnostic_burst_valid;

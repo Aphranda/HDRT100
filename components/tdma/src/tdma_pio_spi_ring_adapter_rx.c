@@ -734,6 +734,7 @@ bool tdma_pio_spi_ring_adapter_process_rx_impl(
     }
     tdma_service_timing_record(TDMA_TIMING_RX_EVIDENCE, rx_evidence_start);
     adapter->rx_count++;
+    adapter->total_rx_ok++;
     if (view.origin_slot_id < TDMA_PIO_SPI_RING_ADAPTER_SLOT_MAX) {
         const uint32_t slot = view.origin_slot_id;
         const uint32_t hop = view.hop_count > 0xffu ? 0xffu : view.hop_count;
@@ -992,6 +993,7 @@ bool tdma_pio_spi_ring_adapter_tx_forward(
     }
     adapter->forward_count++;
     adapter->tx_count++;
+    adapter->total_tx_ok++;
     adapter->last_error = flight_map_rejected
                               ? TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT
                               : TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
