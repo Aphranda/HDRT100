@@ -2099,11 +2099,10 @@ static void app_ctrqs_finalize(void)
          * partial trial count. */
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
         s_ctrqs.progress.reason = (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
-    } else if (s_ctrqs.plan.action_id == APP_CTRQS_ACTION_P1 &&
-               s_ctrqs.progress.failed_mask != 0u) {
-        /* P1 admits a trial that ran but never saw the return, so the count
-         * alone no longer proves the round passed: a failed trial keeps
-         * failed_mask set and must not be reported (or laddered) as COMPLETE.
+    } else if (s_ctrqs.progress.failed_mask != 0u) {
+        /* Any action that ran a failed trial must not report COMPLETE, and the
+         * ladder must not advance on it.  P1 was the only action checked here,
+         * so P3 could finish with every real trial failed and still advance.
          * Both masks are published through PLAN? so the caller can tell the
          * difference instead of trusting the status word. */
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_STOPPED;
@@ -2569,9 +2568,16 @@ static void app_ctrqs_p3_advance(bool passed, uint64_t now)
         return;
     }
     s_ctrqs.p3_started = false;
+    s_ctrqs.p3_trial_passed = false;
     s_ctrqs.p3_trial_t0_ms =
         s_ctrqs.t0_ms + (uint64_t)s_ctrqs.p3_trial * s_ctrqs.slot_ms;
     s_ctrqs.deadline_ms = s_ctrqs.p3_trial_t0_ms + APP_CTRQS_P3_STEP_MS;
+    /* Back to the running state: APP_CTRQS_P3_RUN is otherwise only assigned by
+     * P3_PREP, so a trial that ended in P3_STOP left the machine latched there
+     * and every later service tick stamped the remaining trials with the same
+     * verdict (a pure prefix mask). T0/T1/T2 already restore their run state
+     * here; P3 was the only one missing it. */
+    s_ctrqs.state = APP_CTRQS_P3_RUN;
     (void)now;
 }
 
