@@ -803,6 +803,20 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   这个字段。下一步在 `t0_step` 里把 `now/t0_trial_t0_ms/deadline_ms` 三者一起打进诊断
   （或逐个检查 `deadline_ms` 的其它写入点）再修。
 
+**2026-11-07 10:2x T0 拒绝原因取证（`53330afb`，build `20261107021142`）**：
+
+- **拒绝原因可回读**：把 marker 快照的 `reject_reason` 记进 `hard_fail_reason`，finalize 在
+  `failed_mask!=0` 时优先发布它。实板读数 **`prog_reason=6` =
+  `CALIBRATION_TRAINING_MARKER_REJECT_CRC`**（`calibration_training_marker.h:52`）——
+  marker 训练**确实跑完**，是观测 CRC 与请求不符，而不是超时。
+- **codebook 准入**：T0 原要求 `codebook ∈ 1..3`，manager 接受 `0..M255_MANCHESTER_32`、
+  工具默认 0。改为与 manager 同范围；但用 codebook 0 复跑仍 `reason=6`，说明 CRC 不符另有原因。
+- 探针每轮触发前等四板回 IDLE（此前在 RESTORE_WAIT 触发会被静默挂起，这才是"NO.1 未受理"的真因）。
+- 整链复跑：P1 4/4 → P2 → P3 12/12（`0xFFF`）全过；T0 仍 `failed_mask=0x1, prog_reason=6`。
+- **下一步**：CRC 不符的最小怀疑是 marker 身份/载荷与 phys 观测不一致（epoch 派生、marker_id、
+  codebook 载荷编码三选一）；读 `calibration_training_marker.c:139-180` 的 CRC 判定输入与
+  `marker_crc32` 的生成处，对比请求侧与 phys 侧的构造差异。
+
 ## 7. 台架与操作注意- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
