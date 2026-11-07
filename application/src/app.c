@@ -3632,7 +3632,11 @@ static void app_ctrqs_service(void)
         s_ctrqs.state = APP_CTRQS_T3_ARM;
         return;
     case APP_CTRQS_T3_ARM:
-        if (app_ctrqs_restore_formed()) {
+        /* T3 is the only action allowed to start the ring at the measurement
+         * carrier, so "the ring is formed" is not enough here: it must be the
+         * 10 MHz profile.  This check used to sit only in the later branch,
+         * which this early return made unreachable. */
+        if (app_ctrqs_restore_formed() && app_ctrqs_t3_profile_formed()) {
             s_ctrqs_t3_stage = 7u;
             app_ctrqs_t3_advance(true);
             return;
