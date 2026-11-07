@@ -3560,13 +3560,24 @@ static void app_ctrqs_service(void)
             }
             return;
         }
-        /* Reuse the proven rebuild path to form the 10 MHz ring.  The rebuild
-         * re-applies the captured topology, re-asserts the bench diagnostic
-         * flag and retries ARM/START exactly like every other window close. */
-        s_ctrqs.rebuild_topo_done = false;
+        /* Only T3 may start the ring at the measurement profile, and it has a
+         * dedicated arm path: apply the profile here (after the guide ring is
+         * down) and go to T3_ARM.  The generic REBUILD path used before closes
+         * the window instead of running the final action, so T3 never armed,
+         * never reached 10 MHz and never recorded a result. */
+        if (s_ctrqs.plan.profile_level != 0u &&
+            (!tdma_runtime_owner_stage_operating_profile(
+                 s_ctrqs.plan.profile_level) ||
+             !tdma_runtime_owner_apply_operating_profile())) {
+            app_ctrqs_abort(
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+            return;
+        }
+        s_ctrqs.t3_topo = false;
+        s_ctrqs.t3_armed = false;
         s_ctrqs.arm_try_ms = 0u;
         s_ctrqs.deadline_ms = now + APP_CTRQS_REBUILD_MS;
-        s_ctrqs.state = APP_CTRQS_REBUILD;
+        s_ctrqs.state = APP_CTRQS_T3_ARM;
         return;
     case APP_CTRQS_T3_ARM:
         if (app_ctrqs_restore_formed()) {
