@@ -24,10 +24,11 @@ typedef enum {
     TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY = 2u,
     TDMA_BOOT_STEP_STAGE_PROFILE = 3u,
     TDMA_BOOT_STEP_APPLY_PROFILE = 4u,
-    TDMA_BOOT_STEP_RING_ARM = 5u,
-    TDMA_BOOT_STEP_RING_START = 6u,   /* coordinator: start TX */
-    TDMA_BOOT_STEP_RING_LISTEN = 7u,  /* follower: RX listen only */
-    TDMA_BOOT_STEP_STOP = 8u,         /* reject: stay STOPPED */
+    TDMA_BOOT_STEP_SET_FLIGHT_MODE = 5u, /* resident process image */
+    TDMA_BOOT_STEP_RING_ARM = 6u,
+    TDMA_BOOT_STEP_RING_START = 7u,   /* coordinator: start TX */
+    TDMA_BOOT_STEP_RING_LISTEN = 8u,  /* follower: RX listen only */
+    TDMA_BOOT_STEP_STOP = 9u,         /* reject: stay STOPPED */
 } tdma_boot_step_t;
 
 #define TDMA_BOOT_SEQUENCE_MAX 8u

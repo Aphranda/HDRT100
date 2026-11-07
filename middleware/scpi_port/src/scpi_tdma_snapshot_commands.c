@@ -41,6 +41,8 @@
 #include "storage_manager.h"
 #include "system_manager.h"
 #include "sync_trigger.h"
+#include "tdma_boot_profile_store.h"
+#include "tdma_profile.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_rx_start_cut.h"
 #include "tdma_service_timing.h"
@@ -1487,6 +1489,163 @@ scpi_result_t scpi_cmd_system_tdma_long_frame_rx_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* Runtime provisioning of the durable single-port boot profile.
+ *
+ * The P3 image and the bench image are the same image: what makes a board
+ * rebuild the 10 kHz guide ring at power-up with no cross-board command is this
+ * stored profile, not a build flag. Provisioning is per board (each carries its
+ * own slot), generation-ordered (a re-provision must be newer than the stored
+ * record), and STOP-only: the profile is a boot-time contract, not a live ring
+ * change. The v2 map owns the two-sector store; the v1 map refuses with
+ * UNSUPPORTED instead of pretending to persist. */
+/* STOP-only check shared by the write and the clear entry. The ring snapshot
+ * can fail while core1 is publishing (guard retries exhausted), and that
+ * failure is correlated with a running ring, so an unreadable snapshot must
+ * refuse: a provision would otherwise pause and restart the ring through the
+ * flash AO and silently invalidate a measurement window. */
+static bool tdma_boot_profile_stop_only(scpi_t *context)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring) ||
+        ring.enabled != 0u || ring.adapter_started != 0u) {
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PROFILE_RING_RUNNING");
+        return false;
+    }
+    return true;
+}
+
+static void tdma_boot_profile_push_commit_error(scpi_t *context)
+{
+    tdma_boot_profile_store_status_t status;
+    tdma_boot_profile_store_status(&status);
+    switch (status.reject_reason) {
+    case TDMA_BOOT_PROFILE_STORE_REJECT_UNSUPPORTED:
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PROFILE_UNSUPPORTED");
+        break;
+    case TDMA_BOOT_PROFILE_STORE_REJECT_FLASH:
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PROFILE_FLASH");
+        break;
+    case TDMA_BOOT_PROFILE_STORE_REJECT_VERIFY:
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PROFILE_VERIFY");
+        break;
+    default:
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PROFILE_RECORD");
+        break;
+    }
+}
+
+scpi_result_t scpi_cmd_system_tdma_boot_profile(scpi_t *context)
+{
+    uint32_t level = 0u;
+    uint32_t node_count = 0u;
+    uint32_t local_slot = 0u;
+    uint32_t flags = 0u;
+    uint32_t topology_crc32 = 0u;
+    if (!scpi_port_read_u32(context, &level) ||
+        !scpi_port_read_u32(context, &node_count) ||
+        !scpi_port_read_u32(context, &local_slot) ||
+        !scpi_port_read_u32(context, &flags) ||
+        !scpi_port_read_u32(context, &topology_crc32)) {
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PROFILE_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+    if (!tdma_boot_profile_stop_only(context)) {
+        return SCPI_RES_ERR;
+    }
+    /* Bound the node count by what this build can carry, not just by the
+     * profile's own 8-node ceiling: an out-of-range count would only fail much
+     * later, inside the boot TOPOLOGY step. */
+    const uint32_t node_max = (uint32_t)TDMA_RING_NODE_MAX <
+                                      TDMA_BOOT_PROFILE_NODE_MAX
+                                  ? (uint32_t)TDMA_RING_NODE_MAX
+                                  : TDMA_BOOT_PROFILE_NODE_MAX;
+    if (level == 0u || node_count < TDMA_BOOT_PROFILE_NODE_MIN ||
+        node_count > node_max || local_slot >= node_count ||
+        (flags & ~TDMA_BOOT_PROFILE_FLAG_MASK) != 0u ||
+        topology_crc32 == 0u) {
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PROFILE_RANGE");
+        return SCPI_RES_ERR;
+    }
+    /* This image boots without a calibration stage, so an ARM with a profile
+     * that lacks BRINGUP_NO_CAL could never succeed: refuse it here instead of
+     * leaving a board that replays a failing boot sequence. */
+    if ((flags & TDMA_BOOT_PROFILE_FLAG_BRINGUP_NO_CAL) == 0u) {
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PROFILE_FLAG");
+        return SCPI_RES_ERR;
+    }
+    uint32_t generation = 0u;
+    if (!tdma_boot_profile_store_next_generation(&generation)) {
+        scpi_port_push_exec_error(context, "TDMA_BOOT_PROFILE_GENERATION");
+        return SCPI_RES_ERR;
+    }
+    const tdma_boot_profile_t profile = {
+        .version = TDMA_BOOT_PROFILE_VERSION,
+        .profile_level = level,
+        .node_count = node_count,
+        .local_slot = local_slot,
+        .flags = flags,
+        .topology_crc32 = topology_crc32,
+        .generation = generation,
+    };
+    /* Nonce: the flash completion journal deduplicates by durable identity, so
+     * a re-provision with the same generation after a clear would otherwise be
+     * a COMPLETED replay with no physical program. */
+    const uint32_t nonce = (uint32_t)to_ms_since_boot(get_absolute_time());
+    if (!tdma_boot_profile_valid(&profile) ||
+        !tdma_boot_profile_store_commit(&profile, nonce)) {
+        tdma_boot_profile_push_commit_error(context);
+        return SCPI_RES_ERR;
+    }
+    tdma_boot_profile_store_status_t status;
+    tdma_boot_profile_store_status(&status);
+    SCPI_ResultText(context, "BOOTPROF");
+    SCPI_ResultUInt32(context, status.generation);
+    SCPI_ResultUInt32(context, status.sequence);
+    SCPI_ResultUInt32(context, status.payload_crc32);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_boot_profile_clear(scpi_t *context)
+{
+    if (!tdma_boot_profile_stop_only(context)) {
+        return SCPI_RES_ERR;
+    }
+    if (!tdma_boot_profile_store_erase((uint32_t)to_ms_since_boot(get_absolute_time()))) {
+        tdma_boot_profile_push_commit_error(context);
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "BOOTPROF");
+    SCPI_ResultText(context, "CLEARED");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_boot_profile_q(scpi_t *context)
+{
+    tdma_boot_profile_store_status_t status;
+    tdma_boot_profile_store_status(&status);
+    tdma_boot_profile_t profile;
+    const bool loaded = tdma_boot_profile_store_get(&profile);
+    SCPI_ResultText(context, "BOOTPROF");
+    SCPI_ResultUInt32(context, status.supported ? 1u : 0u);
+    SCPI_ResultUInt32(context, loaded ? 1u : 0u);
+    SCPI_ResultUInt32(context, status.reject_reason);
+    SCPI_ResultUInt32(context, status.generation);
+    SCPI_ResultUInt32(context, status.sequence);
+    SCPI_ResultUInt32(context, status.payload_crc32);
+    SCPI_ResultUInt32(context, loaded ? profile.profile_level : 0u);
+    SCPI_ResultUInt32(context, loaded ? profile.node_count : 0u);
+    SCPI_ResultUInt32(context, loaded ? profile.local_slot : 0u);
+    SCPI_ResultUInt32(context, loaded ? profile.flags : 0u);
+    SCPI_ResultUInt32(context, loaded ? profile.topology_crc32 : 0u);
+    /* Appended scan diagnostic: attributes a RECORD refusal to the sector scan
+     * (result code + usable flag) instead of the profile encode. */
+    SCPI_ResultUInt32(context, status.scan_result[0]);
+    SCPI_ResultUInt32(context, status.scan_result[1]);
+    SCPI_ResultUInt32(context, status.scan_usable[0]);
+    SCPI_ResultUInt32(context, status.scan_usable[1]);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_boot_plan_q(scpi_t *context)
 {
     tdma_boot_plan_t plan;
@@ -1516,6 +1675,11 @@ scpi_result_t scpi_cmd_system_tdma_boot_plan_q(scpi_t *context)
     SCPI_ResultUInt32(context, app_guide_boot_apply_fail());
     SCPI_ResultUInt32(context, app_guide_boot_join_frame_seen() ? 1u : 0u);
     SCPI_ResultUInt32(context, app_guide_boot_half_ring() ? 1u : 0u);
+    /* Appended completion witness: without it a host cannot tell "boot service
+     * finished" from "still retrying", so a STOP issued during the window can
+     * be undone by the next ARM/START replay. Existing positions are unchanged. */
+    SCPI_ResultUInt32(context, app_guide_boot_done() ? 1u : 0u);
+    SCPI_ResultUInt32(context, app_guide_boot_next_step());
     return SCPI_RES_OK;
 }
 

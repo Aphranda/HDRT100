@@ -30,14 +30,31 @@ static tdma_boot_profile_t s_cached;
 static tdma_boot_profile_store_status_t s_status;
 static uint8_t s_payload[TDMA_BOOT_PROFILE_PAYLOAD_SIZE];
 static uint8_t s_scan_payload[TDMA_BOOT_PROFILE_PAYLOAD_SIZE];
-static uint8_t s_program[BOOT_PROFILE_ERASE_SIZE];
+/* One append is one record, so the program buffer only needs the record span
+ * rounded to a program page - not a whole erase sector. The v2 image has no
+ * spare RAM, and the provisioning path made this buffer reachable for the
+ * first time (it was garbage-collected before). */
+#define BOOT_PROFILE_SPAN_MAX \
+    ((((FLASH_STORE_RECORD_HEADER_SIZE + TDMA_BOOT_PROFILE_PAYLOAD_SIZE) + \
+       (BOOT_PROFILE_PROGRAM_SIZE - 1u)) / BOOT_PROFILE_PROGRAM_SIZE) * \
+     BOOT_PROFILE_PROGRAM_SIZE)
+_Static_assert(BOOT_PROFILE_SPAN_MAX >= FLASH_STORE_RECORD_HEADER_SIZE +
+                                         TDMA_BOOT_PROFILE_PAYLOAD_SIZE,
+               "boot profile program span must hold one record");
+static uint8_t s_program[BOOT_PROFILE_SPAN_MAX];
 static uint8_t s_commit_page[BOOT_PROFILE_PROGRAM_SIZE];
 static uint32_t s_provider_generation;
 static uint32_t s_provider_refs;
 
 static uint32_t sector_absolute(uint32_t sector)
 {
+    /* The deployment map names the carrier partition (CALIBRATION_NVS) in
+     * OFFSET and the sub-store inside it in RELATIVE_OFFSET; the XIP view must
+     * combine both, otherwise the scan reads the calibration store instead of
+     * the boot-profile sectors (measured on hardware 2026-11-07: every
+     * provision reported RECORD because the scan kept seeing TRN-03). */
     return FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_OFFSET +
+           FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_RELATIVE_OFFSET +
            sector * BOOT_PROFILE_ERASE_SIZE;
 }
 
@@ -214,21 +231,46 @@ bool tdma_boot_profile_store_get(tdma_boot_profile_t *out)
     return true;
 }
 
-bool tdma_boot_profile_store_commit(const tdma_boot_profile_t *profile)
+bool tdma_boot_profile_store_commit(const tdma_boot_profile_t *profile,
+                                    uint32_t nonce)
 {
     if (!s_status.supported) {
         s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_UNSUPPORTED;
         return false;
     }
     if (!tdma_boot_profile_encode(profile, s_payload, sizeof(s_payload))) {
-        s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_RECORD;
+        s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_PROFILE;
         return false;
     }
     boot_profile_scan_t scans[BOOT_PROFILE_SECTOR_COUNT] = {
         scan_sector(0u), scan_sector(1u)};
-    if (!scans[0].usable || !scans[1].usable) {
-        s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_RECORD;
-        return false;
+    for (uint32_t sector = 0u; sector < BOOT_PROFILE_SECTOR_COUNT; sector++) {
+        s_status.scan_result[sector] = (uint32_t)scans[sector].result;
+        s_status.scan_usable[sector] = scans[sector].usable ? 1u : 0u;
+    }
+    /* A sector we cannot parse (old schema/object, bad region) must not block
+     * provisioning for ever: erase it and rescan instead of refusing. */
+    bool reclaimed = false;
+    for (uint32_t sector = 0u; sector < BOOT_PROFILE_SECTOR_COUNT; sector++) {
+        if (scans[sector].usable) {
+            continue;
+        }
+        if (!flash_execute(FLASH_TRANSACTION_OPERATION_ERASE,
+                           sector_relative(sector), NULL,
+                           BOOT_PROFILE_ERASE_SIZE,
+                           profile->generation * 2654435761u + nonce)) {
+            s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_FLASH;
+            return false;
+        }
+        reclaimed = true;
+    }
+    if (reclaimed) {
+        scans[0] = scan_sector(0u);
+        scans[1] = scan_sector(1u);
+        if (!scans[0].usable || !scans[1].usable) {
+            s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_RECORD;
+            return false;
+        }
     }
     uint32_t latest_sector = 0u;
     const bool has_latest = select_latest(scans, &latest_sector);
@@ -276,7 +318,8 @@ bool tdma_boot_profile_store_commit(const tdma_boot_profile_t *profile)
             BOOT_PROFILE_PROGRAM_SIZE, s_program, sizeof(s_program),
             &program_size) != FLASH_STORE_NVS_OK ||
         !program_record(target_sector, (uint32_t)append_offset,
-                        (uint32_t)program_size, profile->generation)) {
+                        (uint32_t)program_size,
+                        profile->generation * 2654435761u + nonce)) {
         s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_FLASH;
         return false;
     }
@@ -298,6 +341,75 @@ bool tdma_boot_profile_store_commit(const tdma_boot_profile_t *profile)
     s_status.generation = header.generation;
     s_status.sequence = header.sequence;
     s_status.payload_crc32 = header.payload_crc32;
+    return true;
+}
+
+bool tdma_boot_profile_store_next_generation(uint32_t *out)
+{
+    if (out == NULL || !s_status.supported) {
+        return false;
+    }
+    boot_profile_scan_t scans[BOOT_PROFILE_SECTOR_COUNT] = {
+        scan_sector(0u), scan_sector(1u)};
+    uint32_t latest = 0u;
+    uint32_t latest_sector = 0u;
+    if (scans[0].usable && scans[1].usable &&
+        select_latest(scans, &latest_sector)) {
+        latest = scans[latest_sector].scan.latest.generation;
+    } else {
+        /* One sector may be unreadable; the other still carries the newest
+         * record we must stay above. */
+        for (uint32_t sector = 0u; sector < BOOT_PROFILE_SECTOR_COUNT;
+             sector++) {
+            if (scans[sector].usable && scan_has_latest(&scans[sector]) &&
+                scans[sector].scan.latest.generation > latest) {
+                latest = scans[sector].scan.latest.generation;
+            }
+        }
+    }
+    if (latest == 0xFFFFFFFFu) {
+        return false;
+    }
+    *out = latest + 1u;
+    return true;
+}
+
+bool tdma_boot_profile_store_erase(uint32_t nonce)
+{
+    if (!s_status.supported) {
+        s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_UNSUPPORTED;
+        return false;
+    }
+    /* The flash completion journal deduplicates by request fingerprint, and the
+     * fingerprint includes store_generation. A constant here would make every
+     * clear after the first a COMPLETED replay with no physical erase (measured
+     * 2026-11-08: CLEARED returned, the record reloaded after reboot). Use the
+     * generation being removed; an already-empty store falls back to 1. */
+    const uint32_t store_generation =
+        (s_status.generation != 0u ? s_status.generation : 1u) * 2654435761u +
+        nonce;
+    for (uint32_t sector = 0u; sector < BOOT_PROFILE_SECTOR_COUNT; sector++) {
+        if (!flash_execute(FLASH_TRANSACTION_OPERATION_ERASE,
+                           sector_relative(sector), NULL,
+                           BOOT_PROFILE_ERASE_SIZE, store_generation)) {
+            s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_FLASH;
+            return false;
+        }
+    }
+    /* Never report CLEARED on a deduplicated no-op: read both sectors back. */
+    const boot_profile_scan_t after0 = scan_sector(0u);
+    const boot_profile_scan_t after1 = scan_sector(1u);
+    if (!after0.usable || !after1.usable ||
+        scan_has_latest(&after0) || scan_has_latest(&after1)) {
+        s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_VERIFY;
+        return false;
+    }
+    memset(&s_cached, 0, sizeof(s_cached));
+    s_status.loaded = false;
+    s_status.generation = 0u;
+    s_status.sequence = 0u;
+    s_status.payload_crc32 = 0u;
+    s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_EMPTY;
     return true;
 }
 
@@ -324,9 +436,21 @@ bool tdma_boot_profile_store_get(tdma_boot_profile_t *out)
     (void)out;
     return false;
 }
-bool tdma_boot_profile_store_commit(const tdma_boot_profile_t *profile)
+bool tdma_boot_profile_store_commit(const tdma_boot_profile_t *profile,
+                                    uint32_t nonce)
 {
     (void)profile;
+    s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_UNSUPPORTED;
+    return false;
+}
+bool tdma_boot_profile_store_next_generation(uint32_t *out)
+{
+    (void)out;
+    s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_UNSUPPORTED;
+    return false;
+}
+bool tdma_boot_profile_store_erase(uint32_t nonce)
+{
     s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_UNSUPPORTED;
     return false;
 }

@@ -848,6 +848,13 @@ static bool app_guide_run_step(tdma_boot_step_t step)
         return true;
     case TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL:
         return tdma_runtime_owner_set_bringup_no_cal(true);
+    case TDMA_BOOT_STEP_SET_FLIGHT_MODE:
+        /* Resident process image: the guide ring must carry the RefMem command
+         * lane. A PHYSICAL_FLIGHT beacon only gets a maintenance chunk when no
+         * flight TX is queued, and the flight sync refills the FIFO every
+         * revolution, so the lane would starve. STOP-only by construction (the
+         * step list puts STOP first). */
+        return tdma_runtime_owner_set_flight_process_image_mode(true);
     case TDMA_BOOT_STEP_RING_ARM:
         /* Use the same entry the SCPI RING:ARM uses: it configures the default
          * flight map from the staged node count before arming. Calling
@@ -1018,6 +1025,16 @@ bool app_guide_boot_join_frame_seen(void)
 bool app_guide_boot_half_ring(void)
 {
     return s_boot_half_ring;
+}
+
+bool app_guide_boot_done(void)
+{
+    return s_boot_guide_done;
+}
+
+uint32_t app_guide_boot_next_step(void)
+{
+    return (uint32_t)s_boot_next_step;
 }
 
 bool app_guide_topology_accepted(uint32_t *reason)

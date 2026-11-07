@@ -229,6 +229,9 @@ scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_arm_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_boot_plan_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_boot_profile(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_boot_profile_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_boot_profile_clear(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_guide_scan_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_boot_topology_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_rxslot_q(scpi_t *context);
@@ -580,6 +583,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:ARM:STATus?", .callback = scpi_cmd_system_tdma_ring_arm_status_q}, \
     {.pattern = "SYSTem:TDMA:RING:STATus?", .callback = scpi_cmd_system_tdma_ring_status_q}, \
     {.pattern = "SYSTem:TDMA:BOOT:PLAN?", .callback = scpi_cmd_system_tdma_boot_plan_q}, \
+    {.pattern = "SYSTem:TDMA:BOOT:PROFile", .callback = scpi_cmd_system_tdma_boot_profile}, \
+    {.pattern = "SYSTem:TDMA:BOOT:PROFile?", .callback = scpi_cmd_system_tdma_boot_profile_q}, \
+    {.pattern = "SYSTem:TDMA:BOOT:PROFile:CLEar", .callback = scpi_cmd_system_tdma_boot_profile_clear}, \
     {.pattern = "SYSTem:TDMA:GUIDE:SCAN?", .callback = scpi_cmd_system_tdma_guide_scan_q}, \
     {.pattern = "SYSTem:TDMA:BOOT:TOPology?", .callback = scpi_cmd_system_tdma_boot_topology_q}, \
     {.pattern = "SYSTem:TDMA:RING:RXSLOT?", .callback = scpi_cmd_system_tdma_ring_rxslot_q}, \

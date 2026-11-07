@@ -115,6 +115,8 @@ uint32_t app_guide_boot_apply_fail(void);
 bool app_guide_boot_join_frame_seen(void);
 /* True when the completeness watch saw no down direction and stopped TX. */
 bool app_guide_boot_half_ring(void);
+bool app_guide_boot_done(void);
+uint32_t app_guide_boot_next_step(void);
 
 /* M1 topology acceptance from the 10 kHz self-formation (decision 2026-11-05:
  * the P0T adjacency matrix is provisioning-only; the guide ring itself proves

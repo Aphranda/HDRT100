@@ -396,19 +396,44 @@ static uint32_t flash_transaction_validate(
         }
     } else if (request->requester ==
                FLASH_TRANSACTION_REQUESTER_CALIBRATION) {
+        /* The calibration requester owns two durable sub-regions of the same
+         * CALIBRATION_NVS partition: the TRN-03 training record and the TDMA
+         * boot profile (v2 map only). They are disjoint by construction
+         * (flash_deployment_map.h static asserts); a request must fit inside
+         * exactly one of them and use whole erase/program units. */
         const uint32_t store_begin =
             FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_RELATIVE_OFFSET;
         const uint32_t store_size =
             FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_SIZE;
-        if (request->partition_id !=
-                FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_PARTITION_ID ||
-            request->relative_offset < store_begin ||
-            request->relative_offset - store_begin >= store_size ||
-            request->length >
-                store_size - (request->relative_offset - store_begin) ||
-            (request->operation == FLASH_TRANSACTION_OPERATION_ERASE
-                 ? request->length != FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE
-                 : request->length != FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE)) {
+        const bool calibration_unit =
+            request->operation == FLASH_TRANSACTION_OPERATION_ERASE
+                ? request->length == FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE
+                : request->length == FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE;
+        bool in_region =
+            request->partition_id ==
+                FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_PARTITION_ID &&
+            request->relative_offset >= store_begin &&
+            request->relative_offset - store_begin < store_size &&
+            request->length <=
+                store_size - (request->relative_offset - store_begin) &&
+            calibration_unit;
+#if FLASH_DEPLOYMENT_MAP_HAS_TDMA_BOOT_PROFILE
+        if (!in_region) {
+            const uint32_t boot_begin =
+                FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_RELATIVE_OFFSET;
+            const uint32_t boot_size =
+                FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_SIZE;
+            in_region =
+                request->partition_id ==
+                    FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_PARTITION_ID &&
+                request->relative_offset >= boot_begin &&
+                request->relative_offset - boot_begin < boot_size &&
+                request->length <=
+                    boot_size - (request->relative_offset - boot_begin) &&
+                calibration_unit;
+        }
+#endif
+        if (!in_region) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
     } else if (request->requester ==
