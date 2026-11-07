@@ -238,6 +238,7 @@ docs/
 | `calibration/CALIBRATION_DOMAIN_TODO.md` | 校准域分阶段待办、跨域边界、验收门禁和八节点扩展准备。 |
 | `calibration/CALIBRATION_TASK_PROGRESS.md` | 校准域方案、粗捕获、编码测距和双向测距的任务记录与证据规则。 |
 | `calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md` | 单口引导期（10 kHz 载体）C/T/R/Q/S 五段流程、跨域 owner 边界、失败归属与验收判据（Draft，未登记）。 |
+| \calibration/CALIBRATION_HANDOVER_PLAN.md\ | 校准交接（2026-11-07 夜）：现状与证据、未完成项（单口启环/帧归属/首次写入/全 10MHz 回归）、资产入口、六类误判坑、起步清单。 |
 | `calibration/CALIBRATION_CTRQS_CHECKLIST.md` | 单口引导 CTRQS 交接：硬约束、已入库项、三个阻塞点、下一步命令与台架注意（新会话入口）。 |
 | `tdma/TDMA_DOMAIN_TODO.md` | TDMA 未完成/已完成任务及退出门禁，优先实时预算、resident 飞行和确定性交付，保留原 ID。 |
 | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 近期进展、失败及证据，历史从文末归档索引查找。 |
