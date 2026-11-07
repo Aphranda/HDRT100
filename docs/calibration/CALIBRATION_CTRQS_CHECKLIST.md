@@ -777,6 +777,18 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 另记：`CALIBRATION_TRAINING_PHASE_MAX_OFFSET_SAMPLES = 10`，T0 的 `offset_sample_count`
   上限即 10（传 32 时计划被拒）。探针已加通用入口 `ga`，T0/T1/T2 可直接试参数。
 
+**2026-11-07 09:5x T0 预算锚点（`135e455f`，build `20261107013327`）**：
+
+- T0_PREP 等到停机完成后才进 T0_RUN，但 trial 起点仍锚在**窗口开始**（`t0_ms`），
+  截止期 = `t0 + APP_CTRQS_T0_STEP_MS`；低速率档停机+收敛要几秒 → T0_RUN 第一个 service 拍
+  就已过期，marker 从未注入即判超时（实测 T0_RUN 存在 <1 s）。
+- 改为 PREP 与 advance 都把 `t0_trial_t0_ms` 锚在 `now`、`deadline = now + STEP`
+  （每个 repeat 都有完整预算，窗口 `t_end` 仍是上限）。
+- 实板：T0 现在**确实跑满预算**，但 marker 训练**仍不完成**：NO.2/3/4 `reason=11,
+  failed_mask=0x1`；NO.1 仍显示上一轮 P3 的陈旧结果（其 T0 未受理，属另一现象待查）。
+- 结论：R5 从"预算被吃掉"推进到"训练本身不完成"——下一步要读 marker 训练快照
+  （state/结果位/consume 计数）判断是未注入、未同步还是被拒。
+
 ## 7. 台架与操作注意- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
