@@ -2319,12 +2319,13 @@ static void app_ctrqs_start(const guide_action_plan_t *plan, uint32_t epoch)
         s_ctrqs.t0_repeats = plan->candidates[4];
         plan_valid = plan_valid && plan->candidate_count == 5u &&
                      s_ctrqs.t0_origin_node < nodes &&
-                     /* The manager accepts 0..M255_MANCHESTER_32 and the
-                      * calibration tools default to codebook 0; requiring >= 1
-                      * here forced callers onto a codebook the phys does not
-                      * generate, and the marker then failed its CRC (reject 6). */
-                     s_ctrqs.t0_codebook <=
-                         CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32 &&
+                     /* Measured on the bench with the host marker tool: codebooks
+                      * 1 and 3 correlate (correlation_reject NONE) while 0 and 2
+                      * are rejected as MANCHESTER.  The manager only range-checks
+                      * 0..M255_MANCHESTER_32, so the action must keep the narrower
+                      * set that the phys actually generates. */
+                     s_ctrqs.t0_codebook >= 1u &&
+                     s_ctrqs.t0_codebook <= 3u &&
                      s_ctrqs.t0_link_base_delay_ns <= 1000000u &&
                      s_ctrqs.t0_offset_samples <=
                          CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES &&
