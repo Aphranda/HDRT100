@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TRAINING
 Canonical: `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Last updated: 2026-10-16
+Last updated: 2026-11-07
 
 本文档把“先发送同步 marker，再按本地 PIO 周期发送编码 DATA，并在接收端按 marker 建立相对时间基准”的方案收敛为校准域下的独立训练子域。本文档是实施方案和待冻结候选接口，不把当前诊断值直接提升为 active calibration，也不允许训练子域绕过 TDMA core1 owner 直接操作 PIO、SM 或 DMA。
 
@@ -768,3 +768,45 @@ TRN-03-D 故障注入、Node dropout、stale identity 保护与长稳
 ```
 
 任何阶段未通过都保持 `DIAGNOSTIC_ONLY`，不得直接进入 DPLL。
+
+## 12. S 段代数语义（冻结，CALIBRATION-SGATE-01）
+
+本节冻结"C 段训练结果何时允许写入 flash"的代数语义。它是契约的一部分：实现可以改，
+决策表与幂等键不可在无新契约的情况下改变。
+
+### 12.1 决策输入（只有两个）
+
+| 输入 | 定义 | 代码落点 |
+|---|---|---|
+| `session_closed` | 训练会话已关闭：环停止且 adapter 未启动（不允许训练中写入） | `app_ctrqs_commit()` 的会话判定 |
+| `already_committed` | 见 12.2 的四个合取项 | `app_ctrqs_commit()` 的幂等判定 |
+
+### 12.2 `already_committed` 的定义（幂等键）
+
+`already_committed = have_stage AND stage_complete AND persisted_valid
+AND record_generation != 0 AND store.calibration_generation == stage.calibration_generation`
+
+**幂等键唯一是 `calibration_generation`**：不比较 `action_id`，不比较 `plan.generation`。
+因此"同动作同代数只写一次"的准确表述是"**同 `calibration_generation` 只写一次**"。
+
+### 12.3 决策表（冻结）
+
+| `session_closed` | `already_committed` | 决策 | 是否写 flash |
+|---|---|---|---|
+| false | 任意 | `DENY_SESSION_OPEN` | 否 |
+| true | true | `SKIP_ALREADY_DONE` | 否 |
+| true | false | `ALLOW` | 是（且仅一次） |
+
+另有一条独立于决策表的前置：`applicable = action_ok AND have_stage AND stage_complete`，
+其中 `action_ok` 要求本轮 reconcile 为 `COMPLETE`。**abort 的轮次 reconcile 不是 COMPLETE ⇒ 不提交**，
+即使决策表给出 `ALLOW`。写操作本身还有一条守卫：`stage.calibration_generation` 小于
+持久记录代数时按 `REJECT_REPLAY` 拒绝。
+
+### 12.4 可验证判据
+
+- 宿主/单元层：决策表三行全覆盖（现有 `test_guide_action_plan.c` 的
+  `test_commit_gate_respects_open_session` 即此用例）；
+- 实板层：一次 `ALLOW` 且 `commit_ok=1` 的记录（`PLAN?` 的 commit 三元组为 `0/1/1`），
+  且 flash 记录的 `record_generation` 等于 `stage.calibration_generation`、`record_sequence` 递增 1；
+  同代数重跑必须读到 `2/1/0`（`SKIP_ALREADY_DONE`）且 flash 记录数不变；
+- 现状：实板只观测到 `2/1/0`（SKIP），"首次写入"尚无实证，故本契约判据的实板项仍为未满足。
