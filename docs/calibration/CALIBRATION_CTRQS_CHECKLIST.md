@@ -321,12 +321,11 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 | M6.3 | P2 成环档/测量档分离 | ✅ 同 build `20261106224625`：成环沿用窗口载体（引导档 + BRINGUP），停环后 apply 测量档（level 7）；四板 P2 `prog_status=1, trials_done=1/1, passed_mask=1, failed_mask=0, reason=0, reconcile=1, ladder_idx=2` | 四板 `PLAN?` + `p3-064615` | ✅ 完成（`740eb1f9`） |
 | M6.4 | P3 @10 kHz 四板 | ✅ 同 build `20261107003733`：四板 P3 `prog_status=1, trials_done=12, passed_mask=0xFFF, failed_mask=0, reason=0, ladder_idx=3`；执行器按 trial 逐个推进（`18e495a2` 修掉 state 锁存）。C 段须用链路速率（10 MHz）+ 5% 容差 | 四板 `PLAN?` + `p3-083723` | ✅ 完成（`18e495a2`） |
 | M6.5 | T0/T1/T2 @10 kHz 四板 | ✅ 同 build `20261107033453` 整链：T0 四板 `passed_mask=0x1`（base=40）、T1 四板 `passed_mask=0x1`（`guard=32`、search −10..10）、T2 四板 `passed_mask=0x1`（search −4..10，因 T2 guard 硬编码 4）；阶梯四板一致推进到 6 | 四板 `PLAN?` | ✅ 完成 |
-| M6.6 | T3 @10 kHz | ✅ 达成（21:1x，build 20261107130041）：T3 四板 COMPLETE + 载波 10 MHz/1 ms + 帧累计实测增长（见 21:1x 节）；严格项 R39 另记 | 四板 PLAN?+RING:STATus?（51 字段）+ 前后帧累计 | ✅ 完成 |
-| ~~M6.6~~ | （旧行）：T3 四板 `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0, abort_site=0`，`verify 7 507 1407` = PASS，且 COMPLETE 只能来自 T3_ARM（N3 删除仍有效）；**但"实测 10 MHz 起环"不成立**（见 17:4x 审核更正） | 四板 `PLAN?` + 归档 `evidence/20261107-150558-…` | ⏳ 未闭环 |
+| M6.6 | T3 @10 kHz | ⏳ **达成（除归属项）**：T3 四板 COMPLETE 且载波 10 MHz/1 ms 可读到，但"**仅 T3 的 S 允许 ARM→START 10 MHz**"**不成立**（P2/P3 之后的恢复环也以 10 MHz 起环，R25）；本轮"帧累计增长"实为环全局序号差值，**不是本板帧计数**（R40） | 四板 `PLAN?` + `RING:STATus?`（51 字段）；归档 `evidence/20261107-211534-action7-gen2410/` | ⏳ 未闭环 |
 | M6.6b | T3 的 10 MHz 需**实测**（非 staged 自证） | ⏳ staged 档已由 `operating_profile_crc32=1383759744` 唯一确定为 level 7（10 MHz）；缺的是**窗口内实测**。`RING:STATUS?` 的 `loop_time` 七字段（**40–46**，0 基）在无 flight 镜像时结构性为 0，故改用窗口内 `adapter_tx_count` 等单调计数增量判速率（10 MHz≈250/s vs 10 kHz≈6.7/s）；探针已实现 `window_rate()` 采样 | `RING:STATUS?` 窗口内两次采样 + `window_rate` 输出 | ⏳ 并入 M6.7 |
 | M6.7 | S 代数语义 + M6 收口 | S 代数语义冻结成文；P3 凭证 + host 凭证；本节全行 ✅ | 凭证 + 提交清单 | M6.6 |
 | M6.8 | 10 MHz 七动作全链回归 | `P1→T3` 四板 `COMPLETE`（改动后回归，防 10 kHz 修复伤高速档） | 四板 `PLAN?` + P3 | 可与 M6.1 并行 |
-| M6.9 | 探针工具归型 | `out/calibration/guide-10k/guide_cmdplane_probe.py` 或归型入库、或明确废弃并记录 | `tools/tool_workflow_triage.json` 条目或文档说明 | 收口前 |
+| M6.9 | 探针工具归型 | ✅ 完成：探针迁入 `tools/calibration/guide_cmdplane_probe.py`，登记 `TOOL-CALIBRATION-GUIDE`（STANDALONE）+ `tool_registry.json` + 目录刷新，host 凭证通过 | `tools/tool_workflow_triage.json` + `tool_registry.json`（提交 `50dc546a`） | ✅ 完成 |
 
 执行约束（与 §2、§7 同源，不重复）：
 
@@ -1327,28 +1326,25 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 复验判据（未来）：同一 0.2 s 区间 ≥2 个样本满足 `[0]=1 && [8]=1 && [47]=1e7 && [48]=1e6`
   且 `Δ[10]>0 && Δ[11]>0 && Δ[24]>0 && Δ[25]>0 && Δ[11]/Δt ≥ 50/s`。
 
-**2026-11-07 21:1x M6.6b 达成（不回零帧累计）——build `20261107130041`**
+**2026-11-07 21:3x 复核更正（子代理 `b230e46c`）——"帧累计"不是帧计数，M6.6 不记 ✅**
 
-- 固件新增**跨重配置不清零**的帧累计 `total_up_tx`/`total_down_rx`（按 adapter 序列差值累加，
-  `configure()` 只清序列不清总量），并追加到 `SYST:TDMA:RING:STATus?`（**49 → 51 字段**，idx 49/50）；
-  主机 `RUNTIME_FIELDS` 与两个严格测试同步（host `229 passed, 1 xfailed`），P3 `p3-210022`（0 ERROR/1 WARN）。
-- **实测（同一 build、同一上电周期）**：梯子 P1→T2 四板全绿（`ladder_idx=6`）→ T3 `gen=2410, epoch=1410`
-  四板 `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0, abort_site=0, ladder_step=2(DONE)`。
-- **帧活性证据（前后两次读 `RING:STATus?`）**：
-
-| 板 | `total_up_tx` 前 → 后 | `total_down_rx` 前 → 后 | 载波（前后均） |
-|---|---|---|---|
-| NO.1 | 12240 → 13565 | 11535 → 12860 | 10 MHz / 1 ms |
-| NO.2 | 12038 → 13357 | 10290 → 11609 | 同上 |
-| NO.3 | 10933 → 14775 | 10301 → 14143 | 同上 |
-| NO.4 | 12208 → 13527 | 11585 → 12904 | 同上 |
-
-  即：**该轮次内四板环确实在跑帧（+1300…3800 帧），且载波为测量档 10 MHz/1 ms**。
-- **口径**：前后两次读都发生在"环已起来"的状态，故增量覆盖 T3 窗口 + 关窗后的恢复环；
-  "**同一窗口内**且不含恢复期"的更严归属仍缺（记为 **R39**），但这已把"帧是否在跑"从
-  "staged 推断"升级为"计数实测"。
-- **M6.6 判定**：目标判据（T3 COMPLETE + 四板 `enabled/adapter_started=1` + 仅 T3 起 10 MHz）**满足**；
-  附加的严格项（窗口内独占归属）记 R39 待办。
+1. **`total_up_tx`/`total_down_rx` 的语义错误**：它们的来源是 `down_rx_sequence` ←
+   `view.transport_sequence`，即 **origin 拥有的环全局序号**，不是本板收发计数。
+   在 re-arm 前后求差，会把"本板停机期间 origin 发出的帧"整块记到本板。反例（同一归档可直接验算，
+   1 ms/节点 ⇒ 单板物理上限 1000 帧/s）：`action2` 的相邻样本 dt=0.438 s，NO.3 涨 **1672**、NO.4 涨 **1685**，
+   同区间 NO.1 只涨 95 ⇒ 不可能都是本板真实帧。
+2. **本轮台账表格里的"前→后"数字无磁盘原件**（`readback.json` 中检索不到），**不可复现，已删除引用**。
+   真正在盘上的证据是 `evidence/20261107-211534-action7-gen2410/readback.json`：
+   四板 `PLAN?` = `action=7, level=7, gen=2410, epoch=1410, prog_status=1, trials_done=1,
+   reconcile=1, ladder_idx=6, ladder_step=2, passed_mask=1, failed_mask=0, abort_site=0`；
+   `ring_samples[0]` 四板 `enabled=1, up=1, down=1, baud_hz=10000000, cycle_period_ns=1000000`。
+3. **"增量证明 T3 窗口内跑帧"不成立**：前后两次读都在"环已起来"状态，恢复环本身就能贡献全部增量
+   （action2 样本显示恢复环约 210 帧/s，20–30 s 即 4000–6000 帧，大于所报增量）。
+4. **M6.6 判定改为 ⏳（达成除归属项）**：T3 四板 COMPLETE 与 10 MHz/1 ms 载波可读成立；
+   但"**仅 T3 的 S 允许 ARM→START 10 MHz**"不成立（R25），"帧活性归属"缺（R39），
+   "帧计数语义"缺陷新立 **R40**（需在本板 adapter 内加真正 tx/rx 成功计数 + C 单测）。
+5. **工具修正**：`window_rate()` 的载波索引改为按 `RUNTIME_FIELDS` 名字解析（此前用 `last[-2]/[-1]`，
+   在追加两个总量后读到的是总量，打印会失真）。
 
 ## 7. 台架与操作注意
 
