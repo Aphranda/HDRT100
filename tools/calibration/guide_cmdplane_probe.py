@@ -12,6 +12,11 @@ Subcommands:
   status           dump RING:STATus? / CMD:STATus? / PLAN? compact fields
   stage [level]    per board: CAL:TRAIN:STAGE:CLEAR + OPMode:STAGe <level> + APPLy
   up               TOPO -> BRINGUP 1 -> ARM/START (followers first)
+  boot [tag]       strict single-port bring-up: verify the zero-port
+                   self-formation from BOOT:PLAN? / RING:STATus? (sends nothing)
+  boot write <level> <flags> <topology_crc>
+                   provision the durable boot profile on every board
+                   (slot = NO-1; reboot is required before the verdict)
   down             RING:STOP on all boards
   ga <action> ...  run one guide action (ladder guard + strict verdict + archive)
   verify <a> <epoch> [gen] [repeats]
@@ -1231,6 +1236,163 @@ def window_rate(tag: str, samples: list) -> None:
               f"(10MHz 4-node ~250/s, 10kHz ~1.7/s)")
 
 
+BOOT_PLAN_FIELDS = [
+    "action", "reason", "steps", "fail_step", "listen_pending", "join_timeout",
+    "have_profile", "slot", "nodes", "level", "flags", "profile_gen",
+    "topology_crc", "topology_fail", "apply_fail", "join_frame_seen",
+    "half_ring", "boot_done", "boot_next_step",
+]
+BOOT_ACTION_NAMES = {0: "NONE", 1: "START_REF", 2: "LISTEN", 3: "REJECT"}
+RING_TOTAL_UP_TX = 49
+RING_TOTAL_DOWN_RX = 50
+
+
+def parse_boot_plan(text: str) -> dict[str, int]:
+    vals: list[int] = []
+    for token in text.replace('"', " ").replace(",", " ").split():
+        try:
+            vals.append(int(token, 0))
+        except ValueError:
+            vals.append(-1)
+    return {name: (vals[i] if i < len(vals) else -1)
+            for i, name in enumerate(BOOT_PLAN_FIELDS)}
+
+
+def boot_verdict(plans: dict[int, dict[str, int]],
+                 rings: dict[int, list[int]],
+                 later: dict[int, list[int]] | None = None) -> tuple[bool, list[str]]:
+    """Pure verdict for the zero-port self-formation readback.
+
+    No command is sent to form the ring: every board must already have rebuilt
+    the 10 kHz guide ring from its stored boot profile. A provisioned board
+    reports have_profile=1, fail_step=0, half_ring=0 and action START_REF on
+    slot 0 / LISTEN elsewhere; every board's ring must be enabled, up in both
+    directions, have its adapter started, carry the expected node count, and
+    the monotonic frame totals must advance between the two samples (a formed
+    but silent ring is not a bring-up).
+    """
+    reasons: list[str] = []
+    for no in sorted(plans):
+        plan = plans[no]
+        ring = rings.get(no, [])
+        if plan.get("have_profile") != 1:
+            reasons.append(f"NO.{no} no boot profile")
+        if plan.get("fail_step") != 0:
+            reasons.append(f"NO.{no} boot fail_step={plan.get('fail_step')}")
+        if plan.get("boot_done") != 1:
+            reasons.append(
+                f"NO.{no} boot service not finished (next_step="
+                f"{plan.get('boot_next_step')})")
+        if plan.get("half_ring") != 0:
+            reasons.append(f"NO.{no} half_ring=1")
+        want = 1 if plan.get("slot") == 0 else 2
+        if plan.get("action") != want:
+            reasons.append(
+                f"NO.{no} action={plan.get('action')} want={want}")
+        if len(ring) < 9:
+            reasons.append(f"NO.{no} ring readback short ({len(ring)})")
+            continue
+        if ring[0] != 1 or ring[4] != 1 or ring[5] != 1 or ring[8] != 1:
+            reasons.append(
+                f"NO.{no} ring enabled/up/down/adapter="
+                f"{ring[0]}/{ring[4]}/{ring[5]}/{ring[8]}")
+        if ring[1] != NODES:
+            reasons.append(f"NO.{no} ring nodes={ring[1]} want {NODES}")
+        if later is not None:
+            after = later.get(no, [])
+            need = max(RING_TOTAL_UP_TX, RING_TOTAL_DOWN_RX) + 1
+            if len(after) < need:
+                reasons.append(f"NO.{no} later ring readback short")
+            elif (after[RING_TOTAL_UP_TX] <= ring[RING_TOTAL_UP_TX] and
+                  after[RING_TOTAL_DOWN_RX] <= ring[RING_TOTAL_DOWN_RX]):
+                reasons.append(f"NO.{no} frame totals did not advance")
+    return (not reasons, reasons)
+
+
+def boot(tag: str = "", write: tuple[int, int, int] | None = None,
+         settle: float = 26.0) -> bool:
+    """Strict single-port bring-up: provision once, then verify zero-port.
+
+    `write` = (level, flags, topology_crc32) provisions every board with
+    slot = NO-1 (a reboot is required afterwards; the verdict is only
+    meaningful after it). With no `write` the four boards are read twice and
+    the self-formation is judged from BOOT:PLAN? / RING:STATus?; nothing is
+    sent to form or repair the ring.
+    """
+    boards = open_boards()
+    if write is not None:
+        level, flags, topology_crc = write
+        ok = True
+        lines: list[str] = []
+        for b in boards:
+            text = (f"SYST:TDMA:BOOT:PROFile {level},{NODES},{b.no - 1},"
+                    f"{flags},{topology_crc}")
+            response = b.cmd(text)
+            print(f"{now()} NO.{b.no} provision -> {response}")
+            if "BOOTPROF" not in response.upper():
+                ok = False
+                lines.append(f"NO.{b.no} refused: {response}")
+        for b in boards:
+            b.close()
+        print(f"{now()} provision={'PASS' if ok else 'FAIL'} {lines}")
+        if ok:
+            print(f"{now()} reboot every board, wait >= {settle:.0f}s, "
+                  f"then run `boot {tag}` without write")
+        return ok
+    plans = {b.no: parse_boot_plan(b.cmd("SYST:TDMA:BOOT:PLAN?"))
+             for b in boards}
+    rings = {b.no: b.ring() for b in boards}
+    builds = {b.no: b.cmd("SYSTem:FW:BUILD?") for b in boards}
+    time.sleep(2.0)
+    later = {b.no: b.ring() for b in boards}
+    ok, reasons = boot_verdict(plans, rings, later)
+    for b in boards:
+        plan = plans[b.no]
+        r = rings[b.no]
+        after = later[b.no]
+        print(f"{now()} NO.{b.no} {builds[b.no]} action="
+              f"{BOOT_ACTION_NAMES.get(plan.get('action'), plan.get('action'))} "
+              f"slot={plan.get('slot')} have_profile={plan.get('have_profile')} "
+              f"fail_step={plan.get('fail_step')} boot_done="
+              f"{plan.get('boot_done')}/{plan.get('steps')} join_seen="
+              f"{plan.get('join_frame_seen')} half_ring={plan.get('half_ring')} "
+              f"ring up/down/adapter={r[4:6]}/{r[8] if len(r) > 8 else '?'} "
+              f"frames {r[49] if len(r) > 49 else '?'}->"
+              f"{after[49] if len(after) > 49 else '?'}/"
+              f"{r[50] if len(r) > 50 else '?'}->"
+              f"{after[50] if len(after) > 50 else '?'}")
+    for b in boards:
+        b.close()
+    print(f"{now()} boot={'PASS' if ok else 'FAIL'} reasons={reasons}")
+    import json as _json
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    root = os.path.join(
+        repo_root, "out", "calibration", "guide-10k", "evidence",
+        time.strftime("%Y%m%d-%H%M%S") + f"-boot-{tag or 'verify'}")
+    os.makedirs(root, exist_ok=True)
+    payload = {
+        "tag": tag,
+        "pass": ok,
+        "reasons": reasons,
+        "builds": {str(k): v for k, v in builds.items()},
+        "plans": {str(k): v for k, v in plans.items()},
+        "rings": {str(k): v for k, v in rings.items()},
+        "rings_after": {str(k): v for k, v in later.items()},
+    }
+    try:
+        from tools.hardware_acceptance.source_scope import (
+            working_source_fingerprint)
+        digest, count = working_source_fingerprint()
+        payload["host"] = {"fingerprint": digest, "fingerprint_files": count}
+    except Exception as exc:  # pragma: no cover - diagnostic only
+        payload["host"] = {"fingerprint": f"unavailable: {exc}"}
+    with open(os.path.join(root, "readback.json"), "w", encoding="utf-8") as fh:
+        _json.dump(payload, fh, ensure_ascii=False, indent=2)
+    print(f"{now()} evidence -> {root}")
+    return ok
+
+
 def status() -> None:
     boards = open_boards()
     for b in boards:
@@ -1257,6 +1419,13 @@ def main(argv: list[str]) -> int:
     if what == "up":
         bring_up()
         return 0
+    if what == "boot":
+        if len(argv) > 2 and argv[2] == "write":
+            level = int(argv[3]) if len(argv) > 3 else LEVEL_10K
+            flags = int(argv[4]) if len(argv) > 4 else 1
+            topology_crc = int(argv[5], 0) if len(argv) > 5 else 0
+            return 0 if boot(write=(level, flags, topology_crc)) else 1
+        return 0 if boot(argv[2] if len(argv) > 2 else "") else 1
     if what == "down":
         tear_down()
         return 0

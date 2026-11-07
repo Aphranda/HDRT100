@@ -16,6 +16,7 @@ $publicInclude = Join-Path $repo "components\flash_transaction\inc"
 $privateInclude = Join-Path $repo "components\flash_transaction\src"
 $diagnosticsInclude = Join-Path $repo "components\diagnostics\inc"
 $configInclude = Join-Path $repo "config"
+$algoInclude = Join-Path $repo "components\algo\inc"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -35,7 +36,7 @@ if (-not $hostCc) {
 
 $exe = Join-Path $build "test_flash_transaction.exe"
 & $hostCc.Source -std=c11 -Wall -Wextra -Werror `
-    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" `
+    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" "-I$algoInclude" `
     $testSource $serviceSource -o $exe
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
@@ -49,7 +50,7 @@ Write-Host "FlashTransaction host unit tests passed"
 $validationExe = Join-Path $build "test_flash_transaction_validation.exe"
 & $hostCc.Source -std=c11 -Wall -Wextra -Werror `
     -DPROJECT_ENABLE_FLASH_VALIDATION=1 `
-    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" `
+    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" "-I$algoInclude" `
     $testSource $serviceSource -o $validationExe
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
@@ -63,7 +64,7 @@ Write-Host "FlashTransaction validation host unit tests passed"
 $otaJournalExe = Join-Path $build "test_flash_transaction_ota_journal.exe"
 & $hostCc.Source -std=c11 -Wall -Wextra -Werror `
     -DPROJECT_FLASH_DEPLOYMENT_V2=1 `
-    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" `
+    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" "-I$algoInclude" `
     (Join-Path $tests "test_flash_transaction_ota_journal.c") $serviceSource -o $otaJournalExe
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
@@ -76,7 +77,7 @@ Write-Host "FlashTransaction OTA journal owner host unit tests passed"
 
 $journalExe = Join-Path $build "test_flash_transaction_journal.exe"
 & $hostCc.Source -std=c11 -Wall -Wextra -Werror `
-    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" `
+    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" "-I$algoInclude" `
     $journalTestSource $journalSource -o $journalExe
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

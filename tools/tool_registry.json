@@ -4428,6 +4428,8 @@
         "tools/tests/run_tdma_payload_registry_tests.ps1",
         "tools/tests/run_tdma_pio_spi_persona_fsm_tests.ps1",
         "tools/tests/run_tdma_pio_spi_ring_adapter_tests.ps1",
+        "tools/tests/run_tdma_boot_plan_tests.ps1",
+        "tools/tests/run_tdma_boot_profile_store_tests.ps1",
         "tools/tests/run_tdma_process_image_map_tests.ps1",
         "tools/tests/run_tdma_profile_tests.ps1",
         "tools/tests/run_tdma_receive_health_tests.ps1",
@@ -4772,6 +4774,14 @@
         },
         {
           "path": "tools/tests/run_tdma_process_image_map_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_boot_plan_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_boot_profile_store_tests.ps1",
           "role": "test_runner"
         },
         {

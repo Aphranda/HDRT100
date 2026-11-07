@@ -21,15 +21,15 @@ int main(void)
     tdma_boot_plan_t none = plan_for(TDMA_BOOT_ACTION_NONE);
     assert(tdma_boot_sequence_build(&none, steps, TDMA_BOOT_SEQUENCE_MAX) == 0u);
 
-    /* Coordinator: bring-up config, profile, ARM, then start TX. */
+    /* Coordinator: bring-up topology first (the staged schedule base CRC needs
+     * it), then STOP, profile, ARM, then start TX. */
     tdma_boot_plan_t ref = plan_for(TDMA_BOOT_ACTION_START_REF);
     size_t count = tdma_boot_sequence_build(&ref, steps, TDMA_BOOT_SEQUENCE_MAX);
     assert(count == 7u);
-    /* Mirrors the ring-start recipe: STOP, stage/apply, topology, bring-up. */
-    assert(steps[0] == TDMA_BOOT_STEP_STOP);
-    assert(steps[1] == TDMA_BOOT_STEP_STAGE_PROFILE);
-    assert(steps[2] == TDMA_BOOT_STEP_APPLY_PROFILE);
-    assert(steps[3] == TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY);
+    assert(steps[0] == TDMA_BOOT_STEP_SET_BRINGUP_TOPOLOGY);
+    assert(steps[1] == TDMA_BOOT_STEP_STOP);
+    assert(steps[2] == TDMA_BOOT_STEP_STAGE_PROFILE);
+    assert(steps[3] == TDMA_BOOT_STEP_APPLY_PROFILE);
     assert(steps[4] == TDMA_BOOT_STEP_SET_BRINGUP_NO_CAL);
     assert(steps[5] == TDMA_BOOT_STEP_RING_ARM);
     assert(steps[6] == TDMA_BOOT_STEP_RING_START);

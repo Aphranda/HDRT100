@@ -59,6 +59,8 @@ $scripts = @(
     "run_refmem_realtime_contract_tests.ps1",
     "run_resource_arbiter_tests.ps1",
     "run_tdma_profile_tests.ps1",
+    "run_tdma_boot_profile_store_tests.ps1",
+    "run_tdma_boot_plan_tests.ps1",
     "run_tdma_payload_registry_tests.ps1",
     "run_tdma_process_image_map_tests.ps1",
     "run_tdma_flight_fifo_tests.ps1",

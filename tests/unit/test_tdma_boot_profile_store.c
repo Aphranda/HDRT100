@@ -14,7 +14,8 @@
 #if FLASH_DEPLOYMENT_MAP_HAS_TDMA_BOOT_PROFILE
 
 #define SECTOR_SIZE FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE
-#define REGION_BASE FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_OFFSET
+#define REGION_BASE (FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_OFFSET + \
+                     FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_RELATIVE_OFFSET)
 #define REGION_RELATIVE \
     FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_RELATIVE_OFFSET
 #define REGION_SIZE FLASH_DEPLOYMENT_MAP_TDMA_BOOT_PROFILE_STORE_SIZE
@@ -152,6 +153,29 @@ int main(void)
     assert(tdma_boot_profile_store_init());
     assert(tdma_boot_profile_store_get(&cached));
     assert(cached.generation == 3u && cached.local_slot == 3u);
+
+    /* The next commit must stay strictly above the newest readable record. */
+    uint32_t next = 0u;
+    assert(tdma_boot_profile_store_next_generation(&next));
+    assert(next == 4u);
+
+    /* Erase returns the board to "no boot profile" and restarts the generation
+     * sequence; the cached profile is dropped with it. */
+    assert(tdma_boot_profile_store_erase());
+    tdma_boot_profile_store_status(&status);
+    assert(!status.loaded);
+    assert(status.generation == 0u);
+    assert(status.reject_reason == TDMA_BOOT_PROFILE_STORE_REJECT_EMPTY);
+    assert(!tdma_boot_profile_store_get(&cached));
+    assert(tdma_boot_profile_store_next_generation(&next) && next == 1u);
+
+    /* Provisioning after a clear works again (an empty store has no replay
+     * floor), and a later generation still supersedes it. */
+    const tdma_boot_profile_t revived = profile_for(2u, 1u);
+    assert(tdma_boot_profile_store_commit(&revived));
+    assert(tdma_boot_profile_store_get(&cached));
+    assert(cached.generation == 1u && cached.local_slot == 2u);
+    assert(tdma_boot_profile_store_next_generation(&next) && next == 2u);
 
     printf("tdma boot profile store host tests passed\n");
     return 0;
