@@ -894,6 +894,31 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   （`calibration_training_sck.c:35-63`），定位具体是哪一条不成立；必要时在该函数里
   加一条"首个失败项"诊断位（类似 P3 的 abort_site）。
 
+**2026-11-07 11:4x T1 根因（子代理 `274a7339` 独立取证 + 三条前提更正）**：
+
+- **更正 1（读数语义）**：`CAL:SCK:ARM` 的 "OK" 是 **host 合成**的
+  （`tools/tdma_ring_monitor/tdma_start_ring.py:325,353-359` 的 `ack_only_actions` 超时桩 +
+  `scpi_serial.py:300-301,448-455` 的 matcher 丢弃），固件真正拒绝时发的
+  `-200,"CAL_SCK_ARM_REJECTED"`（`scpi_port.c:284-303`）被当噪声丢掉。⇒
+  **"ARM 返回 OK"不能作为"请求被接受"的证据**；`accepted=(1,)` 只是 `wait_states` 的期望状态。
+- **更正 2**：`abort_site=19` 是 **`APP_CTRQS_T1_RUN`**，不是 T1_PREP（枚举 `app.c:1727-1758`：
+  18=T1_PREP、19=T1_RUN；`app.c:2014` 存的是 `s_ctrqs.state`），即
+  `app.c:2802-2812` 的 `request_sck_training()==false`。
+- **更正 3**：`READ:CALibration:ACTive?` 报的是校准 **path 快照**
+  （`scpi_calibration_capture_commands.c:1066-1085`），与 `s_sck_active/s_marker_active/...`
+  **无关**；此前"已排除活动残留"的结论**作废**。
+- **根因（H1，两端共有）**：`calibration_manager.c:3430-3432` 的外层判据
+  `guard_sample_count − base_samples + search_start ≥ 0`。
+  base=40 ns → base_samples=10；此前 guard=12、search_start=−10 → **−8 < 0 → 直接拒**。
+  等价要求 `guard ≥ base_samples + |search_start|`，即 **guard ≥ 20**；
+  工具默认 guard = **32**（`calibration_sck_train.py:455`，官方样例串 `…,32,40,0,-10,10,…`）。
+- **内层/外层不等价**：内层 `calibration_training_sck.c:48-51` 只要求 `guard > base`，
+  外层 3430 额外要求 `+ search_start ≥ 0`。此前"guard 12>10 已满足"只验了内层，是误判。
+- **修复方向（参数层，无需改固件）**：T1 计划用 `launch_guard ≥ base_samples + |search_start|`
+  （如 32）；并建议在 app 的 `plan_valid` 里补同一判据，让失败提前到计划阶段而不是 T1_RUN。
+- 本轮末次复跑无效：`gen` 未更新（板仍 1025，`epoch` 96/95 不一致）→ 命令面投递失败，
+  不作 T1 结论。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
