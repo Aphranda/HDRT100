@@ -1021,6 +1021,43 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - **主会话义务**：记录子代理 id、结论、与主会话判断的差异、采信理由；发现过时表述必须当场改写。
 - **理由**：长期任务里最贵的错误不是"卡住"，而是"把没验证的写成完成"或"继续引用已过时的结论"。
 
+**2026-11-07 13:1x 交叉审核改判：证据口径与 T3 三处缺陷（子代理 `7b9a0f5c`）**
+
+> 本节**取代**本台账中所有"T3 已收口/已成功"的暗示；下列 8 条为审核给出的、必须按此理解的口径。
+
+1. **M6.1–M6.5 的 ✅ 口径更正**：这五项的判据来自**实板 `PLAN?` 实时读数**（当时未落盘归档），
+   而所引 P3 凭证（`p3-053100/p3-060355/p3-064615/p3-083723/p3-113433` 等）均为
+   `PASS_WITH_WARNINGS` 且 `strict_gates_passed=false`（唯一失败项是 450 s 时间预算被
+   `DEBUG_BOUNDED_FORCE_CONTINUE` 放行）；其中 **`p3-053100`（M6.1 引用）还带一条真失败
+   `four-Node TDMA closed loop`（step 26）**。即：**P3 凭证的 scope 不覆盖 GUIDE 阶梯**，
+   这些 ✅ 只能表述为"实板读数达标 + 凭证不覆盖该路径"，不能表述为"已过 P3 验收"。
+2. **T3 三处缺陷（审核 N1/N2/N3）**：
+   - **N1（高，已修）**：`T3_ARM` 的"START 失败后清 `t3_topo`"会让下一拍先走拓扑块，
+     而拓扑要求 `enabled==0`、此时 `enabled==1` ⇒ 永远卡在拓扑、连 quiescent 门都到不了，
+     60 s 后只剩 `abort_site=101`。改为**不清 `t3_topo`**，只清 arm 并主动 STOP 回静默。
+   - **N2（中，已修）**：arm/START 无尝试上限（`arm_tries` 原本是死代码）；已在 START 失败
+     分支加计数，达 `APP_CTRQS_ARM_RETRIES` 即 fail-closed abort。
+   - **N3（高，已修）**：`REBUILD` 回退路径曾把 T3 直接标 `passed_mask|=1 / COMPLETE`，
+     使**失败的 T3 被回退成功掩蔽**；已删除该段——T3 结果只能来自 `T3_ARM` 成功站点。
+   - **附带（已修）**：`abort_site` 是独立静态量、每轮不清零，跨轮粘滞会误读；已在
+     `app_ctrqs_start()` 里随 `memset(&s_ctrqs)` 一起清零（连同 T3 站点）。
+3. **R16/R17 改判**：R16（START 返回值被丢弃）→ **CLOSED**（工作树已捕获返回值并编站点码）；
+   R17（`enabled` 置位路径未定位）→ **CLOSED**（唯一写点 `tdma_ring_runtime.c:449`，
+   经 `tdma_service_ring_arm → configure` 同步置 1）。
+4. **R13 改判**：core1 侧 intent 消费是**无条件**的（`calibration_manager.c:2522-2523` SCK、
+   `:2387-2388` DATA），"失败留下未消费 intent"**不能由代码解释**；改为"待实板复现"，
+   不作为已确认机制引用。
+5. **T3 判据加强**：只读 `enabled=1 && adapter_started=1` 不够（空转 60 s 也满足）。
+   必须同时满足：`up_running=1 && down_running=1`、`adapter_service_count` 有增量、
+   `abort_site=0`，且成功来自 `T3_ARM` 站点（106/7）。
+6. **`data_enabled` 无 SCPI 出口**（`scpi_tdma_snapshot_commands.c:869-921` 无该字段）；
+   可用 `adapter_service_count` 增量 + `up/down` 两次采样间接判定。
+7. **过时表述**（本台账内需按此理解）：`START 返回值被忽略`、`站点表 1/3/4/5/7`、
+   `enabled=0 指向 ARM→apply 缺口`、`下一步确认 enabled 由谁置位`、`卡在前段 topology`、
+   `M6.6 判据只查 enabled+adapter`、`T3 复用 REBUILD 成环路径` —— 均**已被证伪或取代**。
+8. **"下一步"口径**：`T3_PREP` 修复与三处新改动**均已有 build 与 P3**（`20261107035659` /
+   `20261107045359`，后者见 `p3-125344`）；"待取证"只对 **T3 行为**成立（QUICK_DIAGNOSTIC 不跑 GUIDE 阶梯）。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
