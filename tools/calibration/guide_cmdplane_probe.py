@@ -32,6 +32,12 @@ sys.path.insert(0, ROOT + r"\tools")
 
 from tools.common.scpi.scpi_serial import SerialSession  # noqa: E402
 
+try:
+    from tools.tdma_ring_monitor.tdma_field_parse import (
+        RUNTIME_FIELDS)
+except Exception:  # pragma: no cover - bench tool stays usable
+    RUNTIME_FIELDS: tuple[str, ...] = ()
+
 PORTS = ["COM5", "COM4", "COM3", "COM6"]  # NO.1 .. NO.4
 LEVEL_10K = 23
 NODES = 4
@@ -1186,8 +1192,15 @@ def window_rate(tag: str, samples: list) -> None:
         if len(series) < 2:
             continue
         last = series[-1][1]
-        carrier = (last[-2] if len(last) >= 2 else -1,
-                   last[-1] if last else -1,
+        # The appended tail grew twice (carrier, then frame totals), so
+        # resolve the carrier by field name instead of by position.
+        try:
+            baud_idx = RUNTIME_FIELDS.index('ring_baud_hz')
+            period_idx = RUNTIME_FIELDS.index('ring_cycle_period_ns')
+        except ValueError:
+            baud_idx, period_idx = -2, -1
+        carrier = (last[baud_idx] if len(last) > baud_idx else -1,
+                   last[period_idx] if len(last) > period_idx else -1,
                    last[0] if last else -1,
                    last[8] if len(last) > 8 else -1)
         best = None
