@@ -778,8 +778,8 @@ TRN-03-D 故障注入、Node dropout、stale identity 保护与长稳
 
 | 输入 | 定义 | 代码落点 |
 |---|---|---|
-| `session_closed` | 训练会话已关闭：环停止且 adapter 未启动（不允许训练中写入） | `app_ctrqs_commit()` 的会话判定 |
-| `already_committed` | 见 12.2 的四个合取项 | `app_ctrqs_commit()` 的幂等判定 |
+| `session_closed` | `!(training_activity && ring.enabled == 0 && adapter_started == 0)`——即"**离线训练态**（有训练活动且环停、adapter 未起）"才判为未关闭；环在跑或 adapter 在跑时视为已关闭。**离线训练态 = DENY** | `app_ctrqs_commit()` 的会话判定 |
+| `already_committed` | 见 12.2 的**五个**合取项 | `app_ctrqs_commit()` 的幂等判定 |
 
 ### 12.2 `already_committed` 的定义（幂等键）
 
@@ -799,14 +799,15 @@ AND record_generation != 0 AND store.calibration_generation == stage.calibration
 
 另有一条独立于决策表的前置：`applicable = action_ok AND have_stage AND stage_complete`，
 其中 `action_ok` 要求本轮 reconcile 为 `COMPLETE`。**abort 的轮次 reconcile 不是 COMPLETE ⇒ 不提交**，
-即使决策表给出 `ALLOW`。写操作本身还有一条守卫：`stage.calibration_generation` 小于
-持久记录代数时按 `REJECT_REPLAY` 拒绝。
+即使决策表给出 `ALLOW`。写操作本身还有一条守卫：**store 的** `REJECT_REPLAY`（=6，与 path 层的同名枚举无关），仅当已有持久记录且 `stage.calibration_generation` **严格小于** 记录代数时拒绝；此时结果为 `ALLOW + applicable=1 + ok=0`，实板三元组是 **`0/1/0`**。
 
 ### 12.4 可验证判据
 
 - 宿主/单元层：决策表三行全覆盖（现有 `test_guide_action_plan.c` 的
   `test_commit_gate_respects_open_session` 即此用例）；
 - 实板层：一次 `ALLOW` 且 `commit_ok=1` 的记录（`PLAN?` 的 commit 三元组为 `0/1/1`），
-  且 flash 记录的 `record_generation` 等于 `stage.calibration_generation`、`record_sequence` 递增 1；
+  且 flash 的 `record_generation` 等于 `stage.calibration_generation`；**`record_sequence` 在"无记录或代数不同"时为 1**（只有同代重写才 `last+1`），判别量是 `persisted_valid` 由 0 变 1 与代数变化，不是 `record_generation == stage.generation`（该等式在成功路径上构造性恒真）；
   同代数重跑必须读到 `2/1/0`（`SKIP_ALREADY_DONE`）且 flash 记录数不变；
+- 读数命令：`PLAN?` 只给三元组，flash 侧须读 `READ:CALibration:TRAINing:STAGe:PERSistence?`（`record_generation`/`record_sequence`/`calibration_generation`），提交命令本身也回读三元组；`PLAN?` 没有记录代数/序列字段。
+- 三元组全集：`0/1/1`（ALLOW 且写成功）、`0/1/0`（ALLOW 但 store 以 `REJECT_REPLAY` 拒绝）、`2/1/0`（SKIP：该代已有记录）、`2/0/0`（abort 后重跑：reconcile 非 COMPLETE，applicable=0）。
 - 现状：实板只观测到 `2/1/0`（SKIP），"首次写入"尚无实证，故本契约判据的实板项仍为未满足。

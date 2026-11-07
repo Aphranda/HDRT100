@@ -1210,7 +1210,7 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   与 `idx38/39`（config/applied_seq，+3）；`RING:STATUS?` 的 40–46（`loop_time`）全 0。
   索引对照（实测 dump）：`0=enabled 1=node_count 4=up 5=down 8=adapter_started
   10/11/14=序列 16=trip_ns 38/39=config/applied seq 40–46=loop_time 47=baud 48=cycle`。
-- **结论**：`RING:STATUS?` **不含帧计数器**，"用单调计数增量判速率"这条路不成立；
+- **结论（已更正）**：`RING:STATUS?` **含帧计数器**（0 基 idx 10 `up_tx_sequence`、11 `down_rx_sequence`、24 `adapter_tx_count`、25 `adapter_rx_count`；idx 9 是 service tick，不能单独证明跑帧）。当时的观测是"计数存在但在窗口内未增长/被清零"，不是"没有计数器"。
   且窗口内序列不前进说明 **T3 窗口里的环可能只是"已配置/已 arm"，并未证明在跑帧**——
   真正跑帧的证据只出现在窗口关闭后的恢复环上（`up=1/down=1`）。
 - **M6.6b 只能靠固件**：三选一 ——（a）让 `loop_time` 在非 origin 板也测（`rx.c:535` 的
