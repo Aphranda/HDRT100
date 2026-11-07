@@ -935,6 +935,19 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - **阶梯一致性**：T1 期间曾出现 NO.1/2 在 4、NO.3/4 在 5 的分叉（R10）；T2 两端板追平后
   四板重新一致到 6。分叉期间非端点板的 no-op pass 会"空推进"阶梯，需机制约束。
 
+**2026-11-07 11:5x–12:0x M6.6 起始（T3）**：
+
+- T3 的计划准入只看 `profile_level != 0`（`app.c:2392-2398`），C 段被忽略，阶段里已带训练相位；
+  只有它能以 10 MHz 起环（`app_ctrqs_low_rate_bringup()` 对 T3 不放行 BRINGUP，见 `app.c:1897-1905`）。
+- 实测：`CONFig 7,…` 在四板落地（`action=7, gen=1061`），补发 `TRIGger 7,142` 后四板
+  `epoch=142` 已更新，但 **执行器仍是 `ctrqs=0`（IDLE）**、进度停留在 T2（`prog_status=1,
+  trials_done=1` 来自上一动作），`ladder_step=2`。即 **T3 动作没有被启动**，不是被拒（无 `reason`）。
+- 下一轮取证：用 0.2 s `stateprobe` 观察触发后 60 s 内是否出现 `T3_PREP/T3_RUN`，
+  以及 `SYST:TDMA:GUIDE:PLAN?` 的 `pending`/`ctrqs` 变化；据此判断是
+  "触发器未被 `app_cal_guide_post_trigger` 接受" 还是 "接受了但 `app_ctrqs_start` 早退"。
+- 附带：T3 的 CONFig 在 NO.1 上首次投递失败（`gen` 停在 1056），重试后成功——
+  命令面在长时间运行后偶发丢一次，属于台架已知抖动。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
