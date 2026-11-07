@@ -321,7 +321,8 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 | M6.3 | P2 成环档/测量档分离 | ✅ 同 build `20261106224625`：成环沿用窗口载体（引导档 + BRINGUP），停环后 apply 测量档（level 7）；四板 P2 `prog_status=1, trials_done=1/1, passed_mask=1, failed_mask=0, reason=0, reconcile=1, ladder_idx=2` | 四板 `PLAN?` + `p3-064615` | ✅ 完成（`740eb1f9`） |
 | M6.4 | P3 @10 kHz 四板 | ✅ 同 build `20261107003733`：四板 P3 `prog_status=1, trials_done=12, passed_mask=0xFFF, failed_mask=0, reason=0, ladder_idx=3`；执行器按 trial 逐个推进（`18e495a2` 修掉 state 锁存）。C 段须用链路速率（10 MHz）+ 5% 容差 | 四板 `PLAN?` + `p3-083723` | ✅ 完成（`18e495a2`） |
 | M6.5 | T0/T1/T2 @10 kHz 四板 | ✅ 同 build `20261107033453` 整链：T0 四板 `passed_mask=0x1`（base=40）、T1 四板 `passed_mask=0x1`（`guard=32`、search −10..10）、T2 四板 `passed_mask=0x1`（search −4..10，因 T2 guard 硬编码 4）；阶梯四板一致推进到 6 | 四板 `PLAN?` | ✅ 完成 |
-| M6.6 | T3 @10 kHz | ✅ 同 build `20261107063505`：先跑满 P1→T2（四板 `ladder_idx=6`），T3 以 `level=7` 起环；四板 `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0, reason=0, reconcile=1, abort_site=0`，`verify 7 507 1407` = PASS；T3 后 `RING:CONFig?` 四板 `cycle_period_ns=1000000`（10 MHz/1 ms）、profile CRC 一致，`RING:STATUS?` 四板 `enabled/up/down/adapter=1` | 四板 `PLAN?` + `RING:CONFIG?` + `RING:STATUS?`；归档 `evidence/20261107-150558-M6.6-T3-PASS-epoch507/` | ✅ 完成 |
+| M6.6 | T3 @10 kHz | ⏳ **部分达成**：T3 四板 `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0, abort_site=0`，`verify 7 507 1407` = PASS，且 COMPLETE 只能来自 T3_ARM（N3 删除仍有效）；**但"实测 10 MHz 起环"不成立**（见 16:5x 审核更正） | 四板 `PLAN?` + 归档 `evidence/20261107-150558-…` | ⏳ 未闭环 |
+| M6.6b | T3 的 10 MHz 需**实测**（非 staged 自证） | ⏳ 需窗口内 `loop_time.mean_period_ns≈4 ms` 或其等价通道；当前 SCPI 面结构性拿不到（窗口关闭即重放引导档并 `memset(loop_time)`） | `RING:STATUS?` 42–47 字段需非零样本 | ⏳ 并入 M6.7 |
 | M6.7 | S 代数语义 + M6 收口 | S 代数语义冻结成文；P3 凭证 + host 凭证；本节全行 ✅ | 凭证 + 提交清单 | M6.6 |
 | M6.8 | 10 MHz 七动作全链回归 | `P1→T3` 四板 `COMPLETE`（改动后回归，防 10 kHz 修复伤高速档） | 四板 `PLAN?` + P3 | 可与 M6.1 并行 |
 | M6.9 | 探针工具归型 | `out/calibration/guide-10k/guide_cmdplane_probe.py` 或归型入库、或明确废弃并记录 | `tools/tool_workflow_triage.json` 条目或文档说明 | 收口前 |
@@ -1135,6 +1136,37 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   非 T3 动作仍走引导档（本阶梯 P1–T2 全程 `level=7` 仅为测量档参数，环本身由 150 ms 引导档成环）。
 - **仍 OPEN**：M6.7（S 代数语义冻结与收口）、M6.8（10 MHz 七动作回归）、M6.9（探针归型），
   以及 N6（座位轮转）、N13（有 boot plan 镜像）等残余。
+
+**2026-11-07 17:4x 审核更正（子代理 `4e286d47`）——M6.6 降级为"部分达成"**
+
+> 本节**取代** 15:0x 小节里"环实测 10MHz/1ms"的表述；`e3f77e0d` 的提交语过头。
+
+1. **数字对、结论过头**：归档 `readback.json` 的四板 `PLAN?` 与声称完全吻合；
+   但 `cycle_period_ns=1000000` 与 profile CRC 只来自**控制台**，`RING:CONFig?` 从未归档；
+   且该查询读的是 **staged 副本**、无 baud 出参，`1 ms` 对应 level 7–13（10–50 MHz 全部满足）
+   ⇒ **不能证明 10 MHz**。
+2. **环被混淆**：15:05:58 的 `up=1/down=1` 是**窗口关闭后的恢复环**（finalize 先 STOP，
+   再由 RESTORE_WAIT/REBUILD 重建），不是 T3 自己的环；15:05:05 的归档里 NO.1/NO.2 仍是
+   `ctrqs=27 up=0 down=0`。两个归档的 `loop_time` 六字段全 0（无任何环回样本）。
+3. **硬门验错了对象**：`T3_PREP` 的硬门读 staged，而 staged 在 P2/P3 已 apply 过 level 7
+   ⇒ 即使本次 apply 什么都没做也会 PASS；它是"staged 已生效"的自证，不是"本计划档生效"的证明。
+4. **语义级发现（新）**：`P2_STOP/P3_PREP` 也 stage+apply level 7，窗口关闭后的 REBUILD
+   用残留 staged 档 ARM/START ⇒ **P2 之后每个动作的恢复环都是 10 MHz**；
+   `guide_action_ladder_is_last()` 在固件里**无任何调用**（只在单测）。
+   即"只有 T3 的 S 允许 ARM→START 10 MHz"**不是代码不变量**，台账旧文"非 T3 动作仍走 150 ms
+   引导档"只对 P1 成立。记为 **R25**。
+5. **S 段零实证**：四板（含 T3）`commit=2/1/0`（SKIP/APPLICABLE/OK=0）⇒ **从未写 flash**；
+   且 `already` 只比 training stage 的 calibration_generation，**未用 plan.generation**
+   ⇒ M6.2b"同动作同代数只写一次"在实板上零证据。
+6. **COMPLETE 追溯成立**：`app_ctrqs_t3_advance()` 仅两个调用点都在 T3_ARM，REBUILD 已无反哺；
+   Q 的 reconcile 按 action/crc/gen 匹配 ⇒ 本轮 COMPLETE 确由 T3_ARM 发布。
+   但 `T3_ARM` 的第一个成功分支（`restore_formed()`）**不看任何 profile** ⇒ 有 boot plan 的镜像
+   理论上可被恢复环满足（N13 的真风险）。
+7. **M6.6 闭环还需**：归档 `RING:CONFIG?` 原件与 candidates；窗口内速率样本；
+   非 T3 动作不得起 10 MHz 的**负向验证**；N6（`candidates[0]%4 ≠ 开窗 ref`）用例；
+   N13（boot plan 镜像）；S 段实证；措辞改为"T3_PREP 硬门 + staged 档 + 本轮 progress"。
+8. **归档自身缺陷**：`archive_evidence()` 不存 `RING:CONFIG?`、不存 build/IDN/端口，
+   故"同 build"绑定不在证据里（真绑定是 source fingerprint `99fc19`，非 build label）。
 
 ## 7. 台架与操作注意
 
