@@ -1298,7 +1298,7 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 | R32 | OPEN | `verdict.json` 无原始向量/指纹 | `verify --archive` 落原始串 + build/IDN/指纹 |
 | R33（M6.6b） | OPEN | 窗口内无帧计数、`loop_time` 为 0 | 窗口内可观测载波（`OPMode?` 或新查询） |
 | R39 | OPEN | 帧活性缺"窗口内独占"归属（前后两次读都含恢复期） | 同一 ARM 会话内 ≥2 样本的对数判据 |
-| R40 | OPEN | `total_up_tx/total_down_rx` 语义是环全局序号的差值，非本板帧计数；正解是 adapter 内单调总量（5 个成功点 +1）+ 独立查询 | adapter 总量 + C 单测（ARM/STOP/ARM、service 失败、回绕） |
+| R40 | MITIGATED（代码已修，缺单测与实板对照） | 已改为 adapter 持有 `total_tx_ok/total_rx_ok`：5 个真实成功点 +1（提交成功 / 转发 / cut-through / 自主 origin 发布 / 接收成功），仅 adapter init 清零，runtime 只拷贝；P3 `p3-215622`（build `20261107135640`） | 待补 C 单测（ARM/STOP/ARM、service 失败、uint32 回绕）与一次实板前后对照 |
 | R34 | OPEN | `visible_files` 用 `--cached --others` 并集 | 改为只比已提交集合 |
 | R35 | CLOSED | `plan_valid` 已要求 level 7 | — |
 | R36 | CLOSED | boot 重放 30 s 截止早于 T3 | — |
