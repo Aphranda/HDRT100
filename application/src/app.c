@@ -1723,6 +1723,12 @@ bool app_guide_scan_get_pair(uint32_t index,
 #define APP_CTRQS_T2_INJECT_DELAY_MS 200u
 #define APP_CTRQS_ACTION_T3 7u
 #define APP_CTRQS_T3_ARM_MS 20000u
+/* T3 is the only action allowed to start the ring at the measurement carrier,
+ * and that carrier is 10 MHz: one 1 ms cycle per ring revolution.  These are the
+ * values a T3 window must find in the staged profile; anything else (including
+ * the 10 kHz guide level) fails closed instead of reporting success. */
+#define APP_CTRQS_T3_PERIOD_NS 1000000u
+#define APP_CTRQS_T3_BAUD_HZ 10000000u
 
 typedef enum {
     APP_CTRQS_IDLE = 0,
@@ -3603,6 +3609,21 @@ static void app_ctrqs_service(void)
             app_ctrqs_abort(
                 (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
             return;
+        }
+        /* Only T3 may run at the measurement carrier, and "measurement" here
+         * means the 10 MHz profile: comparing the ring against the staged
+         * config is a self-comparison (ARM copies staged into runtime), so a
+         * 10 kHz level would look identical.  Check the staged period itself
+         * and fail closed otherwise. */
+        {
+            tdma_service_ring_runtime_config_t t3_profile;
+            if (!tdma_runtime_owner_get_staged_ring_config(&t3_profile) ||
+                t3_profile.cycle_period_ns != APP_CTRQS_T3_PERIOD_NS ||
+                t3_profile.baud_hz != APP_CTRQS_T3_BAUD_HZ) {
+                app_ctrqs_abort(
+                    (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+                return;
+            }
         }
         s_ctrqs.t3_topo = false;
         s_ctrqs.t3_armed = false;
