@@ -306,7 +306,8 @@ bool tdma_boot_profile_store_commit(const tdma_boot_profile_t *profile,
     if ((rotate || (!has_latest && !target_erased)) &&
         !flash_execute(FLASH_TRANSACTION_OPERATION_ERASE,
                        sector_relative(target_sector), NULL,
-                       BOOT_PROFILE_ERASE_SIZE, profile->generation)) {
+                       BOOT_PROFILE_ERASE_SIZE,
+                       profile->generation * 2654435761u + nonce)) {
         s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_FLASH;
         return false;
     }
@@ -396,7 +397,15 @@ bool tdma_boot_profile_store_erase(uint32_t nonce)
             return false;
         }
     }
-    /* Never report CLEARED on a deduplicated no-op: read both sectors back. */
+    /* Never report CLEARED on a deduplicated no-op or on a readable-but-garbage
+     * sector: require both sectors to be physically all-0xFF. */
+    for (uint32_t sector = 0u; sector < BOOT_PROFILE_SECTOR_COUNT; sector++) {
+        if (!drv_flash_is_erased(sector_absolute(sector),
+                                 BOOT_PROFILE_ERASE_SIZE)) {
+            s_status.reject_reason = TDMA_BOOT_PROFILE_STORE_REJECT_VERIFY;
+            return false;
+        }
+    }
     const boot_profile_scan_t after0 = scan_sector(0u);
     const boot_profile_scan_t after1 = scan_sector(1u);
     if (!after0.usable || !after1.usable ||
