@@ -3572,6 +3572,7 @@ static void app_ctrqs_service(void)
          * down) and go to T3_ARM.  The generic REBUILD path used before closes
          * the window instead of running the final action, so T3 never armed,
          * never reached 10 MHz and never recorded a result. */
+        s_ctrqs_t3_stage = 8u;
         if (s_ctrqs.plan.profile_level != 0u &&
             (!tdma_runtime_owner_stage_operating_profile(
                  s_ctrqs.plan.profile_level) ||
@@ -3637,7 +3638,17 @@ static void app_ctrqs_service(void)
             return;
         }
         s_ctrqs.arm_try_ms = (uint32_t)now + 150u;
-        (void)distributed_refmem_tdma_ring_start();
+        const bool started = distributed_refmem_tdma_ring_start();
+        /* Report which way START failed: the API only returns a bool and has no
+         * status readback, so the sub-step code carries both the call result and
+         * whether the ring actually became enabled (60 = call refused,
+         * 61 = call accepted but the ring stayed disabled, 6 = enabled). */
+        tdma_ring_runtime_snapshot_t start_ring;
+        const bool have_start_ring =
+            tdma_runtime_owner_get_ring_snapshot(&start_ring);
+        s_ctrqs_t3_stage =
+            started ? ((have_start_ring && start_ring.enabled != 0u) ? 6u : 61u)
+                    : 60u;
         if (app_ctrqs_restore_formed()) {
             app_ctrqs_t3_advance(true);
             return;
