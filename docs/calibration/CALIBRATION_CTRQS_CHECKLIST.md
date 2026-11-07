@@ -977,6 +977,22 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   `enabled/adapter_started/config_seq/applied_config_seq`），并核对 10 MHz profile 是否真的
   被 `stage/apply` 接受（在 T3_PREP 记录 `stage/apply` 的返回值）。
 
+**2026-11-07 12:4x T3 START 前置读码（主会话独立取证）**：
+
+- 调用链：`distributed_refmem_tdma_ring_start()`（`distributed_refmem_status.c:1282-1287`）→
+  `tdma_service_ring_start()`（`tdma_service.c:1027-1036`）→
+  `tdma_ring_runtime_set_data_enabled(runtime, true)`。
+- **前置条件**（`tdma_ring_runtime.c:508-529`）：`enabled != 0`、`adapter_started != 0`、
+  `adapter_stop_pending == 0`、`adapter_config_seq == config_seq`、
+  `applied_config_seq == config_seq`、`train_command_seq == train_accepted_seq`。
+- 实测 T3_ARM 期间 `enabled=0`（连续 40 s）⇒ **START 必然返回 false**（新站点码 60），
+  不是"START 成功但没使能"。
+- 所以真正的问题是：**ARM 返回 `TDMA_ARM_OK` 之后，环的 `enabled` 从未置 1**。
+  这指向 ARM 的"接受"与 runtime 的"配置生效（apply）"之间存在缺口，
+  而不是 T3 的 START 调用时机。
+- 下一步（与子代理 `ece03fbd` 交叉后定）：确认 `enabled` 由谁置位（apply/control 循环）、
+  以及 T3_ARM 在 `set_tdma_ring_topology` 之后是否缺少一次显式 apply/control 推进。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
