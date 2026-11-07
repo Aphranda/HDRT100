@@ -78,10 +78,16 @@ P3 验收镜像就是台架镜像，台架必须跑最新代码的 P3 构建。
   **仍未复验**：新序列需要最终镜像重跑 provisioning + 零口 + 单口 C/T。
 
 **下一步（按 ROI）**：① 最终 P3 被 OTA 传输阻塞（`SYST:OTA:STREAM:STAT?` 在 durable=512 处
-`0,6,512,5002,5`，state=FAILED、result=5；单板/四板、重启前后都复现，直接 `ota_multi_update` 同样失败），
-需先定位板端 OTA 写路径（嫌疑：flash 完成日志/目标槽擦写/今晚高频刷写后的板端状态），不能把
-`--method picotool` 的 record-only 结果当凭证；② provisioning + `boot` 归档（新序列 SET_FLIGHT_MODE
-需在最终镜像上复验）；③ 契约状态从 pending 提交 C11 复审后转 active；④ R39/R26/M6.8。
+`0,6,512,5002,5`，state=6 FAILED、result=5；单板/四板、重启前后、`--skip-pre-reboot`、legacy 传输都复现，
+直接 `ota_multi_update` 同样失败）。板端证据：`SYSTem:OTA:FT?` = `10,2,17,17,0,256,0,1`，即 flash 事务
+FAILED + `last_error=17`/`policy_gate_reason=17` = `FLASH_TRANSACTION_ERROR_MODE`，对应
+`flash_transaction_ao.c:91` 的 `ota_requester && !resource_arbiter_ota_admission_active()`；而
+`SYSTem:RESource?` = `130,0`（SPI0|LCD，无 FLASH 租约）、`RESource:TRAINing?` = `0,0`，说明不是资源占用。
+嫌疑集中在 `STReam:OPEN` 之后、第一个 DATA 之前 OTA admission 被释放的路径（`ota_ao_fail_no_progress`
+/ stream 写路径 / 进度看门狗），需要在板端加只读探针或交叉核对 `resource_arbiter_ota_admission_active()`
+的调用序列。不能用 `--method picotool` 的 record-only 结果当凭证；② provisioning + `boot` 归档
+（新序列 SET_FLIGHT_MODE 需在最终镜像上复验）；③ 契约状态从 pending 提交 C11 复审后转 active；
+④ R39/R26/M6.8。
 
 **当前台架**：四板 build `20261107162325`（含 SET_FLIGHT_MODE、XIP 地址、nonce、clear 回读修复），
 boot profile 已清空，环停止；固件未提交。
