@@ -817,6 +817,30 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   codebook 载荷编码三选一）；读 `calibration_training_marker.c:139-180` 的 CRC 判定输入与
   `marker_crc32` 的生成处，对比请求侧与 phys 侧的构造差异。
 
+**2026-11-07 11:0x 时间参数定案（T0 的 CRC 拒绝真因，纯读码 + 工具 A/B）**：
+
+- **契约定义**：`link_base_delay = measured_link_delay / 2`
+  （`docs/calibration/CALIBRATION_DOMAIN_TODO.md:167`，PHASE-TRN-BASE，状态 DONE；
+  MARK/SCK/DATA 三条训练通道共用 `base_samples + node_offset`）。
+- **工具实现**：`link_base_delay_ns(link_delay_ns, path_delay_baseline_divisor=2)`
+  = `(link_delay + 1) // 2`（`tools/calibration_ring_validate/calibration_phase.py:44-55`）。
+- **固件实现**：`calibration_training_phase_delay_samples()` 只做
+  `base_samples = round(link_base_delay_ns / sample_period_ns)`，**内部不再除以 2**
+  （`components/calibration_manager/src/calibration_training_phase.c:20-23`）；
+  T0 的 capture 相位 = 该 base_samples + offset（`calibration_training_marker.c:14-17`）。
+  采样周期 4 ns（250 MHz），故 base 40 ns → 10 cycles、base 80 ns → 20 cycles。
+- **命名陷阱（已踩）**：C 段里 T0 叫 `link_base_delay_ns`、T1/T2 叫 `link_delay_ns`，
+  但三者在 `calibration_manager_request_*_training()` 里的形参**都叫 `link_base_delay_ns`**
+  （`calibration_manager.c:3109 / 3370 / 3164`）。即 **T0/T1/T2 都应传中点（实测单向 / 2）**，
+  而不是实测单向值。此前 T0 传 80（实测单向）导致捕获相位多 40 ns ≈ 10 个采样点，
+  相关验证失败 → manager 报 `REJECT_CRC`。
+- **工具 A/B 佐证**（同 build、同四板、`--reuse-ring-identity`、codebook 1）：
+  `--link-delay-ns 160`（内部 base=80）→ `correlation_reject_name=MANCHESTER`（失败）；
+  `--link-delay-ns 80`（内部 base=40）→ `NONE`（通过）。
+  说明差异就在 base，而非 ARM 编排。
+- **待办**：用 base=40 跑 APP 的 T0 复验；若通过，`REJECT_CRC` 即闭。
+  同时把"T1/T2 的 candidate[1] 是 base 而非 one-way"写进探针/计划生成侧注释，避免再踩。
+
 ## 7. 台架与操作注意- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
