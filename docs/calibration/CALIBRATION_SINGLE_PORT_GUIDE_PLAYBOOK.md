@@ -4,7 +4,7 @@ Status: Draft
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/console/CONSOLE_WORKFLOW_ARCHITECTURE.md`
-Last updated: 2026-11-05
+Last updated: 2026-11-07
 
 本文是单口引导期流程的 **Draft**（v2），不登记为契约，不作为外部承诺。v1 与 v2 均经两份
 独立只读审查判 `REJECT`；v2 的 B1–B9 闭合判定与新增 N1–N3 见
@@ -1277,3 +1277,63 @@ ARM(带屏障)→START→采样→STOP` + 重放 boot 步骤复环）可直接�
 | 实测 | 环停时 `CONFig` 返回 `-200`；用 `RING:TOPology 4,<slot>,0` + `RING:ARM` + `RING:START` 起环后，**NO.1 单点发 `CONFig` 返回 `"OK"`** |
 | 未通的一环 | 命令 post 成功，但四板 `PLAN?` 仍为 0：本地派发（`distributed_refmem_node_control_service` → `dispatch_control`）没有把这条命令送到 app 处理器。下一步查镜像/派发路径（`distributed_refmem_mirror_local_control` 之后 seq 是否被 `s_node_control_last_command_seq` 吃掉，或命令槽与节点控制记录不是同一条） |
 | 未通的一环 | 命令 post 成功，但四板 `PLAN?` 仍为 0：本地派发（`distributed_refmem_node_control_service` → `dispatch_control`）没有把这条命令送到 app 处理器 |
+
+## 10. 交接（2026-11-07 夜，给下一会话）
+
+**下一会话的章程：严格单口启环——只用协调口（COM5 / NO.1），不得其它 COM 参与。**
+本节的"现状"按实测证据写，未达成的条目一律不写达成。
+
+### 10.1 现状（有证据的部分）
+
+| 能力 | 状态 | 证据锚点 |
+|---|---|---|
+| 10 kHz 引导环启环（**四口**：逐板 STAGE/TOPO/BRINGUP/ARM/START） | 可用、可重复 | 探针 `up`：四板 `enabled=1, nodes=4, up=1, down=1, adapter=1` |
+| GUIDE `CONFig`/`TRIGger` **单口**下发（只发 NO.1，plan 经环上 REFMEM 到四板） | 可用 | `ga` 只开 NO.1 发命令；四板 `PLAN?` 的 `gen/epoch` 一致后才触发 |
+| 七动作阶梯 P1→T3 四板推进 | 可用 | 多轮 `ladder_idx=6`、`ladder_step=2(DONE)` |
+| T3 四板 COMPLETE + 载波可读 `10 MHz/1 ms` | 可用 | `RING:STATus?` 尾 `baud_hz=10000000, cycle_period_ns=1000000` |
+| S 段语义冻结（决策表/幂等键/abort 不提交） | 已完成 | 契约 `CALIBRATION-SGATE-01`（`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` §12） |
+
+### 10.2 未达成（下一会话的主要工作）
+
+1. **启环单口化**：当前启环是四口逐板下发（`guide_cmdplane_probe.py` 的
+   `configure_level()` / `bring_up()`）。要单口，必须把这些动作改走 REFMEM 命令面
+   （固件已有 `distributed_refmem_set_tdma_ring_topology` 一类原语），并证明只开一个端口即可完成。
+2. **帧活性归属**：`total_up_tx/total_down_rx` 现由 adapter 单调累计（R40 已修），但
+   "T3 窗口内 ≥2 样本且同一 ARM 会话"的配对证据仍缺（R39）。
+3. **S 段首次写入实证**：实板只观测到 `2/1/0`（SKIP），`0/1/1`（ALLOW+写成功）从未出现（需造新代 stage）。
+4. **M6.8 全 10 MHz 回归**：当前默认阶梯是**混合载波**（P1/P2 在 10 kHz 引导窗口，P3 起 10 MHz）。
+   要全 10 MHz，必须**先 `OPMode:STAGe 7` 再下 P1 的 CONFig**（P1 的 slot 用 staged period 计算）。
+5. R25（非 T3 恢复环也 10 MHz）已由用户裁决为"**不改行为，改判据口径**"。
+
+### 10.3 资产与入口
+
+- 探针：`tools/calibration/guide_cmdplane_probe.py`（STANDALONE，登记于 `tool_workflow_triage.json`）；
+  子命令 `stage [level] / up / down / ga / verify / plan / ladder / status`。
+- 契约：`CALIBRATION-SGATE-01`（S 段）、`CALIBRATION-P3HIL-01`（凭证绑定）。
+- 归档：`out/calibration/guide-10k/evidence/<stamp>-<tag>/readback.json`
+  （含 `build`、`idn`、`RING:CONFig?`、host fingerprint 与窗口内 `ring_samples`）。
+- 严格判定：`verify <action> <epoch> <gen> <repeats> <archive>`；**不要**用 `verdict()` 的 GREEN
+  （它是 P1 专用，T3 必然打印 NOT-GREEN）。
+
+### 10.4 已知坑（都会让人误判）
+
+1. **`RING:STATus?` 是 append-only 页**，已从 47 扩到 51；每次扩展必须同一提交同步
+   `tools/tdma_ring_monitor/tdma_field_parse.py` 的 `RUNTIME_FIELDS` 与两个严格测试
+   （`test_tdma_board_record.py`、`test_trn03_closed_loop.py`），否则 P3 的 P0T 直接 BLOCKED。
+2. **host 凭证只覆盖"暂存过的 tests"**：改了测试却没 stage，凭证不会覆盖它，
+   `check-staged` 仍会绿。要显式 `--paths`。
+3. **证据必须落盘**：任何"前后两次读"的数字都要先归档再引用；本轮曾把控制台数字写进台账，
+   被审核判为不可复现并撤回。
+4. **环全局序号 ≠ 本板帧计数**：`up_tx_sequence`/`down_rx_sequence` 属 origin；
+   本板帧活动要看 `total_tx_ok/total_rx_ok`（或 idx 24/25 的会话计数，但跨 ARM 会清零）。
+5. **台架退化**：出现 `ring not healthy` 或 `GUIDE:CONFig -200` 时，先 `down→stage→up`，
+   仍不行就整组 `SYST:BOOT:RESET` + 一次 P3 验收重建；不要连续盲试。
+6. **§2.10**：归档未提交改动需**事先取得用户同意**；恢复文件不能用 `git checkout --` 形式。
+
+### 10.5 起步检查清单（下一会话第 1 轮）
+
+1. 读 `CALIBRATION_CTRQS_CHECKLIST.md` 的残余表（R25/R26/R32/R33/R34/R37/R39/R40/N6/N9/N10/N12）。
+2. 确认四板同 build：`*IDN?` + `SYSTem:FW:BUILD?`。
+3. 单口启环要改的第一处：把 `configure_level()` 的四板循环改成"只发 NO.1 + 环上分发"，
+   并先证明 `OPMode:STAGe/APPLy` 存在 REFMEM 命令面可用（若不存在，先补命令面）。
+4. 每步判据只用四板 `PLAN?` / `RING:STATus?` 的归档读数。
