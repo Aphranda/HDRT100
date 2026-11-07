@@ -3750,15 +3750,6 @@ static void app_ctrqs_service(void)
             }
         }
         }
-        /* Unreachable in practice (an enabled ring always carries the staged
-         * period), but if it ever happens the cause is the profile, not the
-         * link, so fail with that reason instead of a generic timeout. */
-        if (app_ctrqs_restore_formed()) {
-            s_ctrqs_t3_stage = 11u;
-            app_ctrqs_abort(
-                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
-            return;
-        }
         if (now >= s_ctrqs.deadline_ms) {
             app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE);
         }

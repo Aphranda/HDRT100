@@ -94,6 +94,10 @@ RUNTIME_FIELDS = (
     "ring_loop_time_max_ns",
     "ring_loop_time_mean_ns",
     "ring_loop_time_count",
+    # Appended: the carrier the running ring actually uses.  Order matches
+    # the firmware result order (baud first, then cycle period).
+    "ring_baud_hz",
+    "ring_cycle_period_ns",
 )
 
 

@@ -919,6 +919,12 @@ scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.loop_time.max_period_ns);
     SCPI_ResultUInt32(context, snapshot.loop_time.mean_period_ns);
     SCPI_ResultUInt32(context, snapshot.loop_time.sample_count);
+    /* Appended: the carrier the running ring actually uses.  Without these
+     * two the host can only read the staged config, so a formed 10 kHz ring
+     * and a formed 10 MHz ring are indistinguishable in any readback.  The
+     * existing positions are unchanged. */
+    SCPI_ResultUInt32(context, snapshot.baud_hz);
+    SCPI_ResultUInt32(context, snapshot.cycle_period_ns);
     return SCPI_RES_OK;
 }
 
