@@ -1158,60 +1158,64 @@ def ladder_ok(boards, action: int) -> bool:
 
 
 def window_rate(tag: str, samples: list) -> None:
-    """Report which RING:STATUS? field grows fastest during the window.
+    """Report the carrier and the frame rate measured inside the window.
 
-    The loop-period fields are structurally zero without a flight image, so the
-    only in-window evidence for the carrier is a monotonic counter: at 10 MHz a
-    four-node ring advances ~250 frames/s, at 10 kHz ~6.7/s (a 150x gap that is
-    unambiguous even with coarse sampling).  Printing the fastest-growing field
-    keeps the index discovery empirical instead of hard-coded.
+    Only the frame counters can prove the ring carries frames: the service tick
+    (idx 9) advances even without traffic, and the carrier fields (47/48) jump
+    once from 0 to the armed value, which used to win every "fastest growth"
+    ranking.  Samples are paired only while the ring is running
+    (`enabled` and `adapter_started`), and a pair whose counters went backwards
+    is discarded as a reconfiguration reset.
     """
     if len(samples) < 2:
         print(f"{now()} rate[{tag}] no samples")
         return
-    first = samples[0]
-    last = samples[-1]
-    dt = last[0] - first[0]
-    if first[1] and isinstance(first[1][0], list):
-        # Per-board samples: report the carrier and the fastest counter
-        # growth for each board, which is what the milestone needs.
-        carriers = {}
-        for entry in last[1]:
-            no, values = entry[0], entry[1]
-            carriers[no] = (values[-2] if len(values) >= 2 else -1,
-                            values[-1] if len(values) >= 1 else -1,
-                            values[0] if values else -1,
-                            values[4] if len(values) > 4 else -1,
-                            values[5] if len(values) > 5 else -1)
-        print(f"{now()} carrier[baud,period,enabled,up,down] {carriers}")
-        for entry in last[1]:
-            no, values = entry[0], entry[1]
-            before = next((e[1] for e in first[1] if e[0] == no), None)
-            if before is None:
+    frame_idx = (10, 11, 24, 25)  # up_tx_seq, down_rx_seq, adapter tx/rx
+    names = {10: 'up_tx_seq', 11: 'down_rx_seq', 24: 'adapter_tx', 25: 'adapter_rx'}
+    per_board = isinstance(samples[0][1][0], list) if samples[0][1] else False
+    if not per_board:
+        print(f"{now()} rate[{tag}] unexpected sample shape")
+        return
+    board_nos = [e[0] for e in samples[-1][1]]
+    for no in board_nos:
+        series = []
+        for stamp, per in samples:
+            entry = next((e for e in per if e[0] == no), None)
+            if entry is not None:
+                series.append((stamp, entry[1]))
+        if len(series) < 2:
+            continue
+        last = series[-1][1]
+        carrier = (last[-2] if len(last) >= 2 else -1,
+                   last[-1] if last else -1,
+                   last[0] if last else -1,
+                   last[8] if len(last) > 8 else -1)
+        best = None
+        for (t0, a), (t1, b) in zip(series, series[1:]):
+            if len(a) < 48 or len(b) < 48:
                 continue
-            ranked = sorted(
-                ((values[i] - before[i], i)
-                 for i in range(min(len(values), len(before)))),
-                reverse=True)[:2]
-            print(f"{now()} growth[NO.{no}] dt={dt:.1f}s top={ranked}")
-        return
-    if dt <= 0:
-        return
-    best = (0, -1)
-    for idx in range(min(len(first[1]), len(last[1]))):
-        delta = last[1][idx] - first[1][idx]
-        if delta > best[0]:
-            best = (delta, idx)
-    # Only frame/service counters: the carrier fields (47/48) jump from 0
-    # to the armed values once and would otherwise dominate the ranking.
-    frame_fields = (9, 10, 11, 24, 25)
-    ranked = sorted(
-        ((last[1][i] - first[1][i], i) for i in frame_fields
-         if i < len(first[1]) and i < len(last[1])),
-        reverse=True)[:3]
-    print(f"{now()} rate[{tag}] dt={dt:.1f}s top={ranked} "
-          f"(10MHz~250/s, 10kHz~6.7/s) idx={best[1]} "
-          f"rate={best[0] / dt:.1f}/s")
+            running = (a[0] == 1 and b[0] == 1 and a[8] == 1 and b[8] == 1)
+            if not running:
+                continue
+            dt = t1 - t0
+            if dt <= 0:
+                continue
+            deltas = {i: b[i] - a[i] for i in frame_idx}
+            if any(v < 0 for v in deltas.values()):
+                print(f"{now()} rate[NO.{no}] counter reset in pair, discarded")
+                continue
+            if best is None or deltas[11] > best[0]:
+                best = (deltas[11], dt, deltas, t0, t1)
+        print(f"{now()} carrier[NO.{no}] baud/period/enabled/adapter_started="
+              f"{carrier}")
+        if best is None:
+            print(f"{now()} rate[NO.{no}] no running pair with advancing frames")
+            continue
+        _, dt, deltas, _, _ = best
+        rendered = {names[i]: deltas[i] for i in frame_idx}
+        print(f"{now()} rate[NO.{no}] dt={dt:.2f}s {rendered} "
+              f"down_rx={deltas[11] / dt:.1f}/s "
+              f"(10MHz 4-node ~250/s, 10kHz ~1.7/s)")
 
 
 def status() -> None:
