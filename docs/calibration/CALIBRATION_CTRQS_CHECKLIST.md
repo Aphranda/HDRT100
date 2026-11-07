@@ -1168,6 +1168,21 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 8. **归档自身缺陷**：`archive_evidence()` 不存 `RING:CONFIG?`、不存 build/IDN/端口，
    故"同 build"绑定不在证据里（真绑定是 source fingerprint `99fc19`，非 build label）。
 
+**2026-11-07 17:5x R25 确认 + R27 落地**
+
+1. **R25 确认（语义缺陷，代码证据）**：`APP_CTRQS_REBUILD` 在 ARM 前调用
+   `app_ctrqs_low_rate_bringup()`（`app.c:3816`），而该函数只在 `staged.baud_hz < 1 MHz` 时才置
+   BRINGUP 位（`app.c:1907-1915`）。P2_STOP/P3_PREP 已把 staged 档 apply 成 level 7（10 MHz，≥1 MHz）
+   ⇒ **P2/P3 之后的恢复环会以 10 MHz ARM/START**，而 `guide_action_ladder_is_last()` 在固件里
+   无任何调用。因此"只有 T3 的 S 允许 ARM→START 10 MHz"**当前不是代码不变量**，
+   M6.6 的判据必须补负向验证（P2/P3 窗口内环须为引导档），或先修语义。
+2. **R27 已落地（host 侧）**：`archive_evidence()` 现在额外归档
+   `SYSTem:FW:BUILD?`（每板）、`*IDN?`、`SYST:TDMA:RING:CONFig?`，
+   以及 host 侧 `working_source_fingerprint()`（当前 `99fc19a3…` / 996 文件）。
+   自测产物：`out/calibration/guide-10k/evidence/20261107-173510-R27-selftest-v2/readback.json`
+   已含 `build="20261107063505"`、`fingerprint=99fc19a3…`、`files=996`。
+3. **仍缺**：M6.6b（窗口内 `loop_time.mean_period_ns` 的回读通道，需固件改动）、R26（S 段写 flash 实证）。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
