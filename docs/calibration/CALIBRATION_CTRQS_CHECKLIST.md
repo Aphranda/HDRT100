@@ -1087,6 +1087,34 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
    `epoch` 为本轮 + `ctrqs` 在本轮经历过 25/28**（`ctrqs` 需在同一轮内采样）。
 7. **`arm_tries` 表述更正**：不是"死代码"，而是"只增不读"（`app.c:3118` FORWARD 重试也自增）。
 
+**2026-11-07 14:1x 三次审核改判（子代理 `ae9a8a43`）——三条硬推翻**
+
+1. **N5 原修复无效（已改）**：原 `app_ctrqs_t3_profile_formed()` 比较"环周期 == staged 周期"，
+   而 ARM 就是把 staged 抄进 runtime（`tdma_service.c:1005-1013` → `tdma_ring_runtime.c:460`），
+   成功路径恒真；且 T3 只校验 `profile_level != 0`，**level 23（10 kHz/150 ms）也会 COMPLETE**。
+   改为在 `T3_PREP` 里对 staged profile 做硬门：`cycle_period_ns == APP_CTRQS_T3_PERIOD_NS(1 ms)`
+   且 `baud_hz == APP_CTRQS_T3_BAUD_HZ(10 MHz)`，否则 `abort(CONFIG_VALIDATION_FAILED)`。
+2. **verify 的 P1 判据不可满足（已改）**：原要求 `trials_done==4 && passed_mask==0x1`，
+   而 P1 每个 trial 置一位 ⇒ passed=0xF、failed=0xE，必被 `no_fail` 否掉。
+   已按动作区分掩码：P1=0xF、P3=0xFFF、P2/T0/T1/T2/T3=0x1。
+3. **T3 的 10 MHz 仍缺证明链（已改）**：`RING:CONFig?` 读的是 **staged**、且无 baud 出参，
+   1 ms 周期对应 10–50 MHz 多个档位。`verify` 改为读 `RING:STATUS?` 尾字段
+   `loop_time.mean_period_ns`（四节点 10 MHz ⇒ ≈4 ms），要求 3.5–4.5 ms 区间。
+4. **N8 经审核确认正确且必要**（abort 后若落回 formed 检查，同拍可把已 abort 的轮次改判成功）。
+5. **N7 无新死锁，但有"一次 START 后无恢复"窗口**：锁存取自 API 返回值，若环 `enabled=1`
+   但 up/down 不起，只能等 60 s 超时。
+6. **新增残余 N10–N13**：
+   - **N10（高）**：`c823922d` 同时替换了 P3 凭证（`p3-131415` → `p3-133844`），
+     而本台账 13:4x 节仍写"正确凭证是 p3-131415" ⇒ **文档与已提交凭证矛盾**（以磁盘凭证为准）。
+   - **N11（中）**：严格验证入口未入库、零实板运行证据；且 `guide_action()` 末尾调用的是
+     **P1 专用** `verdict()`，任何非 P1 实跑都会打印 NOT-GREEN。
+   - **N12（中）**：跟随板 P1 完成是"时间到 + 此刻处于 FORWARDING"一次性盖章全部 trials
+     （`app.c:2104-2125`）⇒ `passed_mask=0xF` **不是逐 trial 证据**。
+   - **N13（低）**：`verify` 的 T3 周期检查在有 boot plan 的镜像上会恒 FAIL
+     （boot 重放把 staged 改回 15×10⁴ ns），只在无 boot plan 的台架镜像成立。
+7. **台账 ID 悬空**：R11/R12/R14/R15/R19 只在审核正文出现、无登记条目，需补登记或删引用；
+   另 `:1064/:1065` 引用的 `app.c` 行号已漂移。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
