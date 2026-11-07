@@ -1058,6 +1058,35 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 8. **"下一步"口径**：`T3_PREP` 修复与三处新改动**均已有 build 与 P3**（`20261107035659` /
    `20261107045359`，后者见 `p3-125344`）；"待取证"只对 **T3 行为**成立（QUICK_DIAGNOSTIC 不跑 GUIDE 阶梯）。
 
+**2026-11-07 13:4x 二次审核改判（子代理 `11e83025`）——残余状态与判据修正**
+
+1. **R18 不成立 CLOSED**：重臂上限只有代码、**零实板证据**；且只对 START 拒绝计数、ARM 失败不计；
+   `arm_tries` 与 FORWARD 路径共用（`app.c:3118` 只增不读）。改记 **MITIGATED-未验证**。
+2. **R16/R17**：仅**代码层** CLOSED（`:3666` 已捕获 START 返回值；`enabled` 唯一写点
+   `tdma_ring_runtime.c:429/449`），T3 行为仍无实板证据。
+3. **正确凭证**：含四处改动的构建是 **`20261107051434` / `p3-131415`**（`app.c` mtime 13:09:44 <
+   打包 13:14:15）；`20261107045359`(12:53) **不含**这些改动。且该 P3 为
+   `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`、`strict_gates_passed=false`，其 `trn03-matrix` 与
+   `alarm_stage_sources.T3` **都不是** `SYST:TDMA:GUIDE:` 阶梯，**不可引作 T3 证据**。
+4. **新增残余 N4–N9**：
+   - **N4（高）**：`PLAN?` 的 progress 是"上次 Q"的读数、不带 epoch；而复跑工具
+     （`tools/domains/trigger/trigger_debug_demo/calibration_workflow.py:202-230`）只判
+     `progress_valid && status==1 && failed_mask==0` ⇒ **陈旧 Q 会被判 pass**，足以把 R15 "假闭合"。
+   - **N5（中）**：T3 成功判据不绑定速率（level 23 的 10 kHz 也能 COMPLETE，`PLAN?` 上与 10 MHz 同构）。
+   - **N6（中）**：T3 成功复用开窗前 `restore_*` 身份（`candidates[0]%4 != reference_slot` 时永不可达，abort 106）。
+   - **N7（低）**：START 无锁存时每 150 ms 重发，瞬时拒绝会拆掉正在成形的环。
+   - **N8（低）**：abort 后同拍可二次 abort 覆盖诊断码；`s_ctrqs_abort_site` 有重复声明（既有）。
+   - **N9（操作）**：阶梯在 RAM，重启后 T3 会被 `plan_valid` 拒（status=3/reason=13/abort_site=0），易误读为 T3 失败。
+5. **本轮已按审核修**：N5（`app_ctrqs_t3_profile_formed()` 要求环周期 == staged 周期）、
+   N7（`t3_started` 锁存）、N8（abort 后 `return`）；并新增严格验证入口
+   `guide_cmdplane_probe.py verify <action> <epoch>`：要求**本轮新鲜度（epoch 匹配）+ 执行器空闲 +
+   trials 计数 + passed 掩码 + failed=0 + abort_site=0 +（T3）周期=1 ms**，缺一即 FAIL——
+   这是对 N4 的直接对策（陈旧 Q 会被判 FAIL 而不是 pass）。
+6. **判据改写**：不再写"成功来自 `T3_ARM` 站点（106/7）"（`abort_site` 只在 abort 时写、成功恒为 0，
+   站点无 SCPI 出口）；改为 **`status=1` + `passed_mask=1` + `trials_done=1` + `abort_site=0` +
+   `epoch` 为本轮 + `ctrqs` 在本轮经历过 25/28**（`ctrqs` 需在同一轮内采样）。
+7. **`arm_tries` 表述更正**：不是"死代码"，而是"只增不读"（`app.c:3118` FORWARD 重试也自增）。
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
