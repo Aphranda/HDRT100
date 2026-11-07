@@ -54,3 +54,17 @@ uint32 回绕被 `valid()` 拒绝、v1 地图只读/写入拒绝正确、commit 
 
 F1–F9 修改后需重跑：`host_acceptance.py run`（tools/tests 改动）、P3（固件改动）、四板 provisioning +
 零口自组证据。复审结论在证据落盘后回填本节。
+
+### 最终证据（build `20261107162842`，2026-11-08）
+
+| 证据 | 路径 | 判据 |
+|---|---|---|
+| P3 | `out/HardwareAcceptance/20261108/p3-final2/` | graded outcome **PASS**，INFO 34 / WARN 0 / ERROR 0 / FATAL 0；OTA build=20261107162842；P0T 为同 build 独立重测 |
+| 零口自组 | `out/calibration/guide-10k/evidence/20261108-013330-boot-final3/readback.json` | 四板 `action=START_REF/LISTEN`、`steps=8`、`fail_step=0`、`boot_done=1`、`up/down/adapter=1/1/1`，帧总量 68→72 |
+| 单口 C/T | `out/calibration/guide-10k/evidence/20261108-013432-ct-final3/readback.json` | `command_port=COM5`；发送时只开 COM5；58.8 s 后四板 `PLAN? gen=950` |
+| host | `config/hardware_acceptance/host_acceptance_receipt.json` | files=1165，77 passed |
+| R26（M5） | `out/calibration/trn03-r26/summary.json` | 四板 `record_generation=1794072390, record_sequence=1, persisted_valid=1, reject=0` |
+
+**台架恢复记录**：连续 factory 刷写后 OTA 在 durable=512 处失败（旧镜像同样复现）；用
+`picotool_flash.py --full-erase` + factory 重刷 + `SYSTem:BOARD:NO <n>` 恢复四板，干净 flash 上 OTA 单板
+PASS，随后四板 P3 一次通过。
