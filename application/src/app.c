@@ -2677,9 +2677,10 @@ static void app_ctrqs_t0_advance(bool passed, uint64_t now)
     }
     s_ctrqs.t0_prepared = false;
     s_ctrqs.t0_injected = false;
-    s_ctrqs.t0_trial_t0_ms =
-        s_ctrqs.t0_ms + (uint64_t)s_ctrqs.t0_trial * s_ctrqs.slot_ms;
-    s_ctrqs.deadline_ms = s_ctrqs.t0_trial_t0_ms + APP_CTRQS_T0_STEP_MS;
+    /* Same anchor rule as the first trial: each repeat gets a full step budget
+     * from the moment it can start, bounded by the window itself. */
+    s_ctrqs.t0_trial_t0_ms = now;
+    s_ctrqs.deadline_ms = now + APP_CTRQS_T0_STEP_MS;
     s_ctrqs.state = APP_CTRQS_T0_RUN;
     (void)now;
 }
@@ -3455,8 +3456,13 @@ static void app_ctrqs_service(void)
         s_ctrqs.t0_trial = 0u;
         s_ctrqs.t0_prepared = false;
         s_ctrqs.t0_injected = false;
-        s_ctrqs.t0_trial_t0_ms = s_ctrqs.t0_ms;
-        s_ctrqs.deadline_ms = s_ctrqs.t0_trial_t0_ms + APP_CTRQS_T0_STEP_MS;
+        /* Anchor the trial where it can actually start: the wait above is the
+         * ring teardown, which takes seconds at a low-rate profile.  Anchoring
+         * at the window start left almost no budget, so the first service tick
+         * of T0_RUN already saw an expired deadline and every trial "timed out"
+         * without the marker ever being injected. */
+        s_ctrqs.t0_trial_t0_ms = now;
+        s_ctrqs.deadline_ms = now + APP_CTRQS_T0_STEP_MS;
         s_ctrqs.state = APP_CTRQS_T0_RUN;
         return;
     case APP_CTRQS_T0_RUN:
