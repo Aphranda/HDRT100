@@ -853,6 +853,28 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 |---|---|---|---|---|---|---|
 | R9 | "base = path_sum/4"（双重折半）无契约解释，两处实现注释互相矛盾 | OPEN | 任何人改 P3→base 管线或直接手填 base | 相位差 40 ns ≈ 10 samples，静默失败 | 在 `CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 或等价契约处写明"测量值→base"的唯一换算链并登记 | M6.7 |
 
+**2026-11-07 11:2x T0 通过（管线口径 base=40）；T1 卡在请求前置**：
+
+- **T0 ✅**：整链 P1（四板 4/4）→ P2 → P3（四板 `0xFFF`）→ **T0 四板
+  `prog_status=1, trials_done=1/1, passed_mask=0x1, failed_mask=0, reason=0`，阶梯推进 4**。
+  证实 `REJECT_CRC` 的根因就是 base 口径（40 = 管线值；80 = 实测单向值误填）。
+- **T1 ⏳**：只有链路端点两板被拒（`prog_status=2, prog_reason=13, abort_site=19 = T1_PREP`），
+  非端点板按设计 no-op pass。已排除 `launch_guard > base_samples`（guard 4→12 仍拒）。
+  下一步候选：`calibration_manager_request_sck_training()` 的外层前置里
+  `s_marker_active / s_clk_coded_active / s_data_active` 是否仍为真
+  （`calibration_manager.c:3414-3417`）；`stop_marker_training()` 只发 STOP 意图、
+  由 core1 异步清除（`:3144-3148`），需要确认 T0 结束后该标志确实已落。
+- **新发现（阶梯分叉）**：T1 在 NO.1/NO.2 失败、NO.3/NO.4 成功 → 四板 `ladder_idx`
+  变成 4/4/5/5，**阶梯不再一致**。这意味着"部分板失败"会破坏 M6.2 的一致性前提，
+  后续动作会因期望动作不同而互相拒绝。需要机制（或在探针侧）做阶梯重同步；
+  这条单独记为残余 R10。
+
+**残余登记（补充）**
+
+| # | 残余 | 状态 | 触发条件 | 影响面 | 复验判据 | 闭环里程碑 |
+|---|---|---|---|---|---|---|
+| R10 | 部分板失败后 `ladder_idx` 四板分叉，后续动作互相拒绝 | OPEN | 任一动作只在部分板成功 | 阶梯无法继续推进 | 提供一个显式的阶梯重同步手段并验证四板一致 | M6.2/M6.7 |
+
 ## 7. 台架与操作注意
 
 - 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
