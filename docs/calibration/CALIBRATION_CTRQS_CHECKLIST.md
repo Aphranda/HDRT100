@@ -817,31 +817,45 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
   codebook 载荷编码三选一）；读 `calibration_training_marker.c:139-180` 的 CRC 判定输入与
   `marker_crc32` 的生成处，对比请求侧与 phys 侧的构造差异。
 
-**2026-11-07 11:0x 时间参数定案（T0 的 CRC 拒绝真因，纯读码 + 工具 A/B）**：
+**2026-11-07 11:0x 时间参数定案（经子代理 `497427e6` 独立复核后改写）**：
 
-- **契约定义**：`link_base_delay = measured_link_delay / 2`
-  （`docs/calibration/CALIBRATION_DOMAIN_TODO.md:167`，PHASE-TRN-BASE，状态 DONE；
-  MARK/SCK/DATA 三条训练通道共用 `base_samples + node_offset`）。
-- **工具实现**：`link_base_delay_ns(link_delay_ns, path_delay_baseline_divisor=2)`
-  = `(link_delay + 1) // 2`（`tools/calibration_ring_validate/calibration_phase.py:44-55`）。
-- **固件实现**：`calibration_training_phase_delay_samples()` 只做
-  `base_samples = round(link_base_delay_ns / sample_period_ns)`，**内部不再除以 2**
-  （`components/calibration_manager/src/calibration_training_phase.c:20-23`）；
-  T0 的 capture 相位 = 该 base_samples + offset（`calibration_training_marker.c:14-17`）。
-  采样周期 4 ns（250 MHz），故 base 40 ns → 10 cycles、base 80 ns → 20 cycles。
+- **字段语义**：`link_base_delay_ns` 是**采样相位基线**，写进设备前必须已折半。
+  固件只做一次换算 `cycles = round(base_ns / sample_period_ns) + offset`，
+  **不再除以 2**（`components/calibration_manager/src/calibration_training_phase.c:20-23`；
+  T0 的 capture 相位同源 `calibration_training_marker.c:14-17`）。采样 4 ns（250 MHz），
+  `MAX_PIO_DELAY_SAMPLES = 31`（=124 ns），`offset ∈ ±10 samples`（±40 ns），
+  且 `base+offset ∈ [1,31]`（`components/tdma/src/tdma_ring_runtime.c:260-266`）。
+- **现行管线（关键，不是"实测单向/2"那么简单）**：
+  ① P3 双向对打测得 `path_sum = (t4-t1) - (t3-t2)`，`delay_estimate_ns = path_sum / 2`
+  （`tools/calibration_ring_validate/calibration_link_p3.py:313-315, 385`），实板 80/82 ns；
+  ② 验收管线把 `delay_estimate_ns` 当"测量值"，再应用 baseline divisor：
+  `base = round(delay_estimate / 2)`（`tools/hardware_acceptance/workflow_steps.py:2468-2492, 3637-3639`），
+  实板 `link_base_delays = [41,40,40,41]`（`out/HardwareAcceptance/20261107/p3-103206/`）。
+  净效果 **base = path_sum / 4**。
+- **契约矛盾（OPEN，见下方残余登记 R9）**：`calibration_stage_derive.h:39-43` 说该函数的输入应是
+  **往返（round-trip）**值、由它折半一次；而 `workflow_steps.py:2488-2489` 的注释说
+  divisor 是"在更晚阶段"再应用的。两者不能同时成立，仓库里没有文档解释 "base = path_sum/4"。
+  ⇒ 在契约裁决前，**"40 还是 80"只能按管线口径（40）执行，不能当作物理定论**。
 - **命名陷阱（已踩）**：C 段里 T0 叫 `link_base_delay_ns`、T1/T2 叫 `link_delay_ns`，
-  但三者在 `calibration_manager_request_*_training()` 里的形参**都叫 `link_base_delay_ns`**
-  （`calibration_manager.c:3109 / 3370 / 3164`）。即 **T0/T1/T2 都应传中点（实测单向 / 2）**，
-  而不是实测单向值。此前 T0 传 80（实测单向）导致捕获相位多 40 ns ≈ 10 个采样点，
-  相关验证失败 → manager 报 `REJECT_CRC`。
-- **工具 A/B 佐证**（同 build、同四板、`--reuse-ring-identity`、codebook 1）：
-  `--link-delay-ns 160`（内部 base=80）→ `correlation_reject_name=MANCHESTER`（失败）；
-  `--link-delay-ns 80`（内部 base=40）→ `NONE`（通过）。
-  说明差异就在 base，而非 ARM 编排。
-- **待办**：用 base=40 跑 APP 的 T0 复验；若通过，`REJECT_CRC` 即闭。
-  同时把"T1/T2 的 candidate[1] 是 base 而非 one-way"写进探针/计划生成侧注释，避免再踩。
+  但三者在 `calibration_manager_request_*_training()` 的形参**都叫 `link_base_delay_ns`**
+  （`calibration_manager.c:3109 / 3370 / 3164`）。T0/T1/T2 **同语义**：都要填 base（管线口径）。
+- **A/B 证据（限定范围）**：同 build、同四板、`--reuse-ring-identity`、codebook 1、offset=0，
+  `--link-delay-ns 160`（base 80 → 20 cycles）→ `MANCHESTER` 失败；
+  `--link-delay-ns 80`（base 40 → 10 cycles）→ `NONE` 通过。
+  **该 A/B 只证明"offset=0 时 10 cycles 通过、20 cycles 不通过"**，
+  不能证明 10 cycles 是物理最优（base 80 + offset −10 同样得到 10 cycles）。
+- **待办**：用管线口径的 base（41/40/40/41）复验 APP 的 T0；通过则 `REJECT_CRC` 闭，
+  但仍需 R9 的契约裁决与 offset 扫描，才能把"物理最优相位"定下来。
 
-## 7. 台架与操作注意- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
+**残余登记（本轮）**
+
+| # | 残余 | 状态 | 触发条件 | 影响面 | 复验判据 | 闭环里程碑 |
+|---|---|---|---|---|---|---|
+| R9 | "base = path_sum/4"（双重折半）无契约解释，两处实现注释互相矛盾 | OPEN | 任何人改 P3→base 管线或直接手填 base | 相位差 40 ns ≈ 10 samples，静默失败 | 在 `CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 或等价契约处写明"测量值→base"的唯一换算链并登记 | M6.7 |
+
+## 7. 台架与操作注意
+
+- 四板：COM5/COM4/COM3/COM6 = NO.1..4；混版会被 P0T 的固件版本门直接拒绝。
 - **起环要在 P3 刚结束的 RAM 校准态下做**：先全板 `RING:TOPology 4,<slot>,0`，再跟随板
   `ARM`/`START`，最后参考板 `ARM`/`START`；参考板 `START` 偶发 `-200`，重发一次通常即成功。
 - `RING:TOPology` 会清掉 `DIAGNOSTIC_CONTINUE`；台架诊断起环顺序是
