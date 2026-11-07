@@ -115,13 +115,13 @@ int main(void)
     assert(status.reject_reason == TDMA_BOOT_PROFILE_STORE_REJECT_EMPTY);
 
     const tdma_boot_profile_t first = profile_for(2u, 1u);
-    assert(tdma_boot_profile_store_commit(&first));
+    assert(tdma_boot_profile_store_commit(&first, 1u));
     assert(tdma_boot_profile_store_get(&cached));
     assert(memcmp(&cached, &first, sizeof(cached)) == 0);
 
     /* Same generation appends a new sequence; the cached value follows. */
     const tdma_boot_profile_t second = profile_for(3u, 1u);
-    assert(tdma_boot_profile_store_commit(&second));
+    assert(tdma_boot_profile_store_commit(&second, 2u));
     assert(tdma_boot_profile_store_get(&cached));
     assert(cached.local_slot == 3u);
     tdma_boot_profile_store_status(&status);
@@ -129,13 +129,13 @@ int main(void)
 
     /* A higher generation supersedes the previous one. */
     const tdma_boot_profile_t third = profile_for(1u, 2u);
-    assert(tdma_boot_profile_store_commit(&third));
+    assert(tdma_boot_profile_store_commit(&third, 3u));
     assert(tdma_boot_profile_store_get(&cached));
     assert(cached.local_slot == 1u && cached.generation == 2u);
 
     /* Replay of an older generation is rejected. */
     const tdma_boot_profile_t older = profile_for(0u, 1u);
-    assert(!tdma_boot_profile_store_commit(&older));
+    assert(!tdma_boot_profile_store_commit(&older, 4u));
     assert(tdma_boot_profile_store_get(&cached));
     assert(cached.generation == 2u);
 
@@ -143,7 +143,7 @@ int main(void)
     tdma_boot_profile_t rotating = profile_for(0u, 3u);
     for (uint32_t i = 0u; i < 20u; i++) {
         rotating.local_slot = i % 4u;
-        assert(tdma_boot_profile_store_commit(&rotating));
+        assert(tdma_boot_profile_store_commit(&rotating, 100u + i));
     }
     assert(tdma_boot_profile_store_get(&cached));
     assert(cached.generation == 3u);
@@ -161,7 +161,7 @@ int main(void)
 
     /* Erase returns the board to "no boot profile" and restarts the generation
      * sequence; the cached profile is dropped with it. */
-    assert(tdma_boot_profile_store_erase());
+    assert(tdma_boot_profile_store_erase(9u));
     tdma_boot_profile_store_status(&status);
     assert(!status.loaded);
     assert(status.generation == 0u);
@@ -172,7 +172,7 @@ int main(void)
     /* Provisioning after a clear works again (an empty store has no replay
      * floor), and a later generation still supersedes it. */
     const tdma_boot_profile_t revived = profile_for(2u, 1u);
-    assert(tdma_boot_profile_store_commit(&revived));
+    assert(tdma_boot_profile_store_commit(&revived, 7u));
     assert(tdma_boot_profile_store_get(&cached));
     assert(cached.generation == 1u && cached.local_slot == 2u);
     assert(tdma_boot_profile_store_next_generation(&next) && next == 2u);
@@ -201,7 +201,7 @@ int main(void)
     assert(!status.supported);
     assert(status.reject_reason == TDMA_BOOT_PROFILE_STORE_REJECT_UNSUPPORTED);
     assert(!tdma_boot_profile_store_get(&cached));
-    assert(!tdma_boot_profile_store_commit(&profile));
+    assert(!tdma_boot_profile_store_commit(&profile, 1u));
     printf("v1 compat: boot profile store unsupported\n");
     return 0;
 }
