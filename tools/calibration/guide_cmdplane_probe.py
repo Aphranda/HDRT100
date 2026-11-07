@@ -967,7 +967,9 @@ def guide_action(action: int, gen: int, epoch: int, level: int, window: int,
         if all(len(s) > 4 and s[1] in (1, 2) and s[0] in (0, 26, 27)
                for s in states) and any(s[2] for s in states):
             break
-        time.sleep(0.5)
+        # T3 lives ~1.5 s; a 0.5 s poll leaves two samples, so poll the
+        # ring faster than the PLAN? sweep while the window is open.
+        time.sleep(0.2)
     window_rate(f"action{action}", ring_samples)
     archive_evidence(f"action{action}-gen{gen}", boards, action, gen, epoch,
                      ring_samples, text)
@@ -1200,9 +1202,12 @@ def window_rate(tag: str, samples: list) -> None:
         delta = last[1][idx] - first[1][idx]
         if delta > best[0]:
             best = (delta, idx)
+    # Only frame/service counters: the carrier fields (47/48) jump from 0
+    # to the armed values once and would otherwise dominate the ranking.
+    frame_fields = (9, 10, 11, 24, 25)
     ranked = sorted(
-        ((last[1][i] - first[1][i], i)
-         for i in range(min(len(first[1]), len(last[1])))),
+        ((last[1][i] - first[1][i], i) for i in frame_fields
+         if i < len(first[1]) and i < len(last[1])),
         reverse=True)[:3]
     print(f"{now()} rate[{tag}] dt={dt:.1f}s top={ranked} "
           f"(10MHz~250/s, 10kHz~6.7/s) idx={best[1]} "

@@ -236,3 +236,25 @@ def test_run_stops_all_boards_before_any_export(monkeypatch, tmp_path) -> None:
                         if item.endswith(":EXPORT")]
     assert len(stop_positions) == 2
     assert max(stop_positions) < min(export_positions)
+
+def test_parse_runtime_accepts_appended_carrier_tail() -> None:
+    """The SCPI page is append-only: a longer page must still parse.
+
+    The exporter reads a fixed prefix, so a page carrying the appended carrier
+    fields (baud, cycle period) must not be rejected.
+    """
+    values = [0] * 40
+    values[38] = 7
+    values[39] = 7
+    appended = values + [0] * 7 + [10_000_000, 1_000_000]
+    status = parse_runtime_status(",".join(str(v) for v in appended))
+    assert runtime_stopped(status) is True
+    assert len(appended) == 49
+
+    short = ",".join(str(v) for v in values[:39])
+    try:
+        parse_runtime_status(short)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a page shorter than the prefix must be rejected")

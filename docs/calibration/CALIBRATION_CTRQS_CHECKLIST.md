@@ -322,7 +322,7 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 | M6.4 | P3 @10 kHz 四板 | ✅ 同 build `20261107003733`：四板 P3 `prog_status=1, trials_done=12, passed_mask=0xFFF, failed_mask=0, reason=0, ladder_idx=3`；执行器按 trial 逐个推进（`18e495a2` 修掉 state 锁存）。C 段须用链路速率（10 MHz）+ 5% 容差 | 四板 `PLAN?` + `p3-083723` | ✅ 完成（`18e495a2`） |
 | M6.5 | T0/T1/T2 @10 kHz 四板 | ✅ 同 build `20261107033453` 整链：T0 四板 `passed_mask=0x1`（base=40）、T1 四板 `passed_mask=0x1`（`guard=32`、search −10..10）、T2 四板 `passed_mask=0x1`（search −4..10，因 T2 guard 硬编码 4）；阶梯四板一致推进到 6 | 四板 `PLAN?` | ✅ 完成 |
 | M6.6 | T3 @10 kHz | ⏳ **部分达成**：T3 四板 `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0, abort_site=0`，`verify 7 507 1407` = PASS，且 COMPLETE 只能来自 T3_ARM（N3 删除仍有效）；**但"实测 10 MHz 起环"不成立**（见 17:4x 审核更正） | 四板 `PLAN?` + 归档 `evidence/20261107-150558-…` | ⏳ 未闭环 |
-| M6.6b | T3 的 10 MHz 需**实测**（非 staged 自证） | ⏳ staged 档已由 `operating_profile_crc32=1383759744` 唯一确定为 level 7（10 MHz）；缺的是**窗口内实测**。`RING:STATUS?` 的 `loop_time` 七字段（41–47，0 基）在无 flight 镜像时结构性为 0，故改用窗口内 `adapter_tx_count` 等单调计数增量判速率（10 MHz≈250/s vs 10 kHz≈6.7/s）；探针已实现 `window_rate()` 采样 | `RING:STATUS?` 窗口内两次采样 + `window_rate` 输出 | ⏳ 并入 M6.7 |
+| M6.6b | T3 的 10 MHz 需**实测**（非 staged 自证） | ⏳ staged 档已由 `operating_profile_crc32=1383759744` 唯一确定为 level 7（10 MHz）；缺的是**窗口内实测**。`RING:STATUS?` 的 `loop_time` 七字段（**40–46**，0 基）在无 flight 镜像时结构性为 0，故改用窗口内 `adapter_tx_count` 等单调计数增量判速率（10 MHz≈250/s vs 10 kHz≈6.7/s）；探针已实现 `window_rate()` 采样 | `RING:STATUS?` 窗口内两次采样 + `window_rate` 输出 | ⏳ 并入 M6.7 |
 | M6.7 | S 代数语义 + M6 收口 | S 代数语义冻结成文；P3 凭证 + host 凭证；本节全行 ✅ | 凭证 + 提交清单 | M6.6 |
 | M6.8 | 10 MHz 七动作全链回归 | `P1→T3` 四板 `COMPLETE`（改动后回归，防 10 kHz 修复伤高速档） | 四板 `PLAN?` + P3 | 可与 M6.1 并行 |
 | M6.9 | 探针工具归型 | `out/calibration/guide-10k/guide_cmdplane_probe.py` 或归型入库、或明确废弃并记录 | `tools/tool_workflow_triage.json` 条目或文档说明 | 收口前 |
@@ -1189,12 +1189,12 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
    `operating_profile_crc32=1383759744` 是 FNV1a over {version,level,baud,period,…}，
    level 7 = 10 MHz/1 ms），且 `config_seq==applied_config_seq` ⇒ 该档已进 runtime。
    所以缺的**只有"窗口内实测"**，不是"哪一档"。
-2. **实测通道（零固件）**：`loop_time` 七字段（41–47，0 基）在无 flight 镜像/无 origin 时
+2. **实测通道（零固件）**：`loop_time` 七字段（**40–46**，0 基）在无 flight 镜像/无 origin 时
    结构性为 0（`resolution_ns=0` 说明 `note_origin_return()` 从未被调用）。改用**窗口内单调计数增量**：
    探针已加 `window_rate()`，每 ~1 s 采样 `RING:STATUS?` 全串，输出最快增长字段与其速率
    （10 MHz 四节点 ≈250 帧/s，10 kHz ≈6.7 帧/s，150× 差距可判别）。
 3. **文档硬伤修正**：`Last updated` → 2026-11-07；`PLAN?` 字段数 22 → **25**；
-   "见 16:5x" → 17:4x；`loop_time` 区间 42–47 → **41–47**。
+   "见 16:5x" → 17:4x；`loop_time` 区间 42–47 → **40–46**。
 4. **口径沿用**：M6.4/M6.5 的"@10 kHz"应读作"10 kHz **引导档阶梯**"——P3_PREP 之后
    环载体已是 10 MHz（R25），标题本身会误导。
 5. **R27 的仓库侧缺口（并入 M6.9）**：探针在 `out/`、被 `.gitignore` 忽略 ⇒ 归档机制
@@ -1207,9 +1207,9 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 探针加了窗口内 `RING:STATUS?` 采样（`window_rate()`，每 0.4–1 s 一次，随归档保存）。
   T3 轮次只存活 ~1.5 s，0.4 s 采样仅得 2 个点（dt=0.6 s）。
 - **结果：窗口内没有任何帧计数在增长**。top-3 增量只有 `idx9`（服务计数，+6…+9）
-  与 `idx38/39`（config/applied_seq，+3）；`RING:STATUS?` 的 41–46（`loop_time`）全 0。
+  与 `idx38/39`（config/applied_seq，+3）；`RING:STATUS?` 的 40–46（`loop_time`）全 0。
   索引对照（实测 dump）：`0=enabled 1=node_count 4=up 5=down 8=adapter_started
-  10/11/14=序列 16=trip_ns 38/39=config/applied seq 41–46=loop_time`。
+  10/11/14=序列 16=trip_ns 38/39=config/applied seq 40–46=loop_time 47=baud 48=cycle`。
 - **结论**：`RING:STATUS?` **不含帧计数器**，"用单调计数增量判速率"这条路不成立；
   且窗口内序列不前进说明 **T3 窗口里的环可能只是"已配置/已 arm"，并未证明在跑帧**——
   真正跑帧的证据只出现在窗口关闭后的恢复环上（`up=1/down=1`）。
@@ -1251,11 +1251,10 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - **真正的缺口与修复（`53c59ba2`）**：`plan_valid` 原只要求 `profile_level != 0`，
   而 `T3_PREP` 硬门要求恰好 (1 ms, 10 MHz)＝level 7 ⇒ level 8–13/20–22 会被**接受后 8 s 才失败**。
   已改为**准入即要求 `APP_CTRQS_T3_LEVEL`**（fail fast，`abort_site=0`）；
-  并把下部不可达的 formed 块替换为"若成环但档位不符 → 专用站点 11 + `CONFIG_VALIDATION_FAILED`"，
-  避免退化到 60 s 超时（站点 110）造成误诊。
+  并把下部不可达的 formed 块一并删除。**（该"站点 11"方案已撤回：判据恒真，只会在 TOCTOU 窗口误杀正常 T3。）**
 - **已知残余（本轮未解决）**：boot 重放与执行器无互斥（`app_diag_service` 同拍先 boot 后 ctrqs），
   可在 `T3_PREP` 门之后、ARM 之前把 staged 改回 150 ms（N13/R25 的真实变体）；
-  `RING:STATus?` 不导出 `cycle_period_ns`/`baud_hz`，上述两个操作数在主机侧**完全不可观测**。
+  **已过时**：`RING:STATus?` 现已在尾部导出 `baud_hz`（47）与 `cycle_period_ns`（48），故"该环被 arm 成什么载波"在主机侧可观测；仍不可观测的是"帧是否在跑"（需 idx 10/11/24/25 的增量）。
 - **验证**：build `20261107110715`（P3 `p3-190656`，`PASS_WITH_WARNINGS`，0 ERROR/1 WARN）上跑完整梯子
   P1→T2 四板全绿（`ladder_idx=6`），T3 首轮因 NO.1 的 CONFig 未落地而中止（命令面丢帧，非代码），
   重发 `gen=2010, epoch=1010` 后**四板** `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0,
@@ -1306,7 +1305,7 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 | N9 | OPEN | 阶梯在 RAM，重启归零 | 持久化或用例自描述 |
 | N10 | OPEN | 台账凭证编号与磁盘不一致 | 以磁盘为准统一 |
 | N12 | OPEN | 跟随板 P1 一次性盖章 | 逐 trial 证据或改口径 |
-| 站点 111 | OPEN | 已随 `stage=11` 删除，但文档站点表未列 11 | 更新站点表或保持删除 |
+| 站点 111 | CLOSED（retired） | 产生它的代码块已删除 | 代码不可能再产生 111 |
 
 ## 7. 台架与操作注意
 
