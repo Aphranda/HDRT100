@@ -4,7 +4,7 @@ Status: Active
 Domain: calibration / refmem / tdma
 Canonical: `docs/calibration/CALIBRATION_CTRQS_CHECKLIST.md`（本文）
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`
-Last updated: 2026-11-06
+Last updated: 2026-11-07
 
 ## 0. 新会话交接摘要（先读这一节）
 
@@ -46,7 +46,7 @@ reason=11(TIMEOUT), reconcile=3`，跟随板同期 `COMPLETE, trials=4, deepest=
 
 **关键命令/字段**（详见 §6/§7）：
 `SYST:TDMA:GUIDE:CONFig <action>,<crc>,<gen>,<level>,<window>,<trials>,<count>,<c0..4>,<lo>,<hi>`；
-`TRIGger <action>,<epoch>`；`PLAN?` 共 22 字段（9 计划 + 13 执行器/Q/S 只读）。
+`TRIGger <action>,<epoch>`；`PLAN?` 共 **25** 字段（9 计划 + 16 执行器/Q/S 只读，含 `abort_site`）。
 操作约束：CONFig 后**等四板 `PLAN?` gen 一致再 trigger**（10 kHz 预算 ≥60 s）；trigger 后
 **等四板 epoch 一致**（10 kHz 预算 ≥120 s）；四板窗口未结束时发新命令会 -200。
 **飞行中重发会重置目标侧重装**（新 `command_seq` → 新 frame_seq），这是"74 s 后仍是旧 gen"的最可能人为原因。
@@ -321,8 +321,8 @@ marker_id/generation）由 `plan.generation` 派生，fault_flags=0；5 个候�
 | M6.3 | P2 成环档/测量档分离 | ✅ 同 build `20261106224625`：成环沿用窗口载体（引导档 + BRINGUP），停环后 apply 测量档（level 7）；四板 P2 `prog_status=1, trials_done=1/1, passed_mask=1, failed_mask=0, reason=0, reconcile=1, ladder_idx=2` | 四板 `PLAN?` + `p3-064615` | ✅ 完成（`740eb1f9`） |
 | M6.4 | P3 @10 kHz 四板 | ✅ 同 build `20261107003733`：四板 P3 `prog_status=1, trials_done=12, passed_mask=0xFFF, failed_mask=0, reason=0, ladder_idx=3`；执行器按 trial 逐个推进（`18e495a2` 修掉 state 锁存）。C 段须用链路速率（10 MHz）+ 5% 容差 | 四板 `PLAN?` + `p3-083723` | ✅ 完成（`18e495a2`） |
 | M6.5 | T0/T1/T2 @10 kHz 四板 | ✅ 同 build `20261107033453` 整链：T0 四板 `passed_mask=0x1`（base=40）、T1 四板 `passed_mask=0x1`（`guard=32`、search −10..10）、T2 四板 `passed_mask=0x1`（search −4..10，因 T2 guard 硬编码 4）；阶梯四板一致推进到 6 | 四板 `PLAN?` | ✅ 完成 |
-| M6.6 | T3 @10 kHz | ⏳ **部分达成**：T3 四板 `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0, abort_site=0`，`verify 7 507 1407` = PASS，且 COMPLETE 只能来自 T3_ARM（N3 删除仍有效）；**但"实测 10 MHz 起环"不成立**（见 16:5x 审核更正） | 四板 `PLAN?` + 归档 `evidence/20261107-150558-…` | ⏳ 未闭环 |
-| M6.6b | T3 的 10 MHz 需**实测**（非 staged 自证） | ⏳ 需窗口内 `loop_time.mean_period_ns≈4 ms` 或其等价通道；当前 SCPI 面结构性拿不到（窗口关闭即重放引导档并 `memset(loop_time)`） | `RING:STATUS?` 42–47 字段需非零样本 | ⏳ 并入 M6.7 |
+| M6.6 | T3 @10 kHz | ⏳ **部分达成**：T3 四板 `prog_status=1, trials_done=1, passed_mask=0x1, failed_mask=0, abort_site=0`，`verify 7 507 1407` = PASS，且 COMPLETE 只能来自 T3_ARM（N3 删除仍有效）；**但"实测 10 MHz 起环"不成立**（见 17:4x 审核更正） | 四板 `PLAN?` + 归档 `evidence/20261107-150558-…` | ⏳ 未闭环 |
+| M6.6b | T3 的 10 MHz 需**实测**（非 staged 自证） | ⏳ staged 档已由 `operating_profile_crc32=1383759744` 唯一确定为 level 7（10 MHz）；缺的是**窗口内实测**。`RING:STATUS?` 的 `loop_time` 七字段（41–47，0 基）在无 flight 镜像时结构性为 0，故改用窗口内 `adapter_tx_count` 等单调计数增量判速率（10 MHz≈250/s vs 10 kHz≈6.7/s）；探针已实现 `window_rate()` 采样 | `RING:STATUS?` 窗口内两次采样 + `window_rate` 输出 | ⏳ 并入 M6.7 |
 | M6.7 | S 代数语义 + M6 收口 | S 代数语义冻结成文；P3 凭证 + host 凭证；本节全行 ✅ | 凭证 + 提交清单 | M6.6 |
 | M6.8 | 10 MHz 七动作全链回归 | `P1→T3` 四板 `COMPLETE`（改动后回归，防 10 kHz 修复伤高速档） | 四板 `PLAN?` + P3 | 可与 M6.1 并行 |
 | M6.9 | 探针工具归型 | `out/calibration/guide-10k/guide_cmdplane_probe.py` 或归型入库、或明确废弃并记录 | `tools/tool_workflow_triage.json` 条目或文档说明 | 收口前 |
@@ -1182,6 +1182,25 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
    自测产物：`out/calibration/guide-10k/evidence/20261107-173510-R27-selftest-v2/readback.json`
    已含 `build="20261107063505"`、`fingerprint=99fc19a3…`、`files=996`。
 3. **仍缺**：M6.6b（窗口内 `loop_time.mean_period_ns` 的回读通道，需固件改动）、R26（S 段写 flash 实证）。
+
+**2026-11-07 18:1x 审核更正（子代理 `aca4ad09`）——M6.6b 收窄 + 文档硬伤**
+
+1. **M6.6b 的判据收窄**：staged 档**已被唯一确定为 level 7**（`RING:CONFig?` 的
+   `operating_profile_crc32=1383759744` 是 FNV1a over {version,level,baud,period,…}，
+   level 7 = 10 MHz/1 ms），且 `config_seq==applied_config_seq` ⇒ 该档已进 runtime。
+   所以缺的**只有"窗口内实测"**，不是"哪一档"。
+2. **实测通道（零固件）**：`loop_time` 七字段（41–47，0 基）在无 flight 镜像/无 origin 时
+   结构性为 0（`resolution_ns=0` 说明 `note_origin_return()` 从未被调用）。改用**窗口内单调计数增量**：
+   探针已加 `window_rate()`，每 ~1 s 采样 `RING:STATUS?` 全串，输出最快增长字段与其速率
+   （10 MHz 四节点 ≈250 帧/s，10 kHz ≈6.7 帧/s，150× 差距可判别）。
+3. **文档硬伤修正**：`Last updated` → 2026-11-07；`PLAN?` 字段数 22 → **25**；
+   "见 16:5x" → 17:4x；`loop_time` 区间 42–47 → **41–47**。
+4. **口径沿用**：M6.4/M6.5 的"@10 kHz"应读作"10 kHz **引导档阶梯**"——P3_PREP 之后
+   环载体已是 10 MHz（R25），标题本身会误导。
+5. **R27 的仓库侧缺口（并入 M6.9）**：探针在 `out/`、被 `.gitignore` 忽略 ⇒ 归档机制
+   **不在仓库里**；且 `working_source_fingerprint()` 只覆盖固件源根，不含探针自身。
+6. **残余 ID 欠登记**：R25/R26/R27 与 N1–N13 仍无登记行；且 R26≈M6.2b、R25≈旧 B4、
+   R27≈N11/M6.9 属重复，需在 M6.7 收口时合并。
 
 ## 7. 台架与操作注意
 
