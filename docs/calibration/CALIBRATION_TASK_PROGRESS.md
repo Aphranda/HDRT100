@@ -10,6 +10,23 @@ Last updated: 2026-11-08
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261108-048 - C11 复审闭环：单口启环契约转 active（build `20261107175157`）
+
+- **二次 C11 只读复核**（子代理 `a61aafc3`）：APPROVE_WITH_NOTES；转 active 前须关 M1–M3
+  （clear 物理回读、C/T 证据链、rotate 擦除 nonce）与 M4/M5 口径。结论与逐条处置见
+  `docs/check/submissions/TDMA_BOOTPROFILE_CROSS_REVIEW_01.md`。
+- **M1**：`tdma_boot_profile_store_erase()` 改为两扇区 `drv_flash_is_erased()` 全 0xFF 才算 CLEARED；
+  非空或不可读 → `VERIFY`；host 用例补"垃圾扇区必须被物理擦除"。
+- **M2**：探针新增 `ct <gen> [tag]`，只开 COM5 发 `GUIDE:CONFig`，归档 `command_port`/`response`/
+  host fingerprint，四板读回。
+- **M3**：rotate 目标擦除折入 nonce（与 program/clear 一致），避免撕裂重试命中日志去重。
+- **复验**（build `20261107175157`）：P3 **PASS_WITH_WARNINGS**（INFO 35 / WARN 2 / ERROR 0；
+  `out/HardwareAcceptance/20261108/p3-final3/`）、零口自组 **PASS**
+  （`.../20261108-020250-boot-final4/`：`steps=8, fail_step=0, boot_done=1, up/down/adapter=1/1/1`）、
+  只开 COM5 的单口 C/T **PASS**（`.../20261108-020353-ct-final4/`：四板 `gen=960`，59.5 s）。
+- **提交**：`7a357d68`（固件 M1/M3 + P3 凭证）、`33e573c0`（探针 `ct` + store 用例）。
+- **收口**：契约 `TDMA-BOOTPROFILE-01` 由 `pending` 转 **active**（复审结论与 M1–M3 关闭证据已在提交单）。
+
 ## CAL-TASK-20261108-047 - M5：R26 首写闭环（新代 TRN-03 stage 首次落 flash）
 
 - **做法**：在 build `20261107162842` 的四板上跑

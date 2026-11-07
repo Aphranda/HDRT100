@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/check/submissions/TDMA_BOOTPROFILE_CROSS_REVIEW_01.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/check/DOCS_REGISTRY.md`, `docs/calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md`, `docs/calibration/CALIBRATION_HANDOVER_PLAN.md`
-Last updated: 2026-11-07
+Last updated: 2026-11-08
 
 ## 提交内容
 
@@ -55,16 +55,30 @@ uint32 回绕被 `valid()` 拒绝、v1 地图只读/写入拒绝正确、commit 
 F1–F9 修改后需重跑：`host_acceptance.py run`（tools/tests 改动）、P3（固件改动）、四板 provisioning +
 零口自组证据。复审结论在证据落盘后回填本节。
 
-### 最终证据（build `20261107162842`，2026-11-08）
+### 最终证据（build `20261107175157`，M1–M3 修复后，2026-11-08）
 
 | 证据 | 路径 | 判据 |
 |---|---|---|
-| P3 | `out/HardwareAcceptance/20261108/p3-final2/` | graded outcome **PASS**，INFO 34 / WARN 0 / ERROR 0 / FATAL 0；OTA build=20261107162842；P0T 为同 build 独立重测 |
-| 零口自组 | `out/calibration/guide-10k/evidence/20261108-013330-boot-final3/readback.json` | 四板 `action=START_REF/LISTEN`、`steps=8`、`fail_step=0`、`boot_done=1`、`up/down/adapter=1/1/1`，帧总量 68→72 |
-| 单口 C/T | `out/calibration/guide-10k/evidence/20261108-013432-ct-final3/readback.json` | `command_port=COM5`；发送时只开 COM5；58.8 s 后四板 `PLAN? gen=950` |
+| P3 | `out/HardwareAcceptance/20261108/p3-final3/` | **PASS_WITH_WARNINGS**，INFO 35 / WARN 2 / ERROR 0 / FATAL 0；OTA build=20261107175157 |
+| 零口自组 | `out/calibration/guide-10k/evidence/20261108-020250-boot-final4/readback.json` | 四板 `action=START_REF/LISTEN`、`steps=8`、`fail_step=0`、`boot_done=1`、`up/down/adapter=1/1/1`，帧总量 63→67 |
+| 单口 C/T | `out/calibration/guide-10k/evidence/20261108-020353-ct-final4/readback.json` | 工具产物：`command_port=COM5`、`response=OK`、`host.fingerprint`；四板 `gen=960`，59.5 s |
 | host | `config/hardware_acceptance/host_acceptance_receipt.json` | files=1165，77 passed |
 | R26（M5） | `out/calibration/trn03-r26/summary.json` | 四板 `record_generation=1794072390, record_sequence=1, persisted_valid=1, reject=0` |
+
+（较早的 build `20261107162842` 证据 `p3-final2` / `...-boot-final3` / `...-ct-final3` 保留作首轮达成记录。）
 
 **台架恢复记录**：连续 factory 刷写后 OTA 在 durable=512 处失败（旧镜像同样复现）；用
 `picotool_flash.py --full-erase` + factory 重刷 + `SYSTem:BOARD:NO <n>` 恢复四板，干净 flash 上 OTA 单板
 PASS，随后四板 P3 一次通过。
+
+### 二次 C11 复核（子代理 `a61aafc3`，2026-11-08）——APPROVE_WITH_NOTES
+
+结论：方向批准；代码主体与三份证据成立，但转 active 前须关闭 3 项：
+
+| # | 发现 | 处置 | 状态 |
+|---|---|---|---|
+| M1 | clear 回读只查 `scan_has_latest`，而 CORRUPT 扇区 `usable=true` → 可读的垃圾/半擦除扇区会误报 CLEARED | `tdma_boot_profile_store_erase()` 改为两扇区 `drv_flash_is_erased()` 全 0xFF 才算清干净，非空→`VERIFY`；host 用例补"垃圾扇区必须被物理擦除" | CLOSED（提交 `7a357d68`；store 用例通过） |
+| M2 | C/T 证据不是已提交工具产物（无 host fingerprint/命令 trace），registry check 列把 C/T 归到 `boot` | 探针新增 `ct <gen> [tag]`：只开 COM5 发 CONFig、四板读回、归档 command_port/response/host fingerprint；registry check 列改口径 | CLOSED（提交 `33e573c0`；证据 `20261108-020353-ct-final4`） |
+| M3 | rotate 目标擦除未折 nonce（与 program/clear 不一致），撕裂重试可能命中日志去重 | `rotate` 擦除改为 `generation*2654435761u + nonce`；host stub 不模拟日志去重，崩溃一致性改由"重放幂等 + 物理 verify"承担并写入契约 | CLOSED（提交 `7a357d68`） |
+| M4 | `BOOT:PROFile?` 字段表、REJECT_PROFILE 口径、提交单回填、Last updated | 契约补 16 字段与 PROFILE→RECORD 映射；本文件回填；Last updated 改 2026-11-08 | CLOSED |
+| M5 | `boot_done=1` 易被当成成功 | registry/文档统一写"`boot_done=1` 且 `fail_step=0`" | CLOSED |

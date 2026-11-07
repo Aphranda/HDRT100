@@ -502,14 +502,19 @@ seat mount store 之后各两个擦除扇区），仍由 `FLASH_TRANSACTION_REQU
   provisioning；正常路径仍是 append + 代次选择 + 回读校验。
 
 **清除入口。** `SYSTem:TDMA:BOOT:PROFile:CLEar`：同一 STOP-only 门，擦除两个扇区并把状态恢复为
-`loaded=0, generation=0, reject_reason=EMPTY`，回 `"BOOTPROF","CLEARED"`。擦除必须**回读验证**：两个
-扇区仍有可解析记录就回 `..._VERIFY`，不得谎报 CLEARED。flash 完成日志按"请求指纹"去重，指纹包含
-`store_generation`/`nonce`，因此 write 与 clear 都把调用方的一次性 nonce（SCPI 层取 boot uptime）折入
-身份——否则同参数重写或重复 clear 会被当成 COMPLETED 重放而不做物理 IO（实板 2026-11-08 实测：
-`CLEARED` 后记录仍在、同参数重写报 `VERIFY`）。清除后同样需要重启才改变开机行为。
+`loaded=0, generation=0, reject_reason=EMPTY`，回 `"BOOTPROF","CLEARED"`。擦除必须**物理回读验证**：
+两个扇区都要 `drv_flash_is_erased()` 为真（全 0xFF），且重扫不得有可解析记录；任一不满足就回
+`..._VERIFY`，不得谎报 CLEARED——只查"有没有记录"会把可读的垃圾/半擦除扇区误判为空。flash 完成日志
+按"请求指纹"去重，指纹包含 `store_generation`/`nonce`；write、不可解析扇区擦除、rotate 目标擦除与
+clear **全部**把调用方的一次性 nonce（SCPI 层取 boot uptime）折入身份——否则同参数重写或重复 clear
+会被当成 COMPLETED 重放而不做物理 IO（实板 2026-11-08 实测：`CLEARED` 后记录仍在、同参数重写报
+`VERIFY`）。代价是崩溃一致性不再依赖日志去重，而依赖"重放幂等 + 物理 verify"：program 由驱动
+memcmp 与事务 verify 兜底，erase 幂等。清除后同样需要重启才改变开机行为。
 
 **读回。** `SYSTem:TDMA:BOOT:PROFile?` → `"BOOTPROF",supported,loaded,reject_reason,generation,
-sequence,payload_crc32,level,nodes,slot,flags,topology_crc32`。v1 兼容地图上 `supported=0`、写入/清除以
+sequence,payload_crc32,level,nodes,slot,flags,topology_crc32`，随后追加 4 个扫描诊断字段
+`scan_result[0], scan_result[1], scan_usable[0], scan_usable[1]`（共 16 字段；诊断只用于把
+`RECORD` 拒绝归因到扇区扫描还是 profile 编码）。v1 兼容地图上 `supported=0`、写入/清除以
 `..._UNSUPPORTED` 拒绝，不得静默降级。
 
 **开机行为。** 写入后**需重启生效**：boot plan 在 `app_init` 时由 `tdma_boot_plan_decide` 冻结，重写
