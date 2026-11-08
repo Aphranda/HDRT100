@@ -10,6 +10,20 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-003 - M5：P2 已能执行并给出真实拒绝码（0x106 PIO stall）
+
+- **现场**（build `20261108174010`，四板）：P1 `ladder 1 9000 9100` COMPLETE（ladder_idx=1）→ 环保持
+  `1/1/1/1`；随后 P2 `p2 9001 9101`：进入 trial body（`P2_WAIT` 约 75 s）→ 终态
+  `status=2 (STOPPED), trials_done=1, reason=262 (0x106 = CALIBRATION_CLK_CODED_REJECT_CORRELATION_BASE+6
+  = PIO stall), failed_mask=1, abort=0`，**窗口关闭后环恢复 `enabled/up/down/adapter=1`**。
+  证据：`out/calibration/guide-10k/bench/ladder-p2-20261109.json`。
+- **结论**：P2 不是"跑不起来"——它执行了 coded 测量、给出了具体拒绝码（PIO stall），失败后环也正确复原；
+  阶梯停在 P2 是 fail-closed 的既定行为。缺的是 **10 MHz 的训练前置**：P2/P3/T0–T3 的载荷用 level 7，
+  而 P1 模板是 level 23；coded 测量在未训练的 10 MHz PIO 上会 stall。
+- **下一步**：按 M6.8 口径先 `OPMode:STAGe 7 + APPLy` 再跑 **level 7 的 P1**（必要时加一次 TRAIN），
+  确认 P2 的 0x106 是否消失；若消失，把"P1@7 前置"写进阶梯与页面模板。
+- **未完成**：P3–T3 仍未顺序跑通（P2 未过，阶梯不前进）。
+
 ## CAL-TASK-20261109-002 - 修 OTA 首块 512 B 被拒（M7：OTA durable-512）
 
 - **症状**：四板 OTA 时有 3 块板在首个 512 B durable 等待处失败：
