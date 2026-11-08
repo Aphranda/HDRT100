@@ -29,6 +29,13 @@ Last updated: 2026-11-09
 - **复现（06:19，gen 10903）**：P1@7 4/4（`verify` PASS）→ P2 4/4 COMPLETE → P3 **仍同形**：
   NO.3/NO.4 12/12，NO.1 `4094/1`、NO.2 `4088/7`，均 reason=11；失败位仍是 **link0**
   （NO.1 出向 bit0、NO.2 响应端 bits0-2）。证据：`evidence/20261109-062107-verify-3`。
+- **观察（06:28，gen 11003）**：P3 一轮约 36 s（`ctrqs=13` 全程，测量期环 totals 为 0）；NO.2 在
+  t≈28.5 s 先进 REBUILD（26）。本轮 `passed` 进一步下降：NO.1 `4094`、NO.2 `4043`、NO.3 `4047`、
+  NO.4 `4095`，比 05:20 的 4094/4088/4095 更差。**温度/台架热漂移是待验证假设**（无温度记录），
+  需同 build 做冷机/热机对照才能归因。
+- **诊断缺口**：仓库内**没有** CAL coded 的 SCPI 查询（`CLOCk:CODEd` 零命中），link0 拒绝明细
+  目前无法从 host 侧取得；要么补只读查询（固件 lane），要么用 `RING:TRAIN:STATus?` 的
+  request_seq/state。
 
 ## CAL-TASK-20261109-010 - 正确 C 段形状下的阶梯：P1@7 4/4、P2 4/4、P3 2/4 全过
 
