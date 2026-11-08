@@ -10,6 +10,23 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-010 - 正确 C 段形状下的阶梯：P1@7 4/4、P2 4/4、P3 2/4 全过
+
+- **口径**：build `20261108192050`，每次复位后执行；P1 用 `ga 1 <gen> <epoch> 7 4000 4 3 0 4 16 1 64`
+  （count=3、cands=[0,4,16]），P2 用 `… 7 8000 1 5 0 1 80 120 0 10 512`，P3 用
+  `… 7 20000 1 5 0 0 32 256 3 10000000 50000`；每轮新 gen、epoch 递增。
+- **结果**：
+  - P1（gen 10301/epoch 10311）→ **四板 `status=1, trials_done=4, passed=15, ladder=1/1`**；
+  - P2（gen 10302/epoch 10312）→ **四板 `status=1, trials_done=1, passed=1, ladder=2/1`**；
+  - P3（gen 10303/epoch 10313）→ NO.3/NO.4 **`status=1, 12/12 (0xFFF), ladder=3`**；
+    NO.1 `status=2, 4094(0xFFE)/1, reason=11`；NO.2 `status=2, 4088(0xFF8)/7, reason=11`。
+  - `verify` 归档：`evidence/20261109-05203{5,6}-verify-{1,2,3}`（P1/P2 的 verdict 因 PLAN 已被 P3
+    覆盖而 freshness 失败，属预期；P3 的 FAIL 正确反映 2/4）。
+- **解读**：阶梯在**正确形状**下 P1/P2 四板全过、P3 四板跑满 12 trial 且两板全过；剩余失败集中在
+  **链路方向**（NO.1 bit0、NO.2 bit0–2，均为 `reason=11` 的 TIMEOUT），与参考板 `ring_train` 的
+  瞬态快照读失败同源（见 011）。
+- **未完成**：T0–T3 未跑；P3 仍有 1–3 个方向的 TIMEOUT。
+
 ## CAL-TASK-20261109-009 - NO.4 P1@7 失败的根因：C 段候选表错位（已修工具）
 
 - **复现**（build `20261108192050`）：P1@7 连续 3 次 3/4，NO.4（COM6）`status=2, trials_done=0,
