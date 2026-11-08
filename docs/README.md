@@ -242,6 +242,7 @@ docs/
 | \calibration/CALIBRATION_HANDOVER_PLAN.md\ | 校准交接（2026-11-07 夜）：现状与证据、未完成项（单口启环/帧归属/首次写入/全 10MHz 回归）、资产入口、六类误判坑、起步清单。 |
 | `calibration/CALIBRATION_CTRQS_CHECKLIST.md` | 单口引导 CTRQS 交接：硬约束、已入库项、三个阻塞点、下一步命令与台架注意（新会话入口）。 |
 | `calibration/CALIBRATION_SINGLE_PORT_BRINGUP_COMMANDS.md` | 单口起环操作指南（给其它会话）：唯一镜像前提、一次性 provisioning、零口自组判据、单口 C/T、与 CTRQS/10M/P3 的冲突与恢复。 |
+| `calibration/CALIBRATION_REFMEM_CONTROL_PLANE_MIGRATION_PLAN.md` | 统一控制面迁移清单：哪些流程仍要四口、DPLL/VDC/T2 已入环 11 条/未入环 77 条 setter 与 104 条查询、OTA 流式在途、迁移顺序与判据。 |
 | `tdma/TDMA_DOMAIN_TODO.md` | TDMA 未完成/已完成任务及退出门禁，优先实时预算、resident 飞行和确定性交付，保留原 ID。 |
 | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 近期进展、失败及证据，历史从文末归档索引查找。 |
 | `tdma/TDMA_TIMING_REVIEW.md` | 2026-10-09 TDMA 飞行处理与 PIO 时序冗余评审快照：重复计算/复制、预留与 guard 叠加、短槽恢复原因码误读；非契约。 |
