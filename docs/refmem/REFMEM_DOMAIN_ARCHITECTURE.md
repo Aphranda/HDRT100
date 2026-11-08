@@ -1465,6 +1465,10 @@ RefMem 统一面是**增量层**，不替换单板控制：
 （v1 不含 `fault_last`：diagnostics 只有 `s_fault_latched` 与文本日志，`SYST:FAULT:LAST?` 是存储
 report，二者都不是可发布的故障码来源；补 writer 后再增 key。）
 
+表以 `config/refmem/read_catalog.yaml` 为唯一源，由 `tools/refmem/refmem_read_catalog_gen.py` 生成
+`refmem_read_catalog.h` 与 `refmem_read_catalog_table.c`；host 用例
+`tests/unit/test_refmem_read_catalog.c`（`tools/tests/run_refmem_read_catalog_tests.ps1`）。
+
 **存储预算（pilot 与全量分开）。** 单板 node slot 288 B、现用 232 B、尾部仅 56 B（`refmem_vector_table.h`），
 **pilot 不放 node slot 尾部**。pilot 用一块独立 region（约 1 KiB，候选为当前零消费的 statistics 区，
 region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/switch2/guide_plan/ring_status`），

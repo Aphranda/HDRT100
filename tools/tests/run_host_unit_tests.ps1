@@ -52,6 +52,7 @@ $scripts = @(
     "run_ota_tdma_relay_tests.ps1",
     "run_refmem_application_contract_tests.ps1",
     "run_refmem_command_tests.ps1",
+    "run_refmem_read_catalog_tests.ps1",
     "run_refmem_node_load_sync_tests.ps1",
     "run_refmem_pio_spi_adapter_tests.ps1",
     "run_refmem_quality_tests.ps1",

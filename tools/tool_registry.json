@@ -1153,6 +1153,14 @@
         {
           "path": "tools/domains/trigger/trigger_debug_demo/README.md",
           "role": "documentation"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/ui/runlog.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/calibration_action.py",
+          "role": "module"
         }
       ],
       "depends_on": [],
@@ -2744,7 +2752,9 @@
         "tools/refmem/refmem_lease_hil/refmem_lease_hil.py",
         "tools/refmem/refmem_remote_txn_hil/refmem_remote_txn_hil.py",
         "tools/refmem/refmem_scpi_catalog_extract.py",
-        "tools/refmem/refmem_transport_diag_hil/refmem_transport_diag_hil.py"
+        "tools/refmem/refmem_transport_diag_hil/refmem_transport_diag_hil.py",
+        "tools/refmem/refmem_read_catalog_gen.py",
+        "tools/tests/run_refmem_read_catalog_tests.ps1"
       ],
       "files": [
         {
@@ -2798,6 +2808,14 @@
         {
           "path": "tools/refmem/refmem_transport_diag_hil/refmem_transport_diag_hil.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem/refmem_read_catalog_gen.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tests/run_refmem_read_catalog_tests.ps1",
+          "role": "test_runner"
         }
       ],
       "depends_on": [],
