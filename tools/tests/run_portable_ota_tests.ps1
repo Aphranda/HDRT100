@@ -147,6 +147,10 @@ $testPrograms = @(
         )
     },
     @{
+        Name = "test_pota_stream_failure_token"
+        Sources = @((Join-Path $tests "test_pota_stream_failure_token.c"))
+    },
+    @{
         Name = "test_pota_boot_control_store"
         Sources = @((Join-Path $tests "test_pota_boot_control_store.c")) + @(
             (Join-Path $src "pota_boot_control_store.c"),

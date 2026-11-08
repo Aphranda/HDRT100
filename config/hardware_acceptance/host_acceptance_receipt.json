@@ -5,6 +5,9 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
+    "tests/python/test_ota_failure_policy.py",
+    "tests/python/test_ota_multi_update.py",
+    "tests/python/test_ota_stream_send.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
@@ -14,29 +17,32 @@
     "no:cacheprovider"
   ],
   "paths": [
+    "tests/python/test_ota_failure_policy.py",
+    "tests/python/test_ota_multi_update.py",
+    "tests/python/test_ota_stream_send.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 7.953,
+  "duration_s": 24.546,
   "returncode": 0,
   "summary": {
-    "passed": 77,
+    "passed": 129,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "77 passed in 7.29s",
+  "summary_line": "129 passed in 23.21s",
   "tail": [
-    "........................................................................ [ 93%]",
-    ".....                                                                    [100%]",
-    "77 passed in 7.29s"
+    "........................................................................ [ 55%]",
+    ".........................................................                [100%]",
+    "129 passed in 23.21s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "c9e9525727bb6b82b4db0e11444e41233b3fa2ebab0f0a412382a242ab43fd7b",
-  "file_count": 1165,
-  "working_fingerprint": "aed989db701823d40225b9b9e42736e40e613c9b7cd30e60da423cf3786c70fc",
-  "started_at_utc": "2026-11-07T18:04:24.151432+00:00"
+  "fingerprint": "9674b437c8e69618c0f57518a024c497a1cca0dfe8b8976dfa0beef9d5ced820",
+  "file_count": 1168,
+  "working_fingerprint": "1a0178340c6922c1a67520c9a279020ff882d363b624237f0b8e0ad64a4bca95",
+  "started_at_utc": "2026-11-08T15:06:49.718741+00:00"
 }

@@ -303,6 +303,54 @@ def wait_erase_complete(ser: serial.Serial, args: argparse.Namespace, *,
     raise TimeoutError(f"erase did not complete: {last!r}")
 
 
+def should_gate_initial_erase(first_block: bool,
+                              relay_node: int | None) -> bool:
+    """Relay nodes do not own the local stream session, so never gate them."""
+    return first_block and relay_node is None
+
+
+def wait_initial_erase_gate(ser: serial.Serial, args: argparse.Namespace, *,
+                            timing: OtaTiming | None = None) -> None:
+    """Wait for the first block's erase transition before opening the window.
+
+    ERASE? can briefly still report RECEIVING/0 immediately after the header
+    is accepted, before OtaAO has scheduled the erase.  Treating that as
+    "nothing to erase" would reopen the exact 4-block race this gate exists to
+    close.  Require an observed transition, but return after a short stable
+    no-erase window so an already-clean slot does not wait the full timeout.
+    """
+    deadline = time.monotonic() + max(args.begin_timeout, 120.0)
+    stable_no_erase = 0
+    last_percent = -1
+    last = ""
+    while time.monotonic() < deadline:
+        last = query(ser, "SYST:OTA:STREAM:ERASE?", min(args.timeout, 2.0),
+                     timing=timing, stage="initial_erase_gate")
+        fields = [int(item) for item in last.split(",") if item.strip().isdigit()]
+        if len(fields) < 3:
+            time.sleep(0.05)
+            continue
+        core_state, erased, total = fields[0], fields[1], fields[2]
+        if core_state in (CORE_STATE_FAILED, CORE_STATE_ABORTED):
+            raise RuntimeError(f"erase failed: state={core_state} {last!r}")
+        if core_state == CORE_STATE_RECEIVING and total > 0 and erased >= total:
+            return
+        if core_state == CORE_STATE_RECEIVING and total == 0:
+            stable_no_erase += 1
+            if stable_no_erase >= 100:
+                raise TimeoutError(
+                    "initial erase gate: first block was not consumed "
+                    "(RECEIVING with total=0); refusing to open the window")
+        else:
+            stable_no_erase = 0
+        percent = 0 if total == 0 else min(100, erased * 100 // total)
+        if percent // 25 != last_percent // 25:
+            last_percent = percent
+            print(f"erase_progress={percent}% ({erased}/{total})", flush=True)
+        time.sleep(0.05)
+    raise TimeoutError(f"initial erase gate did not settle: {last!r}")
+
+
 STREAM_CAP_RELAY = 1 << 2
 
 
@@ -481,10 +529,22 @@ def wait_reenumeration(port: str, baud: int, timeout_s: float, *,
 
 def stream_failure_snapshot(ser: serial.Serial, timeout_s: float,
                             timing: OtaTiming | None) -> None:
+    """Capture the first-cause diagnostics before the board is reset.
+
+    STAT? alone is not enough: the stream write path overwrites the service
+    token with 5002 after a terminal session, so PROG?/FT?/JOUR?/ERASE?/INIT?
+    must be read while the failed session is still resident.
+    """
     for text in (
-            "SYST:OTA:STREAM:STAT?",
-            "SYST:OTA:STAT?",
             "SYST:ERR?",
+            "SYST:OTA:STREAM:STAT?",
+            "SYST:OTA:STREAM:ERASE?",
+            "SYST:OTA:PROGress?",
+            "SYST:OTA:FT?",
+            "SYST:OTA:JOURnal?",
+            "SYST:OTA:STReam:INIT?",
+            "SYST:OTA:STAT?",
+            "SYST:WATCHdog:OTA:PHase?",
     ):
         try:
             response = query(ser, text, timeout_s, timing=timing,
@@ -639,13 +699,23 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
                 f"{block_size}")
         print(f"resume_offset={resume_offset}")
 
-        # The device queues up to four 4 KiB blocks in the existing EventBus
-        # fast-block pool and OtaAO writes them in order.  Keep the same bound
-        # here so a QUEUED response never overruns the pool.
-        window = 4
+        # The device queues up to three 4 KiB blocks in the existing EventBus
+        # fast-block pool (EVENT_BUS_OTA_FAST_BLOCK_DEPTH=3); the 512-byte
+        # package header is inline.  Keep the window at the pool depth so a
+        # normal window does not manufacture a fourth-block BUSY.
+        #
+        # The first block is special: for package mode it is the 512-byte
+        # manifest header, and its write schedules the inactive-slot erase.
+        # Do not pipeline the next blocks until that erase is complete.
+        # Otherwise a fast host can fill the window while the core is still
+        # ERASE_SLOT and turn a normal back-pressure window into INVALID_STATE
+        # (the 5002 failure signature).
+        window = 3
+        first_block = True
         pending: list[int] = []
         for offset, chunk in stream_chunks(image, resume_offset,
                                            block_size, args.package):
+            busy_deadline = time.monotonic() + max(args.begin_timeout, 120.0)
             while True:
                 response = command(
                     ser,
@@ -663,7 +733,12 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
                 )
                 if "BUSY" in response:
                     # Either the slot is erasing or the fast-block pool is
-                    # full; drain the oldest durable block and resend.
+                    # full; drain the oldest durable block and resend.  Bound
+                    # the retry loop so a terminal/stuck session cannot spin
+                    # forever on BUSY.
+                    if time.monotonic() > busy_deadline:
+                        raise TimeoutError(
+                            f"stream DATA stayed BUSY at {offset}")
                     wait_erase_complete(ser, args, timing=timing)
                     if pending:
                         wait_stream_durable(ser, pending.pop(0), args,
@@ -675,6 +750,26 @@ def send(args: argparse.Namespace, timing: OtaTiming | None = None,
             elif "OK" not in response:
                 raise RuntimeError(
                     f"stream DATA rejected at {offset}: {response!r}")
+            if should_gate_initial_erase(first_block, relay_node):
+                # The header/raw first block owns the local erase transition.
+                # Wait for ERASE? to return to RECEIVING (or to report the
+                # image fully erased) before opening the 4-block window.
+                # Relay nodes do not own a local session, so ERASE? would read
+                # an unrelated/IDLE local stream.
+                erase_started = time.monotonic()
+                wait_initial_erase_gate(ser, args, timing=timing)
+                if timing is not None:
+                    timing.record("initial_erase_gate",
+                                  time.monotonic() - erase_started,
+                                  durable_offset=offset + len(chunk))
+                if pending:
+                    wait_stream_durable(ser, pending.pop(0), args,
+                                        timing=timing)
+                first_block = False
+            elif first_block:
+                # Relay nodes skip the local gate but still leave first-block
+                # state exactly once.
+                first_block = False
             if relay_node is not None:
                 # Relay feeds one resident block at a time: wait until the
                 # target has made this block durable before the next DATA.
@@ -861,6 +956,27 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def snapshot_after_failure(args: argparse.Namespace,
+                           timing: OtaTiming | None) -> None:
+    """Re-open the port once and capture first-cause diagnostics.
+
+    The transfer context closes the port on the exception path.  Re-opening
+    here is read-only and does not reset the board, so the failed session is
+    still observable.  Keep this best-effort: a lost USB link must not hide
+    the original transfer error.
+    """
+    if not args.port or getattr(args, "dry_run", False):
+        return
+    try:
+        with serial.Serial(args.port, args.baud, timeout=0.2,
+                           write_timeout=max(args.timeout, 1.0)) as ser:
+            time.sleep(0.1)
+            ser.reset_input_buffer()
+            stream_failure_snapshot(ser, args.timeout, timing)
+    except (OSError, serial.SerialException) as exc:
+        print(f"diagnostic snapshot unavailable: {exc}", file=sys.stderr)
+
+
 def main() -> int:
     args = parse_args()
     timing = OtaTiming("stream")
@@ -880,6 +996,7 @@ def main() -> int:
     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
         error = str(exc)
         print(f"FAIL {exc}", file=sys.stderr)
+        snapshot_after_failure(args, timing)
     finally:
         if args.out_dir is not None:
             timing.write(

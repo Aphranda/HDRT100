@@ -20,8 +20,11 @@ from tools.ota_stream_send.ota_stream_send import (
     parse_stream_status,
     scpi_block,
     selected_package_object,
+    should_gate_initial_erase,
     stream_chunks,
+    stream_failure_snapshot,
     verified_connection,
+    wait_initial_erase_gate,
     wait_relay_durable,
 )
 from tools.common.scpi.scpi_serial import scpi_response_matches_command
@@ -155,6 +158,61 @@ def test_partition_id_comes_from_canonical_map() -> None:
 
 def test_stream_sender_defaults_to_deployed_compatibility_map() -> None:
     assert DEFAULT_DEPLOYMENT_MAP_VERSION == 1
+
+
+def test_failure_snapshot_captures_first_cause_queries(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def fake_query(ser, command, timeout, **kwargs):
+        seen.append(command)
+        return "0,6,512,5002,5"
+
+    monkeypatch.setattr("tools.ota_stream_send.ota_stream_send.query",
+                        fake_query)
+    stream_failure_snapshot(object(), 0.1, None)
+    assert "SYST:OTA:PROGress?" in seen
+    assert "SYST:OTA:FT?" in seen
+    assert "SYST:OTA:JOURnal?" in seen
+    assert "SYST:OTA:STREAM:ERASE?" in seen
+    assert "SYST:OTA:STReam:INIT?" in seen
+    assert "SYST:WATCHdog:OTA:PHase?" in seen
+
+
+def test_initial_erase_gate_skips_relay_nodes() -> None:
+    assert not should_gate_initial_erase(True, 5)
+    assert should_gate_initial_erase(True, None)
+    assert not should_gate_initial_erase(False, None)
+
+
+def test_initial_erase_gate_waits_for_started_erase(monkeypatch) -> None:
+    responses = iter(["3,0,0", "1,0,1175552", "3,1175552,1175552"])
+
+    monkeypatch.setattr(
+        "tools.ota_stream_send.ota_stream_send.query",
+        lambda *a, **k: next(responses))
+    monkeypatch.setattr("tools.ota_stream_send.ota_stream_send.time.sleep",
+                        lambda *_: None)
+    args = type("Args", (), {"timeout": 0.1, "begin_timeout": 1.0})()
+    wait_initial_erase_gate(object(), args)
+
+
+def test_initial_erase_gate_rejects_unconsumed_first_block(
+        monkeypatch) -> None:
+    calls = 0
+
+    def fake_query(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return "3,0,0"
+
+    monkeypatch.setattr("tools.ota_stream_send.ota_stream_send.query",
+                        fake_query)
+    monkeypatch.setattr("tools.ota_stream_send.ota_stream_send.time.sleep",
+                        lambda *_: None)
+    args = type("Args", (), {"timeout": 0.1, "begin_timeout": 60.0})()
+    with pytest.raises(TimeoutError, match="first block was not consumed"):
+        wait_initial_erase_gate(object(), args)
+    assert calls == 100
 
 
 def test_explicit_port_reuses_verified_connection() -> None:

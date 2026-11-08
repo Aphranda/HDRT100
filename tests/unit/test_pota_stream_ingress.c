@@ -160,6 +160,13 @@ int main(void)
             POTA_STREAM_INGRESS_SOURCE_BIT(POTA_STREAM_INGRESS_UART) |
             POTA_STREAM_INGRESS_SOURCE_BIT(POTA_STREAM_INGRESS_RS485),
         32u));
+    pota_stream_ingress_record_failure(&ingress, 6001u);
+    pota_stream_ingress_record_failure(&ingress, 5002u);
+    failed += !expect("first failure is sticky",
+                      pota_stream_ingress_first_failure(&ingress) == 6001u);
+    pota_stream_ingress_clear_failure(&ingress);
+    failed += !expect("failure clear",
+                      pota_stream_ingress_first_failure(&ingress) == 0u);
 
     pota_stream_open_t open;
     memset(&open, 0, sizeof(open));

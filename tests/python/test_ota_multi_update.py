@@ -15,6 +15,7 @@ from tools.ota_multi_update.ota_multi_update import (
     pre_reboot_boards,
     resolved_transport,
     run_child,
+    should_retry_stream_failure,
     update_board,
     validate_cli_args,
 )
@@ -93,6 +94,18 @@ def test_child_output_is_utf8_and_none_safe(tmp_path: Path):
         encoding="utf-8") == ""
     assert mocked.call_args.kwargs["encoding"] == "utf-8"
     assert mocked.call_args.kwargs["errors"] == "replace"
+
+
+def test_stream_session_failure_is_not_retried():
+    assert not should_retry_stream_failure(
+        "FAIL stream failed while waiting for durable 512: "
+        "'0,6,512,5002,5'")
+    assert not should_retry_stream_failure(
+        "FAIL erase failed: state=9 '9,0,1175552'")
+    assert not should_retry_stream_failure("stream DATA rejected at 512")
+    assert should_retry_stream_failure(
+        "stream DATA rejected at 512: '<timeout>'")
+    assert should_retry_stream_failure("USB device disappeared")
 
 
 def test_picotool_pre_reboot_is_serialized_before_parallel_ota(

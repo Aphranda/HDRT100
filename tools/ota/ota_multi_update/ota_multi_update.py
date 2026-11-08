@@ -32,6 +32,24 @@ PACKAGE_HEADER_SIZE = 512
 PACKAGE_BUILD_ID_OFFSET = 112
 PACKAGE_BUILD_ID_SIZE = 32
 DEFAULT_IDN_FILTERS = ("DHRT100",)
+# A failed stream session is evidence, not a transport glitch.  Retrying it
+# immediately opens a second session over the failed one and overwrites the
+# first-cause diagnostics with 5002.  Only transport/reboot loss is retryable.
+NON_RETRYABLE_STREAM_FAILURES = (
+    "stream DATA rejected",
+    "stream failed while waiting for durable",
+    "erase failed",
+    "STREAM_OPEN_",
+    "not a DHRT100",
+)
+
+
+def should_retry_stream_failure(stderr: str) -> bool:
+    # A transport timeout is retryable; a protocol/session failure is evidence.
+    if "<timeout>" in stderr or "<transport-error>" in stderr:
+        return True
+    return not any(token in stderr for token in NON_RETRYABLE_STREAM_FAILURES)
+
 # Settle window for re-enumerating boards (see the poll in main()).
 DISCOVERY_SETTLE_S = 60.0
 MAX_BOARD_COUNT = 8
@@ -506,11 +524,8 @@ def update_board(args: argparse.Namespace,
             # block into a batch failure.  Abort and give it a real settle.
             attempt = 0
             send_stderr = getattr(send_result, "stderr", "") or ""
-            data_timeout = "stream DATA rejected" in send_stderr
             while (not getattr(send_result, "passed", False) and attempt < 1 and
-                   not data_timeout and
-                   not any(text in send_stderr
-                           for text in ("STREAM_OPEN_", "not a DHRT100"))):
+                   should_retry_stream_failure(send_stderr)):
                 attempt += 1
                 abort_stream_session(board.port)
                 time.sleep(5.0)

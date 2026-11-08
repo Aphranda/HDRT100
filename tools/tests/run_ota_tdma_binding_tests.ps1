@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$BuildDir = "out/pytest/build-ota-tdma-binding-tests",
     [string]$HostGccDir = ""
 )
@@ -36,6 +36,7 @@ $exe = Join-Path $build "test_ota_tdma_binding.exe"
     "-I$(Join-Path $repo 'components\flash_transaction\inc')" `
     "-I$(Join-Path $repo 'config')" `
     (Join-Path $repo "tests\unit\test_ota_tdma_binding.c") `
+    (Join-Path $repo "tests\unit\stub_ota_ao_admission.c") `
     (Join-Path $repo "application\src\ota_tdma_binding.c") `
     (Join-Path $repo "components\ota_manager\src\ota_tdma_carrier.c") `
     (Join-Path $repo "components\ota_manager\src\ota_tdma_relay.c") `

@@ -493,6 +493,15 @@ int main(void)
                               POTA_STREAM_RESULT_OK &&
                           pota_stream_session_state(&session) ==
                               POTA_STREAM_STATE_ABORTED);
+    const uint32_t durable_after_abort =
+        pota_stream_session_durable_offset(&session);
+    failed += !expect("write after abort rejected",
+                      pota_stream_session_write(&session, 512u,
+                                                &resume_image[512u], 512u) ==
+                          POTA_STREAM_RESULT_INVALID_STATE);
+    failed += !expect("write after abort keeps durable",
+                      pota_stream_session_durable_offset(&session) ==
+                          durable_after_abort);
 
     pota_stream_checkpoint_store_t aborted_store;
     failed += !expect("aborted checkpoint rebuild",
