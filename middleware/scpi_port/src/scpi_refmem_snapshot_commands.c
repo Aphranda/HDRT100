@@ -50,6 +50,8 @@
 #include "vdc_timestamp_clock.h"
 #include "scpi_system_snapshot_internal.h"
 #include "refmem_obs.h"
+#include "tdma_ring_runtime.h"
+#include "tdma_runtime_owner.h"
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
 {
@@ -1347,6 +1349,23 @@ scpi_result_t scpi_cmd_refmem_obs_q(scpi_t *context)
         .age_ms = REFMEM_OBS_AGE_INVALID,
         .row_words = 0u,
     };
+    if (key == 6u) {
+        /* ring_status is the first pilot key with a real local provider: the
+         * ring runtime snapshot is local, so the row never crosses the ring. */
+        tdma_ring_runtime_snapshot_t ring;
+        if (tdma_runtime_owner_get_ring_snapshot(&ring)) {
+            result.valid = 1u;
+            result.age_ms = 0u;
+            result.row_words = 6u;
+            result.row[0] = ring.enabled;
+            result.row[1] = ring.up_running;
+            result.row[2] = ring.down_running;
+            result.row[3] = (ring.up_configured != 0u &&
+                             ring.down_configured != 0u) ? 1u : 0u;
+            result.row[4] = ring.node_count;
+            result.row[5] = ring.local_slot_id;
+        }
+    }
     char text[128];
     if (refmem_obs_encode(&result, text, sizeof(text)) != REFMEM_OBS_OK) {
         scpi_port_push_exec_error(context, "OBS_ENCODE");
