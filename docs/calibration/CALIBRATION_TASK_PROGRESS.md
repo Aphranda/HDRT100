@@ -10,6 +10,27 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-002 - 修 OTA 首块 512 B 被拒（M7：OTA durable-512）
+
+- **症状**：四板 OTA 时有 3 块板在首个 512 B durable 等待处失败：
+  `stream failed while waiting for durable 512: '0,6,512,5002,5'`，
+  `SYST:OTA:FT? = 10,2,17,17,0,256,0,1`（`policy_gate_reason=17` = `FLASH_TRANSACTION_ERROR_MODE`）。
+  已排除默认档/环占用（板号置 0 不启环仍失败）、RAM 锁存、台架脏状态。
+- **根因（代码）**：`flash_transaction_ao` 对 OTA requester 要求
+  `resource_arbiter_ota_admission_active()`；而 `ota_metadata.c` 的启动确认在“借用”admission 后
+  **直接**调 `resource_arbiter_release_ota_admission()`，绕过 `ota_ao` 的 pending 释放机制。
+  若在“检查是否已有 admission”与“释放”之间主机打开了 stream，释放会把新 session 的租约一起清掉，
+  首块写就被判 MODE。
+- **修复**：`components/ota_manager/src/ota_metadata.c` 的 borrowed 释放改走
+  `ota_ao_request_admission_release()`（该路径在 `portable_ota_port_stream_is_active()` 时取消释放，
+  且等 flash 事务槽空出后再放）。
+- **实板验证**（build `20261108172550`）：
+  - 单板 `ota_multi_update` 以该 build 为接收方：整包传输并提交成功（板端 build 从 `172550` 变为
+    `035112`、`OTA:FT?` 全 0）——此前同一路径在首块 512 B 就失败；
+  - 再以 `035112` 为接收方跑一次单板 OTA：**PASS**（`out/flash/ota-com3-fix2`）；
+  - 四板 P3（`out/HardwareAcceptance/20261109/p3-otafix`）结果另记。
+- **状态**：代码在工作区（固件 lane），等 P3 凭证后与默认档/P2 修复/P0 一起提交。
+
 ## CAL-TASK-20261109-001 - 修 P2 CODED_STOP 的 training-stage 恢复（CONSOLE-045）
 
 - **症状**：P2 进入 trial body、1 个 trial 通过后，`APP_CTRQS_P2_CODED_STOP` 里

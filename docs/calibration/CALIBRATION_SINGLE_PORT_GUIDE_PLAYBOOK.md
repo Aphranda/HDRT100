@@ -698,8 +698,9 @@ pathspec 提交会被 hook 判"未暂存差异"、整索引提交会带上该批
 ### 9.17 M0 实测（2026-11-05，v2 单口引导期）
 
 **自组**（build `20261105032420`，`PROJECT_TDMA_GUIDE_AUTOFORM=ON`，四板同 build，无任何起环命令；
-**注**：该编译开关已被 `TDMA-BOOTPROFILE-01` 取代——单口自组现在由运行时 provisioning 的
-`SYSTem:TDMA:BOOT:PROFile` 驱动，P3 镜像即台架镜像，AUTOFORM 只保留为历史证据的构建方式）：
+**注**：该编译开关与其后的运行时 `BOOT:PROFile` 都已被 `TDMA-BOOTPROFILE-01` 的**产品默认档**统一——
+2026-11-08 起，无持久档的板子按镜像内默认档自组，持久档存在时优先；详见
+`CALIBRATION_SINGLE_PORT_BRINGUP_COMMANDS.md`，本段只作历史证据）：
 
 | 板 | slot | up | down | tx | rx | half_ring |
 |---|---|---|---|---|---|---|
@@ -823,7 +824,7 @@ M1 的第一段实现：引导环自组完成后，四板**不接主机命令**�
 | 纯逻辑 | `components/tdma/{inc,src}/tdma_guide_scan.*` | 12 对表（`N×(N−1)`，driver 升序/receiver 升序）、按本地 slot 派生 `DRIVER/RECEIVER/IDLE`、活动位图、单闭环聚合与五种拒绝码 |
 | 执行器 | `application/src/app.c` `app_guide_scan_service()` | boot 步骤完成后进暗窗，12 个 5 s 时隙；每时隙 `STOP → 2 节点拓扑(+bring-up topology) → 等 applied==config → PROBE 10 → ARM(带 stopped 屏障) → TRAIN 512 → START → 接收窗轮询 → STOP`；最后清 probe 并重放冻结 boot 步骤恢复 4 节点环 |
 | 读回 | `SYSTem:TDMA:GUIDE:SCAN?` | 22 字段：state/pair/role/node/slot/位图/observed/skipped/failures/fail_phase/arm_result/arm_attempts/arm_gap/staged_enabled/trials_started/trials_armed/max_late_ms/stall_ms/frames_delta/words_delta |
-| 构建开关 | `PROJECT_TDMA_GUIDE_SCAN`（默认 OFF） | 只在 bench 构建（同时开 `AUTOFORM`）生效；产品镜像仍是普通引导 |
+| 构建开关 | `PROJECT_TDMA_GUIDE_SCAN`（默认 OFF） | 只在 bench 构建生效；产品镜像仍是普通引导（默认档自组已与 SCAN 解耦） |
 
 **时隙对齐**：epoch 取 `reset + 12.5 s`（四板同步重启，boot 时间差 ≈0.1 s），而不是"本板首次
 看到环上流量"——后者在协调板与从板之间相差 1–2 个环周期（10 kHz 下 0.6–1.2 s），会把相邻时隙

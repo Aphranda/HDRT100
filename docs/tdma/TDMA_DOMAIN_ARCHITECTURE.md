@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-11-07
+Last updated: 2026-11-08
 
 ## 文档接口与范围
 
@@ -474,6 +474,15 @@ boot profile（v2 地图的 CALIBRATION_NVS 双扇区记录），上电后由 `a
 重建。P3 验收镜像与台架镜像是**同一构建**（都按 `pico2-v2-factory-candidate` 预设），差异只在
 provisioned 状态，不在 image；不得为台架另立镜像。唯一的编译期前提是 v2 部署地图（`v2_candidate`），
 这是分区布局而不是本功能的开关。
+
+**产品默认档（裸板入环）。** 刚烧录、从未 provisioning（或记录被清除）的板子也必须能加入引导环，
+否则现场换板永远收不到 provisioning 命令。因此镜像内置一份**产品默认 profile**：`profile_level`
+与 `node_count` 取构建常量（`PROJECT_TDMA_GUIDE_LEVEL` / `PROJECT_TDMA_GUIDE_NODES`），`local_slot`
+取板号-1，`flags` 固定含 `BRINGUP_NO_CAL`，`topology_crc32` 取固定产品标签 `DHRT100-GUIDE-4N` 的
+CRC32，`generation=1`。默认档**不写 flash**，每次上电合成；一旦写入持久化 profile，**持久档优先**。
+板号为 0（未写 `SYSTem:BOARD:NO`）时默认档不成立，开机保持 NONE——板号写入属于烧录流程的一部分。
+`BOOT:PLAN?` 末尾追加第 20 字段 `profile_source`（0=无档、1=持久档、2=产品默认档），
+`BOOT:PROFile?` 仍只反映持久档（默认档时 `loaded=0`）。默认档与持久档共用同一套 8 步引导序列。
 
 **记录语义。** `tdma_boot_profile_t`：`version / profile_level / node_count / local_slot / flags /
 topology_crc32 / generation` + CRC32（`tdma_boot_profile.h`，32 B 定长）。`BRINGUP_NO_CAL` 位允许无
