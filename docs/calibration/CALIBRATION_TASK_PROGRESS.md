@@ -23,6 +23,11 @@ Last updated: 2026-11-09
 - **结论**：NO.4 的 P1@7 trial 在 `distributed_refmem_tdma_ring_train` 处被拒（`reason=13`，
   `app.c:2592-2599`），随后 restore 走 REBUILD 但**未成环**；barrier 因此把后续 CONFIG 挡在
   NO.4 之外（120 s 超时），阶梯仍断在 P2 之后。
+- **更正（交叉审核）**：TRIAL 态 reason=13 的 abort 在 `app.c:2592-2599` 之前，先被 `app.c:2573`
+  的“非参考槽直接返回”挡住——只有 `local_slot==ref_slot` 才可达；而 NO.4 的环是 local=3/ref=0。
+  因此“NO.4 在 ring_train 被拒”**不能成立**，其 `reason=13/abort_site=6` 更可能是**上一轮 Q 记录残留**
+  （Q 无 epoch 粘滞）或另一条路径。要在 NO.4 转 STOPPED 的那一拍抓 `RING:TRAIN:STATus?` +
+  `RING:STATus?` + `PLAN?` 才能定因。
 - **下一步**：在 NO.4 的 REBUILD 期间抓 ARM 结果与 `RING:STATus?`（enabled/adapter/cfg/applied），
   确认是 ARM 被拒还是 START 未生效；必要时对比 NO.1–3 的 rebuild 轨迹（同 build、同 plan）。
 - **未完成**：四板拉齐、P3–T3 顺序跑通仍 OPEN。
@@ -93,18 +98,23 @@ Last updated: 2026-11-09
 - **下一步**：阶梯驱动加“环可受理”屏障（`enabled+adapter+applied==config`，并等 `PLAN?.ctrqs==0`），
   超时覆盖 45 s RESTORE + 60 s REBUILD；探针已按此实现 `ring_admits()`/`wait_ring_ready(120 s)`。
 
-## CAL-TASK-20261109-003 - M5：P2 已能执行并给出真实拒绝码（0x106 PIO stall）
+## CAL-TASK-20261109-003 - M5：P2 已能执行并给出真实拒绝码（0x106 = MANCHESTER，非 PIO stall）
 
 - **现场**（build `20261108174010`，四板）：P1 `ladder 1 9000 9100` COMPLETE（ladder_idx=1）→ 环保持
   `1/1/1/1`；随后 P2 `p2 9001 9101`：进入 trial body（`P2_WAIT` 约 75 s）→ 终态
   `status=2 (STOPPED), trials_done=1, reason=262 (0x106 = CALIBRATION_CLK_CODED_REJECT_CORRELATION_BASE+6
-  = PIO stall), failed_mask=1, abort=0`，**窗口关闭后环恢复 `enabled/up/down/adapter=1`**。
+  = **MANCHESTER**), failed_mask=1, abort=0`，**窗口关闭后环恢复 `enabled/up/down/adapter=1`**。
   证据：`out/calibration/guide-10k/bench/ladder-p2-20261109.json`。
-- **结论**：P2 不是"跑不起来"——它执行了 coded 测量、给出了具体拒绝码（PIO stall），失败后环也正确复原；
-  阶梯停在 P2 是 fail-closed 的既定行为。缺的是 **10 MHz 的训练前置**：P2/P3/T0–T3 的载荷用 level 7，
-  而 P1 模板是 level 23；coded 测量在未训练的 10 MHz PIO 上会 stall。
-- **下一步**：按 M6.8 口径先 `OPMode:STAGe 7 + APPLy` 再跑 **level 7 的 P1**（必要时加一次 TRAIN），
-  确认 P2 的 0x106 是否消失；若消失，把"P1@7 前置"写进阶梯与页面模板。
+- **修正**：本条原写“PIO stall”**错误**。`calibration_clk_coded.h:76` 的
+  `CORRELATION_BASE=0x100`，+6 = `MANCHESTER`（`calibration_clk_marker.h:106-120`）；
+  裸 6 才是 PIO stall（`calibration_clk_coded.h:75`）。同值 262 另有含义（adapter 的
+  `PHYS_ARM_BASE + RESOURCE_CONFLICT`），不可跨域混用；当时未抓 `READ:CAL:CLOCk:CODEd?`
+  （reject_reason/pio_stall_count/marker_flags），故 0x106 的**具体分支不可复核**。
+- **结论**：P2 执行了 coded 测量并给出 correlation 拒绝（MANCHESTER 类），失败后环正确复原；
+  阶梯停在 P2 是 fail-closed 的既定行为。10 MHz 训练前置仍是主要嫌疑（P1 模板 level 23 vs
+  P2 载荷 level 7）。
+- **下一步**：按 M6.8 口径先 `OPMode:STAGe 7 + APPLy` 再跑 level 7 的 P1；若 P2 仍 0x106，
+  抓 `READ:CAL:CLOCk:CODEd?` 的 reject_reason/marker_flags 再定性。
 - **未完成**：P3–T3 仍未顺序跑通（P2 未过，阶梯不前进）。
 
 ## CAL-TASK-20261109-002 - 修 OTA 首块 512 B 被拒（M7：OTA durable-512）
