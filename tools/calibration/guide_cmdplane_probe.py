@@ -190,9 +190,41 @@ def configure_level(level: int) -> None:
         b.close()
 
 
+def ring_admits(b: Board) -> bool:
+    """Firmware admission predicate for a CONFIG submit (control transport).
+
+    Mirrors refmem_position_reset_policy.c: enabled+adapter started and the
+    applied config equals the current one.  enabled/up/down alone is not
+    enough: an apply issued while `enabled != 0` only schedules the change.
+    """
+    vals = b.ring()
+    return (len(vals) > 39 and vals[0] == 1 and vals[8] == 1 and
+            vals[38] == vals[39])
+
+
 def ring_healthy(b: Board) -> bool:
     vals = b.ring()
-    return len(vals) > 8 and vals[0] == 1 and vals[4] == 1 and vals[5] == 1
+    return (ring_admits(b) and len(vals) > 8 and vals[4] == 1 and vals[5] == 1)
+
+
+def wait_ring_ready(boards: list[Board], timeout_s: float = 120.0) -> bool:
+    """Wait until every board admits a CONFIG (transport ready + frames flowing).
+
+    The window close re-forms the guide ring asynchronously: RESTORE_WAIT is
+    45 s and a failed replay can enter REBUILD for another 60 s, so the wait
+    must outlast ~105 s.  A CONFIG sent while the ring is stopped or still
+    applying is refused with -200 (the retry inside guide_config only covers
+    the cold-cache case).
+    """
+    t0 = time.monotonic()
+    last: list[int] = []
+    while time.monotonic() - t0 < timeout_s:
+        last = [b.no for b in boards if not ring_healthy(b)]
+        if not last:
+            return True
+        time.sleep(1.0)
+    print(f"{now()} ring not ready after {timeout_s:.0f}s: NO.{last}")
+    return False
 
 
 def guide_config(b: Board, text: str) -> str:
@@ -378,6 +410,10 @@ def ladder(action: int, gen: int, epoch: int) -> None:
             for x in boards:
                 x.close()
             return
+    if not wait_ring_ready(boards):
+        for x in boards:
+            x.close()
+        return
     text = (f"SYST:TDMA:GUIDE:CONFig {action},{0x12340000 + gen},{gen},"
             f"{LEVEL_10K},4000,4,{CAND}")
     t0 = time.monotonic()
@@ -822,6 +858,10 @@ def p2(gen: int, epoch: int, window: int = 8000) -> None:
     """
     boards = open_boards()
     ref = boards[0]
+    if not wait_ring_ready(boards):
+        for b in boards:
+            b.close()
+        return
     text = (f"SYST:TDMA:GUIDE:CONFig 2,{0x22000000 + gen},{gen},7,"
             f"{window},1,5,0,1,80,120,0,10,512")
     print(f"{now()} P2 CONFig -> {guide_config(ref, text)}")
@@ -864,6 +904,10 @@ def p3(gen: int, epoch: int, window: int = 20000) -> None:
     """
     boards = open_boards()
     ref = boards[0]
+    if not wait_ring_ready(boards):
+        for b in boards:
+            b.close()
+        return
     text = (f"SYST:TDMA:GUIDE:CONFig 3,{0x33000000 + gen},{gen},7,"
             f"{window},1,5,0,0,32,256,3,10000000,50000")
     print(f"{now()} P3 CONFig -> {guide_config(ref, text)}")
@@ -909,6 +953,10 @@ def guide_action(action: int, gen: int, epoch: int, level: int, window: int,
     """
     boards = open_boards()
     ref = boards[0]
+    if not wait_ring_ready(boards):
+        for b in boards:
+            b.close()
+        return
     tail = ",".join(str(c) for c in cands)
     text = (f"SYST:TDMA:GUIDE:CONFig {action},{0x40000000 + gen},{gen},"
             f"{level},{window},{trials},{len(cands)},{tail},{lo},{hi}")
