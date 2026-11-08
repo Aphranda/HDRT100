@@ -4,11 +4,28 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-11-08
+Last updated: 2026-11-09
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20261109-001 - 修 P2 CODED_STOP 的 training-stage 恢复（CONSOLE-045）
+
+- **症状**：P2 进入 trial body、1 个 trial 通过后，`APP_CTRQS_P2_CODED_STOP` 里
+  `calibration_manager_restore_training_stage()` 返回 false → `hard_fail_reason=NOT_ONLINE_SAFE`
+  → `status=2 (STOPPED)`，阶梯停在 P2。
+- **根因**：该函数在**没有持久化 stage** 时直接返回 false。台架是产品默认档 + 无 TRN-03 记录，
+  P2_PREP 清掉的是 RAM 里的 stage（持久记录本来就不存在），所以"恢复"没有对象却被当成失败。
+- **修复**（`components/calibration_manager/src/calibration_manager.c`）：先读 store status，
+  `persisted_valid==0` 视为"没有可恢复内容"直接返回 true；只有"记录存在但无效/恢复失败"才返回 false。
+  同步更新 `application/src/app.c` P2_CODED_STOP 的注释。
+- **实板验证**（build `20261108164418`，四板）：P1 `ladder 1 8000 8100` → COMPLETE（ladder_idx=1）；
+  随后 `p2 8001 8101` → 四板 `status=1, trials_done=1, passed=1, failed=0, abort=0, ladder_idx=2`；
+  `verify 2 8101 8001 1 1` → **PASS**，证据
+  `out/calibration/guide-10k/evidence/20261109-010527-verify-2/`。
+- **残余**：P3 的 CONFig 目前被 `-200,"TDMA_GUIDE_CONFIG"` 拒绝（命令面 submit 不受理），阶梯仍停在
+  P2 之后；属另一个症状，待查 `SYSTem:REFMEM:CMD:STATus?`。修复未提交（固件 lane，等 P3 凭证）。
 
 ## CAL-TASK-20261108-050 - M5：10 MHz 训练敏感性取证（OPEN，可复跑）
 
