@@ -49,7 +49,7 @@
 #include "vdc_dpll_manager.h"
 #include "vdc_timestamp_clock.h"
 #include "scpi_system_snapshot_internal.h"
-#include "scpi_system_snapshot_internal.h"
+#include "refmem_obs.h"
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
 {
@@ -1309,6 +1309,50 @@ scpi_result_t scpi_cmd_ctrl_function_catalog_q(scpi_t *context)
             SCPI_ResultUInt32(context, entry->steps[s].arg_words);
         }
     }
+    return SCPI_RES_OK;
+}
+
+/* REFMEM-READ-01 observation read. The wire format and the stale/valid rules
+ * are owned by refmem_obs; this handler only parses the paging arguments and
+ * maps the contract's error codes onto SCPI execution errors. A board without
+ * a local snapshot answers with valid=0 (age 0xFFFFFFFF) instead of failing:
+ * a missing local mirror row is a freshness fact, not a command error. */
+scpi_result_t scpi_cmd_refmem_obs_q(scpi_t *context)
+{
+    uint32_t key = 0u;
+    uint32_t offset = 0u;
+    uint32_t count = 0u;
+    if (!SCPI_ParamUInt32(context, &key, TRUE) ||
+        !SCPI_ParamUInt32(context, &offset, TRUE) ||
+        !SCPI_ParamUInt32(context, &count, FALSE)) {
+        scpi_port_push_exec_error(context, "OBS_ARG");
+        return SCPI_RES_ERR;
+    }
+    if (key < 1u || key > 255u || refmem_obs_schema_words((uint8_t)key) == 0u) {
+        scpi_port_push_exec_error(context, "OBS_KEY");
+        return SCPI_RES_ERR;
+    }
+    if (offset >= 4u) {
+        scpi_port_push_exec_error(context, "OBS_OFFSET");
+        return SCPI_RES_ERR;
+    }
+    if (count == 0u || count > 4u - offset) {
+        count = 4u - offset;
+    }
+    refmem_obs_result_t result = {
+        .key = (uint8_t)key,
+        .offset = (uint16_t)offset,
+        .count = (uint16_t)count,
+        .valid = 0u,
+        .age_ms = REFMEM_OBS_AGE_INVALID,
+        .row_words = 0u,
+    };
+    char text[128];
+    if (refmem_obs_encode(&result, text, sizeof(text)) != REFMEM_OBS_OK) {
+        scpi_port_push_exec_error(context, "OBS_ENCODE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, text);
     return SCPI_RES_OK;
 }
 
