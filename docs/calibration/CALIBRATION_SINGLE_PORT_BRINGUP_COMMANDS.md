@@ -193,6 +193,22 @@ P2–T3 的 trial body，不要据此判定"未接线"。
 上一轮的 progress（例如 P1 的 `trials=4/passed=0xF`）而 `action` 已是新动作；判读时先核对
 `gen/epoch` 与 `action` 是否同一轮。固件对"进入执行器后被拒"的场景会发布 `FAILED/13/trials=0`
 （`app.c:2483-2498`），两种情形要区分开。
+
+**`progress_status` 与 `abort_site` 的判读**（`GUIDE:PLAN?` 字段 11/23/24）：
+
+| status | 含义 | 常见来源 |
+|---|---|---|
+| 1 | COMPLETE | 动作跑完、trials 全过 |
+| 2 | STOPPED | 窗口内 abort（`app_ctrqs_abort`，reason 为具体原因）或 finalize 时 `failed_mask≠0` |
+| 3 | FAILED | CONFIG 校验拒绝（reason=13）或窗口关闭后 restore/rebuild 失败（reason=14，`abort_site` 26/27） |
+
+先看 `failed_mask`：`failed_mask≠0` 说明**trial 本身判失败**（例如 P2 的 coded 测量被拒），不是复环问题；
+`failed_mask=0` 而 `status=3` 才是 restore 路径。再看 `abort_site`（26/27=restore/rebuild，100+stage=T3）。
+
+**10 MHz 动作的 level 门槛**：P2/P3/T0–T3 的规范载荷用 `level=7`（10 MHz），而 P1 的 10 kHz 模板用
+`level=23`。P2 的 coded 测量在 10 MHz 上需要先有时钟 bracket；若 P1 只在 10 kHz 跑过，P2 在 10 MHz
+可能被拒（`NOT_ONLINE_SAFE` 类）。按 M6.8 的口径：**先 `OPMode:STAGe 7` + `APPLy`，再用 level 7 跑
+P1**，然后才跑 P2/P3；不要用 23 档的 P1 直接接 7 档的 P2。
    恢复手法见 §6 最后一条。
 
 
