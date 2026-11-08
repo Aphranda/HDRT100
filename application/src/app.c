@@ -115,6 +115,10 @@ static void app_guide_window_close(uint64_t now_ms)
     /* A new window owns a fresh replay; the CTRQS restore may re-suppress it
      * if it has to rebuild the ring itself. */
     s_boot_replay_suppressed = false;
+    /* Re-formed ring (or a new attempt) supersedes a previous half-ring
+     * verdict: the flag drives BOOT:PLAN?/BOOT:TOPO? and the boot verdict of
+     * later runs, so it must not stay latched after a successful rebuild. */
+    s_boot_half_ring = false;
 }
 
 /* M1 P0T pair scan. The schedule is anchored on the local ring-formation
@@ -959,6 +963,9 @@ bool app_guide_boot_service(void)
     }
     s_boot_guide_done = true;
     s_boot_fail_step = 0u;
+    /* A fresh replay starts a new ring attempt; a half-ring verdict from the
+     * previous window must not leak into BOOT:PLAN?/BOOT:TOPO? for this one. */
+    s_boot_half_ring = false;
     /* Completeness watch: a four-node ring run by fewer boards still reaches
      * up_running on the survivors; the down direction only runs when a peer
      * answers, so a silent down path after the grace window is a half ring. */
@@ -3783,19 +3790,23 @@ static void app_ctrqs_service(void)
         return;
     case APP_CTRQS_RESTORE_WAIT:
         if (app_ctrqs_restore_formed()) {
+            /* The ring is complete again: drop the half-ring latch so the
+             * verdict of later boot checks is not poisoned by this window. */
+            s_boot_half_ring = false;
             s_ctrqs.state = APP_CTRQS_Q;
             return;
         }
         /* The frozen boot replay is fire-and-forget: each step only reports
-         * acceptance, so after a window close the staged STOP/APPLY can win the
-         * ordering race and leave the ring disabled while BOOT:PLAN? still says
-         * fail_step=0, boot_done=1, next_step=8 (measured 2026-11-08:
-         * 10 kHz P1, four trials passed, ring enabled=0 after the replay).
-         * A boot plan therefore cannot be trusted to re-form the ring; fall
-         * back to the explicit rebuild, which waits for quiescence between
-         * TOPO/ARM/START. Only enter once the replay is settled, and enter
-         * immediately only when nothing is running: a follower may legitimately
-         * hold its forward window open for APP_CTRQS_FOLLOWER_PHASE_WAIT_MS. */
+         * acceptance, so after a window close its START can succeed while only
+         * a half ring forms (measured 2026-11-08: up=1/down=0, applied==config,
+         * then the 20 s completeness watch stops the ring).  Once the ring is
+         * down the replay has nothing left to do, and without a fallback the
+         * old code waited out the restore deadline and failed the round.
+         * Fall back to the explicit rebuild, which waits for quiescence
+         * between TOPO/ARM/START. Only enter once the replay is settled, and
+         * enter immediately only when nothing is running: a follower may
+         * legitimately hold its forward window open for
+         * APP_CTRQS_FOLLOWER_PHASE_WAIT_MS. */
         if (s_boot_guide_done) {
             const bool quiescent = app_ctrqs_ring_quiescent();
             if (s_boot_fail_step != 0u || quiescent ||
@@ -3833,6 +3844,7 @@ static void app_ctrqs_service(void)
              * that merely restores the ring.  Marking T3 complete here reported
              * a failed action as COMPLETE (and made a rerun pass on evidence
              * that came from the recovery path). */
+            s_boot_half_ring = false;
             s_ctrqs.state = APP_CTRQS_Q;
             return;
         }
@@ -3884,9 +3896,13 @@ static void app_ctrqs_service(void)
         return;
     ctrqs_rebuild_failed:
         s_ctrqs_abort_site = (uint32_t)APP_CTRQS_REBUILD;
+        /* Keep the reason that was already published (an ARM abort carries its
+         * own code); only fill the generic code when the record has none. */
+        if (s_ctrqs.progress.reason == 0u) {
+            s_ctrqs.progress.reason =
+                (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE;
+        }
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
-        s_ctrqs.progress.reason =
-            (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE;
         app_ctrqs_publish();
         s_ctrqs.state = APP_CTRQS_Q;
         return;
