@@ -3991,6 +3991,14 @@ static bool s_ota_tdma_parser_registered;
 
 void app_ota_service(void)
 {
+    /* Drain a terminal flash transaction even when no OTA session is active.
+     * A failed OTA_JOURNAL append leaves the owner occupied; the next session's
+     * slot erase is then rejected before it becomes a transaction
+     * (submit_reject=2, measured 2026-11-09: four boards failed the second
+     * four-board OTA right after a successful one). */
+    if (flash_transaction_ao_is_occupied()) {
+        flash_transaction_ao_service();
+    }
     ota_ao_service(500u);
     /* The OTA frame parser must exist before the first ring frame arrives;
      * registration is independent of the local stream session. */
