@@ -13,24 +13,32 @@ Last updated: 2026-11-09
 ## CAL-TASK-20261109-006 - OTA 孤儿事务 drain（P3 PASS）+ 静默屏障回退（TRN-03B 回归）
 
 - **OTA 孤儿事务**：`flash_transaction_ao` 的 `occupied` 只在 `flash_transaction_fb_service()` 观测到
-  终态时清；主循环没有周期性 service（全仓仅 4 个调用点），所以一次失败的 OTA_JOURNAL 事务会把
-  owner 永久占住，下一次会话的槽擦除在成为事务前就被拒（`submit_reject=2`）。
+  终态时清；主循环没有周期性 service（**修复前**全仓仅 4 个调用点，修复后 5 个），所以一次失败的
+  OTA_JOURNAL 事务会把 owner 永久占住，下一次会话的槽擦除在成为事务前就被拒（`submit_reject=2`）。
 - **修复**：`application/src/app.c` 的 `app_ota_service()` 中 `if (flash_transaction_ao_is_occupied())
   flash_transaction_ao_service();`（`task_ota` 上下文，不做 SCPI 同步调用；只要 occupied 就 service，
   非终态孤儿也推完）。
 - **静默屏障回退**：`app_guide_ring_quiet()`（STAGE/APPLY 要求环完全静默）在 `p3-drain` 上导致
   **process-image TRN-03B 启动屏障超时**（BLOCKED，ERROR 2）；回退该屏障后同一台架 P3 通过。
-  结论：该修法会与 process-image handoff 的时序冲突，**不得按原样保留**；level-7 动作后的环恢复
-  问题回到 OPEN（见 CAL-TASK-20261109-004/005 的更正）。
+  结论：该修法会与 process-image handoff 的时序冲突，**不得按原样保留**。该实现从未入 git
+  （`git log -S app_guide_ring_quiet` 仅命中 docs），A/B 的源码侧不可独立复核。
 - **P3**：`out/HardwareAcceptance/20261109/p3-revert` **PASS_WITH_WARNINGS**（INFO 34 / WARN 1 /
-  ERROR 0），build `20261108192050`；固件提交 `7ec900cb`。
-- **残余**：level-7 动作后 `up/down=0` 的环恢复（R3 的 before 叙述与归档证据不一致，需先核实观测口径）；
-  NO.4 `reason=13/abort_site=6`（疑与 OTA admission 残留相关，待 `SYST:RES?` 补 mode 后复测）。
+  ERROR 0；quick-diagnostic debug 档，`strict_gates_passed=false`，超时 489.8 s > 450 s 预算），
+  build `20261108192050`；固件提交 `7ec900cb`。
+- **更正（04:0x 复核）**：此前记的“level-7 动作后环 `up/down=0`”**不成立**——三份 readback
+  （`…020424-action1-gen9300`、`…020743-action1-gen9500`、`…021621-action1-gen9700`）的首/末样本
+  四板均 `up=1/down=1`，唯一 summary 亦为 `1/1/1/1`；`up=0/down=0` 只出现在窗口内重建瞬态。
+  该“残余”降级为**未复现、观测口径未绑定**，不得作为缺陷进入路线图。
+- **NO.4 reason=13**：唯一 TRIAL 态 reason=13 的 abort 点在 `application/src/app.c:2592-2599`
+  （行 2597：`!tdma_runtime_owner_get_clk_train_snapshot() || !distributed_refmem_tdma_ring_train()`）；
+  `reason=13` 是应用侧合成码，原始拒绝源（快照失败 / ring_train 拒绝 / 底层 -200）在读回里不可区分，
+  **不能**据此归因到 OTA admission（readback 无相关字段）。
 
 ## CAL-TASK-20261109-005 - M5：replay 的 STAGE/APPLY 加静默屏障（环恢复）
 
-> **更正（2026-11-09 04:0x）**：本条所述静默屏障已回退——它在 `p3-drain` 上导致 process-image
+> **更正（2026-11-09）**：本条所述静默屏障已回退——它在 `p3-drain` 上导致 process-image
 > TRN-03B 启动屏障超时（P3 BLOCKED）；回退后 P3 PASS。本条保留为实验记录，结论以 CAL-TASK-20261109-006 为准。
+> 另：本条“修复前 up/down=0”的对照**不成立**（留存 readback 首/末样本均为 1/1），不可复核。
 
 - **根因**：窗口关闭后的 replay 里，`STAGE_PROFILE`/`APPLY_PROFILE` 在环仍在收尾时就执行；
   此时 `tdma_runtime_owner_apply_operating_profile()` 看到 `ring.enabled != 0`，只**排程**配置而
@@ -40,27 +48,30 @@ Last updated: 2026-11-09
   && applied_config_seq==config_seq`），`STAGE_PROFILE` 与 `APPLY_PROFILE` 在非静默时返回 false，
   由 boot service 原地重试，直到环真正停稳再 stage/apply。
 - **实板验证**（build `20261108180849`，四板）：重启 → `ga 1 <gen> <epoch> 7 4000 4 …`（P1@7）→
-  四板环 **全部 `enabled/up/down/adapter=1`**（修复前是 `up/down=0`）；P1 三块板 COMPLETE
-  （`trials=4, passed=0xF`）。证据：`out/calibration/guide-10k/bench/p1-level7-quiet-20261109.json`。
+  四板环 **全部 `enabled/up/down/adapter=1`**；P1 三块板 COMPLETE（`trials=4, passed=0xF`）。
+  证据：`out/calibration/guide-10k/bench/p1-level7-quiet-20261109.json`。
+  **更正**：原写“修复前是 up/down=0”不成立——同 run 的三份 readback 首/末样本均为 1/1
+  （`…020424`、`…020743`、`…021621`），before 文件已被 after 覆盖（同哈希），对照不可复核。
 - **残余**：NO.4（COM6）在 P1@7 的 TRIAL 阶段仍 `abort_site=6 / reason=13`（`trials=0`、ladder 0/3），
   但它的环已正常；这是与环恢复无关的**单板 P1 trial 拒绝**，待查（下一步先看 NO.4 的 slot3 与
   reference 的 trial 请求差异）。
-- **P3**：`out/HardwareAcceptance/20261109/p3-quiet`（结果见下条）。
+- **P3**：`out/HardwareAcceptance/20261109/p3-quiet` 实为 **BLOCKED**（四板 OTA 0/4，`submit_reject=2`，
+  P0/P3/T3/TDMA 全 `STAGE_MISSING`），不是本条屏障的验证；p3-drain 才是（BLOCKED，TRN-03B 超时）。
 
-## CAL-TASK-20261109-004 - M5：P1@7 能跑完，但 level-7 动作后环回不来（阶梯断点）
+## CAL-TASK-20261109-004 - M5：P1@7 能跑完（更正：环退化叙述不成立）
 
 - **做法**：重启四板（默认档起 10k 环）→ `OPMode:STAGe/APPLy 7` 已由窗口自己完成 → 直接
   `ga 1 <gen> <epoch> 7 4000 4 3 0 4 16 1 64`（P1 with level 7）。
-- **结果**（build `20261108174010`，两次一致）：COM5/COM4/COM3 `status=1, trials=4, passed=0xF`；
-  COM6 `status=2, trials=0, reason=13, abort_site=6`。但**四板的环都退化**：
-  `enabled=1, adapter=1, up=0/1, down=0`（COM5 up=1/down=0；COM4/COM3 up=0/down=0；
-  COM6 up=1/down=0）。证据：`out/calibration/guide-10k/bench/p1-level7-20261109.json`。
-- **结论**：level-7 动作本身能测完（P1 甚至 3/4 全绿），但**窗口关闭后的环没有恢复**——`enabled=1`
-  说明 replay 走到 START，而 `up/down=0` 说明物理帧不再流动（疑似 10M persona/时钟状态残留）。
-  环回不来 → 下一条 CONFig 被 `distributed_refmem_control_submit` 拒绝（`-200 TDMA_GUIDE_CONFIG`），
-  阶梯因此断在 P2 之后。这解释了另一会话看到的"P2 之后跑不动"。
-- **下一步**：查窗口关闭/replay 在"刚跑过 level-7 动作"后的 PHY 恢复（persona/clock/staged profile），
-  必要时在 replay 前强制 `STOP` + 重新 `STAGE/APPLY 23`；这是 M5 的真正断点。
+- **结果**（build `20261108174010`）：COM5/COM4/COM3 `status=1, trials=4, passed=0xF`；
+  COM6 `status=2, trials_done=0, reason=13, abort_site=6`。
+- **更正**：本条原写“四板环都退化 up=0/1、down=0”，**与留存证据不符**——同一 run 的三份 readback
+  （`…020424-action1-gen9300`、`…020743-action1-gen9500`；build 174010）首/末样本四板均 `up=1/down=1`，
+  `up=0/down=0` 只是窗口内重建瞬态。`p1-level7-20261109.json` 已被 after 内容覆盖（与
+  `p1-level7-quiet-20261109.json` 同哈希），不能作 before 证据。
+- **结论**：P1@7 能跑完；“环回不来”**未复现**，现有观测口径（动作后采样）无法区分瞬态与稳态。
+  阶梯断在 P2 的真实原因是下一条 CONFIG 在**环未稳定**时被 `distributed_refmem_control_submit`
+  拒绝（`-200 TDMA_GUIDE_CONFIG`），需要在每步之间显式确认 `RING:STATus? enabled=1` 再下发。
+- **下一步**：阶梯驱动加“环就绪”屏障（读回 enabled/up/down），而不是改 replay。
 
 ## CAL-TASK-20261109-003 - M5：P2 已能执行并给出真实拒绝码（0x106 PIO stall）
 
