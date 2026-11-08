@@ -12,6 +12,11 @@ $tableSource = Join-Path $repo "components\distributed_refmem\src\refmem_read_ca
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
+# Drift gate: the generated header/table must match config/refmem/read_catalog.yaml.
+$gen = Join-Path $repo "tools\refmem\refmem_read_catalog_gen.py"
+& python $gen --check
+if ($LASTEXITCODE -ne 0) { throw "read catalog drift detected; rerun $gen" }
+
 $hostCc = Get-Command "gcc" -ErrorAction SilentlyContinue
 if (-not $hostCc) {
     $hostCc = Get-Command "clang" -ErrorAction SilentlyContinue

@@ -138,8 +138,24 @@ def main() -> int:
         "",
     ]
 
-    HEADER.write_text("\n".join(header), encoding="utf-8", newline="\n")
-    TABLE_C.write_text("\n".join(table), encoding="utf-8", newline="\n")
+    header_text = "\n".join(header)
+    table_text = "\n".join(table)
+
+    if "--check" in sys.argv:
+        drift = []
+        for path, text in ((HEADER, header_text), (TABLE_C, table_text)):
+            current = path.read_text(encoding="utf-8") if path.exists() else ""
+            if current.replace("\r\n", "\n") != text.replace("\r\n", "\n"):
+                drift.append(str(path))
+        if drift:
+            print("generated files differ from config: " + ", ".join(drift),
+                  file=sys.stderr)
+            return 1
+        print("read catalog is up to date (%d keys)" % len(keys))
+        return 0
+
+    HEADER.write_text(header_text, encoding="utf-8", newline="\n")
+    TABLE_C.write_text(table_text, encoding="utf-8", newline="\n")
     print("wrote %s and %s (%d keys)" % (HEADER, TABLE_C, len(keys)))
     return 0
 
