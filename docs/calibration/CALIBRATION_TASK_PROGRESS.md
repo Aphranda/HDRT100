@@ -10,6 +10,23 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-007 - NO.4 P1@7 失败后停在 REBUILD、环不恢复
+
+- **现场**（build `20261108192050`，重启后默认环四板 `1/1/1/1`）：`ga 1 <gen> <epoch> 7 …`（P1@7）→
+  NO.1–3 `status=1, trials=4, passed=0xF`；NO.4（COM6）`status=2, trials_done=0, reason=13,
+  abort_site=6, ladder=0/3`。
+- **失败后**：NO.1–3 环 `1/1/1/1`；**NO.4 环 `0/0/0/0`**，`GUIDE:PLAN?` 的 `ctrqs=26`（**REBUILD**），
+  `BOOT:PLAN?` 仍 `fail_step=0 / boot_done=1 / next_step=8`（replay 自称成功但没成环）。
+- **资源表对照**：NO.1 与 NO.4 的 `SYST:RESource:TABle? 0..5` **逐行相同**（FLASH 空闲、
+  PIO1/PIO2 由 `TDMA_FLIGHT_PIO` 持有、mode=10），排除资源泄漏/占用差异；差异在于 NO.4 的 rebuild
+  没能把环拉起来。
+- **结论**：NO.4 的 P1@7 trial 在 `distributed_refmem_tdma_ring_train` 处被拒（`reason=13`，
+  `app.c:2592-2599`），随后 restore 走 REBUILD 但**未成环**；barrier 因此把后续 CONFIG 挡在
+  NO.4 之外（120 s 超时），阶梯仍断在 P2 之后。
+- **下一步**：在 NO.4 的 REBUILD 期间抓 ARM 结果与 `RING:STATus?`（enabled/adapter/cfg/applied），
+  确认是 ARM 被拒还是 START 未生效；必要时对比 NO.1–3 的 rebuild 轨迹（同 build、同 plan）。
+- **未完成**：四板拉齐、P3–T3 顺序跑通仍 OPEN。
+
 ## CAL-TASK-20261109-006 - OTA 孤儿事务 drain（P3 PASS）+ 静默屏障回退（TRN-03B 回归）
 
 - **OTA 孤儿事务**：`flash_transaction_ao` 的 `occupied` 只在 `flash_transaction_fb_service()` 观测到
