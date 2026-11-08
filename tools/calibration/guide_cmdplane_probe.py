@@ -20,7 +20,8 @@ Subcommands:
   ct <gen> [tag]   single-port C/T: send GUIDE:CONFig from COM5 only, then
                    read all four boards back and archive the evidence
   down             RING:STOP on all boards
-  ga <action> ...  run one guide action (ladder guard + strict verdict + archive)
+  ga <action> <gen> <epoch> <level> <window> <trials> <count> <cand...> <lo> <hi>
+                   run one guide action (ladder guard + strict verdict + archive)
   verify <a> <epoch> [gen] [repeats]
                    strict verdict: freshness, terminal state, mask, no abort
   plan / verdict / ladder / phases
@@ -1608,8 +1609,17 @@ def main(argv: list[str]) -> int:
     if what == "ga":
         action = int(argv[2]); gen = int(argv[3]); epoch = int(argv[4])
         level = int(argv[5]); window = int(argv[6]); trials = int(argv[7])
-        cands = [int(x) for x in argv[8:-2]]
+        # The C segment starts with an explicit candidate_count; the CLI takes
+        # it verbatim so the wire shape cannot silently shift by one (measured
+        # 2026-11-09: passing cands=[3,0,4,16] made ref_slot=3 and cycles={0,4,16},
+        # so the training reference aborted on ring_train(0) with reason 13).
+        count = int(argv[8])
+        cands = [int(x) for x in argv[9:-2]]
         lo = int(argv[-2]); hi = int(argv[-1])
+        if len(cands) != count:
+            print(f"usage: ga <action> <gen> <epoch> <level> <window> <trials> "
+                  f"<count> <cand...> <lo> <hi> (count={count}, got {len(cands)})")
+            return 2
         guide_action(action, gen, epoch, level, window, trials, cands, lo, hi)
         return 0
     if what == "stateprobe":

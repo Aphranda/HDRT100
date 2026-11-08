@@ -10,7 +10,32 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
-## CAL-TASK-20261109-009 - NO.4 P1@7 拒绝连续 3 次复现；level-7 后环 up/down=0 复现
+## CAL-TASK-20261109-009 - NO.4 P1@7 失败的根因：C 段候选表错位（已修工具）
+
+- **复现**（build `20261108192050`）：P1@7 连续 3 次 3/4，NO.4（COM6）`status=2, trials_done=0,
+  reason=13, abort_site=6, ladder=0/3`。
+- **根因（交叉审核 `528aead0`，确定性、无竞态）**：C 段**首字段是 candidate_count**；当时用
+  `ga 1 … 4 3 0 4 16 1 64`，而 `ga` 把 count 丢掉、按 `len(cands)` 重算 ⇒ 线上形状变成
+  `count=4, candidates=[3,0,4,16]` ⇒ `ref_slot=3%4=3`（**NO.4 成了训练参考板**）、
+  `cycles={0,4,16}` ⇒ trial0 调用 `ring_train(0)`，被 `cycles != 0` 参数前置否决 ⇒ 立即在
+  `app.c:2597` abort(13)，state=TRIAL ⇒ `abort_site=6`。4 轮失败的归档 cseg 全同形
+  （`evidence/20261109-034436-action1-gen9900` 等）。
+- **更正 1**：`up/down=0` 在 TRIAL/FORWARD 窗口内是**构造使然**（训练路径不调 adapter service），
+  **不是环劣化**；`RES:TRAINing?=(0,1)` 是从机 60 s hold 期间的正常 outstanding 标志。
+  此前把二者当故障证据的叙述（004/005/009 旧版）**作废**。
+- **更正 2**：`reason/trials_done/masks/ladder` 在未走到 Q 的一轮里是**上一轮的残留**；实时量只有
+  `ctrqs`/`abort_site`/`plan_*`。判断“环是否流动”应看 `total_up_tx/total_down_rx` 单调计数，
+  而不是 up/down。
+- **修复（工具）**：`ga` 现在把 count 作为独立参数并校验 `len(cands)==count`
+  （`tools/calibration/guide_cmdplane_probe.py`），usage 已更新；正确形状为
+  `ga 1 <gen> <epoch> 7 4000 4 3 0 4 16 1 64`（count=3、cands=[0,4,16]）。
+- **修复后实板**：同一 build、复位后 `ga 1 10201 10211 7 4000 4 3 0 4 16 1 64` →
+  NO.2/NO.3/NO.4 `status=1, trials=4, ladder=1/1`；**NO.1（参考板）`reason=11 (TIMEOUT), abort=6`**
+  ——失败点从 NO.4 移到参考板，属另一条**间歇性**问题（trace 轮里 NO.1 曾 4/4 通过）。
+- **下一步**：查参考板 `ring_train` 偶发 TIMEOUT（`RING:TRAIN:STATus?` 的 request_seq/state）；
+  之后按正确形状重跑 P1@7→P2→P3，取干净位图。
+
+## CAL-TASK-20261109-009-OLD - （作废）NO.4 P1@7 拒绝连续 3 次复现；level-7 后环 up/down=0 复现
 
 - **复现**（build `20261108192050`，每次先重启复位）：P1@7（`ga 1 <gen> <epoch> 7 4000 4 …`）
   连续 3 次（gen 10001、10011 与更早一次）均为 **3/4 板 COMPLETE、NO.4（COM6）
