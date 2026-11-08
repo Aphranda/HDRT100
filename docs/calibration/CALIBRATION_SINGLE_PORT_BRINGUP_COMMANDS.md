@@ -65,6 +65,33 @@ python tools/calibration/guide_cmdplane_probe.py boot <tag>
 # 证据：out/calibration/guide-10k/evidence/<stamp>-boot-<tag>/readback.json
 ```
 
+### 2.1 单口引导完整指令顺序（分步 runbook）
+
+> 口径：**第 2、5、7 步的"下发"只用 COM5**；第 3、4、6、8 步是四板**读回验证**（可选的逐板读回），
+> 不参与下发。示例值取自 10 kHz P1（`action=1`、`crc=305398722`、`gen=962`、`epoch=1002`）。
+
+| # | 动作 | 端口 | 指令 | 期望 |
+|---|---|---|---|---|
+| 0 | 前置核对 | COM5 | `*IDN?`、`SYST:FW:BUILD?` | `NO.1,DHRT100,...`；四板同 build（读回见下） |
+| 1 | 复位 | 每板 | `SYSTem:BOOT:RESET`（NO.4→3→2→1） | 端口短暂掉线后重新枚举 |
+| 2 | 等 boot 定局 | **COM5** | `SYST:TDMA:BOOT:PLAN?` 轮询 | 第 18 字段 `boot_done=1` 且第 4 字段 `fail_step=0`（≤33 s） |
+| 3 | 判环 | 四板读回 | `SYST:TDMA:BOOT:PLAN?`、`SYST:TDMA:RING:STATus?` | `action` 1/2、`steps=8`、`enabled/up/down/adapter=1`、`half_ring=0`、第 20 字段 `profile_source`∈{1,2} |
+| 4 | 帧活性 | 四板读回 | 间隔 ≥2 s 两次 `RING:STATus?` | 第 49/50 字段 `total_up_tx/total_down_rx` 单调增长 |
+| 5 | 单口 C/T 配置 | **COM5** | `SYST:TDMA:GUIDE:CONFig 1,305398722,962,23,4000,4,3,0,4,16,1,64` | `OK` |
+| 6 | 等计划到齐 | 四板读回 | `SYST:TDMA:GUIDE:PLAN?` | 四板第 4 字段 `gen=962`（10 kHz 约 60 s；16 字节计划需分片） |
+| 7 | 触发 | **COM5** | `SYST:TDMA:GUIDE:TRIGger 1,1002` | `OK` |
+| 8 | 结果判定 | 四板读回 | `SYST:TDMA:GUIDE:PLAN?` | `progress_status=1`(COMPLETE)、`trials_done=4`、`passed_mask=0xF`、`failed_mask=0`、`abort_site=0`；环恢复 `enabled/up/down/adapter=1` |
+| 9 | 归档 | 主机 | `python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>` | `ct=PASS`，证据含 `command_port=COM5`、`response`、host fingerprint、四板读回 |
+
+**参数说明（第 5 步）**：`CONFig <action_id>,<plan_crc32>,<generation>,<profile_level>,<window_ms>,
+<trial_count>[,<candidate_count>,<candidate[0..4]>,<threshold_low>,<threshold_high>]`
+（`scpi_cmd_system_tdma_guide_config`，候选段可选）。第 7 步 `TRIGger <action_id>,<epoch>`。
+
+**失败分支**：
+- 第 2 步超时仍 `boot_done=0`：抓 `BOOT:PLAN?` 的 3/17/18 字段，按 §6 定位失败步；
+- 第 6 步四板 `gen` 不一致：查 `SYSTem:REFMEM:CMD:STATus?` 的 `frag_done/ack_ok`，确认命令只从 COM5 进；
+- 第 8 步 `abort_site≠0`：按 §4.1（26/27 = restore/rebuild）与 §6 处理。
+
 ## 3. 单口 C/T（只开 COM5）
 
 ```powershell
