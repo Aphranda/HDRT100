@@ -1442,34 +1442,55 @@ RefMem 统一面是**增量层**，不替换单板控制：
 读面是 CP4 的落地契约：**只读本地镜像、逐槽拼装、不做同步跨板读**。首版不做同步 `CTRL:READ?`
 （D0 决策 2026-11-09 选 A）；若将来确需同步读，先修订 CP4 再立项，不得在客户端或页面层绕过。
 
-**read key 表（v1）。** 每个 key 有唯一 writer、固定行 schema 与 freshness 预算；writer 只在 core0
-service 上下文发布，`seq` 单调递增、`epoch` 随命令 epoch 更新。
+**发布面（先于读面）。** 每 key 只有一个 writer，在 **core0 service 上下文**（或该 owner 所在核心的
+发布点）写入本板镜像；core1/ISR 侧的状态必须经 core0 drain 发布，禁止直写。写入通道：
+首轮全量（每 key 一次，走维护流），之后只发 **dirty key 增量**；单次增量载荷 ≤
+`REFMEM_CMD` wire 上限，禁止整表刷新。镜像条目包含 `key_id/seq/epoch/last_update_ms/<schema>`；
+`seq` 由该 key 的发布计数器单调递增，`epoch` 取该 key 关联的 plan/command generation（无则 0）。
 
-| key_id | name | 唯一 writer | freshness_ms | 行 schema（固定字长） |
-|---|---|---|---|---|
-| 1 | `switch1` | sync_io sequence owner | 1000 | `value, desired` |
-| 2 | `switch2` | sync_io sequence owner | 1000 | `value, desired` |
-| 3 | `trigger_state` | trigger AO | 200 | `state, run_state, epoch` |
-| 4 | `guide_plan` | guide executor | 5000 | `action, gen, status, trials_done, passed, failed, abort_site` |
-| 5 | `boot_plan` | boot service | 60000 | `action, fail_step, boot_done, half_ring, profile_source` |
-| 6 | `ring_status` | tdma runtime owner | 1000 | `enabled, up, down, adapter, nodes, local_slot` |
-| 7 | `cal_status` | calibration manager | 60000 | `persisted_valid, generation, level, reject_reason` |
-| 8 | `fault_last` | diagnostics | 60000 | `code, severity, age_ms` |
-| 9 | `node_health` | refmem node table | 1000 | `state, heartbeat, stale_count, fault_code` |
+**read key 表（v1，8 个）。** freshness 直接复用 `RefMemSlotContract` 的 `stale_window_us`
+（`refmem_application_model.h`），不新增第二套 freshness 参数。
 
-**查询形态。** `SYSTem:REFMEM:OBS? <key>,<offset>,<count>`：按 `slot` 升序返回最多 8 行，每行固定为
-`slot,valid,epoch,seq,age_ms,stale,<schema 字...>`；`offset+count` 越界按可用范围裁剪并逐行报
-`valid=0`，不得整体报错。`valid=0` 时 `age_ms=0xFFFFFFFF`，其余值字段为 0。
+| key_id | name | 唯一 writer | 行 schema（固定字长） |
+|---|---|---|---|
+| 1 | `switch1` | sync_io sequence owner（core1 → core0 drain） | `value, desired` |
+| 2 | `switch2` | sync_io sequence owner（同上） | `value, desired` |
+| 3 | `trigger_state` | trigger AO | `state, run_state, epoch` |
+| 4 | `guide_plan` | guide executor | `action, gen, status, trials_done, passed, failed, abort_site` |
+| 5 | `boot_plan` | boot service | `action, fail_step, boot_done, half_ring, profile_source` |
+| 6 | `ring_status` | tdma runtime owner | `enabled, up, down, adapter, nodes, local_slot` |
+| 7 | `cal_status` | calibration manager | `persisted_valid, generation, reject_reason` |
+| 8 | `node_health` | refmem node table（`NODES?` 的只读投影） | `state, heartbeat, stale_count, fault_code` |
 
-**新鲜度。** `stale = (valid==1) && (age_ms > freshness_ms)`；stale 行只能用于诊断，不得当作 current
-fact 参与校准/判据；`required_mask` 内的 key 行 stale 视为缺位，按命令面的 NACK reason 聚合返回，
-不得退化成客户端超时猜测。
+（v1 不含 `fault_last`：diagnostics 只有 `s_fault_latched` 与文本日志，`SYST:FAULT:LAST?` 是存储
+report，二者都不是可发布的故障码来源；补 writer 后再增 key。）
 
-**单写者与撕裂。** 每 key 仅一个 writer；发布用 `seq` 校验（读侧 `seq` 变化即重读一次），发布点禁止
-在 core1/ISR 直写。跨 key 不保证同一时刻快照，行级 `epoch/seq` 是唯一一致性口径。
+**存储预算（pilot 与全量分开）。** 单板 node slot 288 B、现用 232 B、尾部仅 56 B（`refmem_vector_table.h`），
+**pilot 不放 node slot 尾部**。pilot 用一块独立 region（约 1 KiB，候选为当前零消费的 statistics 区，
+region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/switch2/guide_plan/ring_status`），
+4 key × 8 槽 ≈ 864–928 B。全量 8 key 需要新 region + `layout_version` 递增（`REFTMEM-LAYOUT-01`），
+不与 pilot 同批改。
+
+**查询形态。** `SYSTem:REFMEM:OBS? <key>,<offset>,<count>`：
+- `<key>` 为 key_id 数字（1..8）；
+- `offset >= DISTRIBUTED_REFMEM_NODE_COUNT` → SCPI 错误（与 `NODES?` 一致，不返回空行）；
+- `count` 裁剪到 `node_count - offset`，上限 `DISTRIBUTED_REFMEM_NODE_COUNT`；
+- 每行固定 `slot,valid,epoch,seq,age_ms,stale,<schema 字...>`。
+
+**行语义。** `valid=0` 行表示该槽从未发布：`age_ms = 0xFFFFFFFF`、`stale = 1`、其余值字段为 0；
+`valid=1` 行 `stale = (age_ms > stale_window_us/1000)`。`age_ms` 是**读者本地视角**
+（读者 tick − 写者 `last_update_ms`），跨板存在时基偏差，`stale` 判定只用同一读者的时基。
+
+**读面与命令面的边界。** OBS 是**只读投影**，不携带 `target_mask/required_mask`，不产生命令事实，
+也不返回 NACK；"required 缺位 → NACK" 只属于命令面语义（`REFMEM_COMMAND_REASON_NODE_STALE` 等），
+读面不得把该语义借来当查询失败。stale 行只能用于诊断，不得当作 current fact 参与校准/判据。
+
+**单写者与撕裂。** 每 key 仅一个 writer；读侧用 `seq` 校验（`seq` 变化即重读一次）；跨 key 不保证
+同一时刻快照，行级 `epoch/seq` 是唯一一致性口径。
 
 **契约状态**：pending；代码锚点 `components/distributed_refmem/inc/refmem_command.h`；需 host 表
 用例 + 单板 smoke + 四板 OBS HIL 后转 active。
+
 
 ### 角色与协调者
 

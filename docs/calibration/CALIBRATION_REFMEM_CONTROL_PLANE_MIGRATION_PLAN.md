@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / REFMEM / TDMA / OTA
 Canonical: `docs/calibration/CALIBRATION_REFMEM_CONTROL_PLANE_MIGRATION_PLAN.md`
 Related: `docs/calibration/CALIBRATION_SINGLE_PORT_BRINGUP_COMMANDS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/calibration/CALIBRATION_HANDOVER_PLAN.md`
-Last updated: 2026-11-08
+Last updated: 2026-11-09
 
 本文件把"哪些流程还必须四口、哪些已经能走 REFMEM、缺什么"整理成可勾选的清单，供后续把日常运行
 收敛到"只接协调口 COM5"。
