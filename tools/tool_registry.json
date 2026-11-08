@@ -2754,7 +2754,8 @@
         "tools/refmem/refmem_scpi_catalog_extract.py",
         "tools/refmem/refmem_transport_diag_hil/refmem_transport_diag_hil.py",
         "tools/refmem/refmem_read_catalog_gen.py",
-        "tools/tests/run_refmem_read_catalog_tests.ps1"
+        "tools/tests/run_refmem_read_catalog_tests.ps1",
+        "tools/tests/run_refmem_obs_tests.py"
       ],
       "files": [
         {
@@ -2820,6 +2821,10 @@
         {
           "path": "tools/refmem/control_plane.py",
           "role": "module"
+        },
+        {
+          "path": "tools/tests/run_refmem_obs_tests.py",
+          "role": "test_runner"
         }
       ],
       "depends_on": [],
