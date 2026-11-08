@@ -10,7 +10,27 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-006 - OTA 孤儿事务 drain（P3 PASS）+ 静默屏障回退（TRN-03B 回归）
+
+- **OTA 孤儿事务**：`flash_transaction_ao` 的 `occupied` 只在 `flash_transaction_fb_service()` 观测到
+  终态时清；主循环没有周期性 service（全仓仅 4 个调用点），所以一次失败的 OTA_JOURNAL 事务会把
+  owner 永久占住，下一次会话的槽擦除在成为事务前就被拒（`submit_reject=2`）。
+- **修复**：`application/src/app.c` 的 `app_ota_service()` 中 `if (flash_transaction_ao_is_occupied())
+  flash_transaction_ao_service();`（`task_ota` 上下文，不做 SCPI 同步调用；只要 occupied 就 service，
+  非终态孤儿也推完）。
+- **静默屏障回退**：`app_guide_ring_quiet()`（STAGE/APPLY 要求环完全静默）在 `p3-drain` 上导致
+  **process-image TRN-03B 启动屏障超时**（BLOCKED，ERROR 2）；回退该屏障后同一台架 P3 通过。
+  结论：该修法会与 process-image handoff 的时序冲突，**不得按原样保留**；level-7 动作后的环恢复
+  问题回到 OPEN（见 CAL-TASK-20261109-004/005 的更正）。
+- **P3**：`out/HardwareAcceptance/20261109/p3-revert` **PASS_WITH_WARNINGS**（INFO 34 / WARN 1 /
+  ERROR 0），build `20261108192050`；固件提交 `7ec900cb`。
+- **残余**：level-7 动作后 `up/down=0` 的环恢复（R3 的 before 叙述与归档证据不一致，需先核实观测口径）；
+  NO.4 `reason=13/abort_site=6`（疑与 OTA admission 残留相关，待 `SYST:RES?` 补 mode 后复测）。
+
 ## CAL-TASK-20261109-005 - M5：replay 的 STAGE/APPLY 加静默屏障（环恢复）
+
+> **更正（2026-11-09 04:0x）**：本条所述静默屏障已回退——它在 `p3-drain` 上导致 process-image
+> TRN-03B 启动屏障超时（P3 BLOCKED）；回退后 P3 PASS。本条保留为实验记录，结论以 CAL-TASK-20261109-006 为准。
 
 - **根因**：窗口关闭后的 replay 里，`STAGE_PROFILE`/`APPLY_PROFILE` 在环仍在收尾时就执行；
   此时 `tdma_runtime_owner_apply_operating_profile()` 看到 `ring.enabled != 0`，只**排程**配置而
