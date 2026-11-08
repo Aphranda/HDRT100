@@ -1242,7 +1242,7 @@ BOOT_PLAN_FIELDS = [
     "action", "reason", "steps", "fail_step", "listen_pending", "join_timeout",
     "have_profile", "slot", "nodes", "level", "flags", "profile_gen",
     "topology_crc", "topology_fail", "apply_fail", "join_frame_seen",
-    "half_ring", "boot_done", "boot_next_step",
+    "half_ring", "boot_done", "boot_next_step", "profile_source",
 ]
 BOOT_ACTION_NAMES = {0: "NONE", 1: "START_REF", 2: "LISTEN", 3: "REJECT"}
 RING_TOTAL_UP_TX = 49
@@ -1266,12 +1266,13 @@ def boot_verdict(plans: dict[int, dict[str, int]],
     """Pure verdict for the zero-port self-formation readback.
 
     No command is sent to form the ring: every board must already have rebuilt
-    the 10 kHz guide ring from its stored boot profile. A provisioned board
-    reports have_profile=1, fail_step=0, half_ring=0 and action START_REF on
-    slot 0 / LISTEN elsewhere; every board's ring must be enabled, up in both
-    directions, have its adapter started, carry the expected node count, and
-    the monotonic frame totals must advance between the two samples (a formed
-    but silent ring is not a bring-up).
+    the 10 kHz guide ring, from its durable boot profile (profile_source=1) or
+    from the product default profile when the board has never been provisioned
+    (profile_source=2). Both report have_profile=1, fail_step=0, half_ring=0 and
+    action START_REF on slot 0 / LISTEN elsewhere; every board's ring must be
+    enabled, up in both directions, have its adapter started, carry the expected
+    node count, and the monotonic frame totals must advance between the two
+    samples (a formed but silent ring is not a bring-up).
     """
     reasons: list[str] = []
     for no in sorted(plans):
