@@ -114,6 +114,11 @@ FlashTransaction 进入 ERROR_MODE。复现命令：`ota_multi_update.py <pkg> -
 
 ## 6. 迁移顺序与判据
 
+**D0 决策（2026-11-09）：选 A（本地镜像/推送）。** 读模型不做同步跨板读：CP4 的
+“不提供跨板阻塞查询”保持有效，不新增 payload class/响应 wire/第二套 handler。所有读回走
+“唯一 writer 在 core0 发布 → 各板本地镜像 → `SYST:REFMEM:OBS? <key>` 聚合读”，与命令面的
+ACK/NACK 语义分离。若后续确需 B（同步 `CTRL:READ?`），先单独改 CP4 再立项。
+
 1. **聚合回读**（收益最大）：新增一个 `REFMEM:STATus?` 类查询，把 `BOOT:PLAN?/RING:STATus?/PLAN?/
    CMD:STATus?/VDC/DPLL/T2 状态` 按节点带回协调口。判据：单开 COM5 能拿到四板同构向量。
 2. **provisioning 命令**：环内暂存 → 协调 STOP → 各板本地提交 → 重启回读。判据：四板
