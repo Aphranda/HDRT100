@@ -10,6 +10,28 @@ Last updated: 2026-11-08
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261108-049 - CONSOLE-042 关闭：Q 段恢复在 replay 未成环时回退 REBUILD
+
+- **取证（只读，先做）**：复跑 10k P1 并每 2 s 抓四板 `BOOT:PLAN?`/`RING:STATus?`/`GUIDE:PLAN?`：
+  `out/calibration/guide-10k/bench/restore-trace-20261108-114735.json`。关键事实：replay 全程
+  `fail_step=0, boot_done=1, next_step=8`（自认成功），但 `RING:STATus?` `enabled=0`（没成环）；
+  45 s 后四板 `progress_status=3 / reason=14 / abort_site=0`。
+- **根因**：boot replay 只报“接受”不保证成环；窗口关闭后 STOP/APPLY 的竞序让最终 applied 配置停在
+  STOP。旧代码以 `app_ctrqs_boot_plan_present()` 为 REBUILD 门槛，有 boot plan 时无回退 → 盲等 45 s。
+- **修复**（`application/src/app.c`）：`APP_CTRQS_RESTORE_WAIT` 不再以 boot plan 为门槛；replay 定局
+  （`boot_done`）后若 `restore_formed()` 仍假，抑制 replay（`s_boot_replay_suppressed`）并回退到显式
+  REBUILD（环已静默则立即，否则等 45 s 截止，避免拆掉正在形成的环）；失败路径 `abort_site=26/27`，
+  成功不置 `abort_site`（strict verdict 以 `abort_site!=0` 判失败），且不覆盖 `finalize()` 已发布的
+  action verdict。
+- **实板验证**（build `20261108040639`）：同一脚本
+  `out/calibration/guide-10k/bench/restore-trace-20261108-121518.json`：t≈63 s 四板
+  `prog=1/1 (COMPLETE)`、`reason=0`、`abort=0`、环 `enabled/up/down/adapter=1/1/1/1`；对比修复前
+  `prog=1/3 / reason=14 / 环停`。
+- **P3**：`out/HardwareAcceptance/20261108/p3-restore2` **PASS_WITH_WARNINGS**（INFO 34 / WARN 1 /
+  ERROR 0），build `20261108041830`；固件提交 `722c3b29`。
+- **残余**：`CONSOLE-042` 台账行由 console owner 合并状态（本会话不改其未提交文件）；
+  10 MHz 4-cycle 训练敏感性仍 OPEN（M5 下轮按 TRAIN 在 `adapter_started` 之后的顺序复测）。
+
 ## CAL-TASK-20261108-048 - C11 复审闭环：单口启环契约转 active（build `20261107175157`）
 
 - **二次 C11 只读复核**（子代理 `a61aafc3`）：APPROVE_WITH_NOTES；转 active 前须关 M1–M3

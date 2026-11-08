@@ -71,19 +71,21 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
 
 ## 4. 与其它流程的交互（先读再跑）
 
-1. **CTRQS 阶梯 / Q 段恢复（CONSOLE-042，已知冲突）**：boot plan 存在时
-   `app_ctrqs_boot_plan_present()` 为真，`APP_CTRQS_RESTORE_WAIT` 的 REBUILD 回退**不可达**
-   （`application/src/app.c:3783`）。若窗口关闭后的 boot replay 未成环，只能等满
-   `APP_CTRQS_RESTORE_MS=45000`（`app.c:1709`）并报 `NOT_ONLINE_SAFE`（Q 段
-   `progress_status=3 / reason=14`，即使 `passed_mask=0xF`）。
-   注意两点（实测口径）：
-   - 30 s replay 死线**不会**清 `fail_step`；某个 boot 步失败时 `fail_step≠0`，`RESTORE_WAIT`
-     会直接跳过"已成形"检查、盲等 45 s。所以**失败现场必须抓 `BOOT:PLAN?` 的 `fail_step`/
-     `boot_done`/`boot_next_step`**，否则无法区分"replay 失败"与"replay 成功但没成环"。
-   - 45 s/60 s 的定量排除可证当时 boot plan 存在（10k：窗口≥30.8 s + 45 s ≈ 77 s 观测；
-     10M：4 s + 45 s ≈ 51 s 观测；若走 REBUILD 需 ≥+60 s）。
-   **跑 CTRQS 阶梯前**：先 `BOOT:PROFile:CLEar` + 重启（回到无档，恢复旧的 REBUILD 回退），
-   或等固件 owner 落地"replay 未成环也允许 REBUILD"的修复；阶梯结束后再按 §1 重新 provisioning。
+1. **CTRQS 阶梯 / Q 段恢复（CONSOLE-042，已修复于 build `20261108040639`）**：
+   - **旧镜像（≤`20261107175157`）**：boot plan 存在时 `APP_CTRQS_RESTORE_WAIT` 的 REBUILD 回退
+     **不可达**（`application/src/app.c:3783` 旧版），窗口关闭后的 replay 若没把环拉回，只能等满
+     `APP_CTRQS_RESTORE_MS=45000` 并报 `NOT_ONLINE_SAFE`（Q 段 `progress_status=3 / reason=14`，
+     即使 `passed_mask=0xF`）。
+   - **根因（实板取证）**：boot replay 只报"接受"，不保证成环；窗口关闭后 STOP/APPLY 的竞序会让
+     最终 applied 配置停在 STOP。取证 `out/calibration/guide-10k/bench/restore-trace-20261108-114735.json`：
+     `BOOT:PLAN?` 全程 `fail_step=0/boot_done=1/next_step=8`，但 `RING:STATus?` `enabled=0`。
+   - **修复后**：replay 定局后若仍未成环，`RESTORE_WAIT` 会抑制 replay 并回退到显式 REBUILD
+     （环已静默则立即、否则 45 s 截止后），失败路径用 `abort_site` 26/27 区分；成功时不置
+     `abort_site`（避免 strict verdict 误判）。验证：
+     `out/calibration/guide-10k/bench/restore-trace-20261108-121518.json`（四板 `prog=1/1`、`abort=0`、
+     环 `1/1/1/1`）。
+   **跑 CTRQS 阶梯前**仍需等 `BOOT:PLAN?` `boot_done=1 && fail_step=0`；若用旧镜像，先
+   `BOOT:PROFile:CLEar` + 重启作为绕过。
 2. **10 MHz 建环**：`RING:TRAIN` 的硬前置是 `enabled!=0 && adapter_started!=0 && data_enabled==0`
    （`components/tdma/src/tdma_ring_runtime.c:554-566`），所以**停机态 TRAIN 必 `-200`**；
    需要训练时顺序是 **STOP → TOPO/BRINGUP → ARM → 等 `adapter_started=1`（且 `applied==config`）
