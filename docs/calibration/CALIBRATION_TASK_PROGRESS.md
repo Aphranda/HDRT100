@@ -49,13 +49,16 @@ Last updated: 2026-11-08
   原始失败码）。**同轮修掉状态泄漏**：`s_boot_half_ring` 原只置不清，会让后续 `BOOT:PLAN?` 恒为
   `half_ring=1`、`BOOT:TOPO? accepted=0`、`boot_verdict` 误判——现在在 `app_guide_window_close()`、
   恢复成形、rebuild 成形三处清零。
-- **实板验证**（build `20261108050455`）：`out/calibration/guide-10k/bench/restore-trace-20261108-131349.json`：
-  t≈63 s 四板 `prog=1/1 (COMPLETE)`、`reason=0`、`abort=0`、环 `1/1/1/1`；赛后四板
-  `BOOT:PLAN?` `half_ring=0, boot_done=1, fail_step=0`。修复前对照为 `prog=1/3 / reason=14 / 环停`。
-- **P3**：`out/HardwareAcceptance/20261108/p3-restore3`（最终版）与 `p3-restore2`（首版）
-  均为 **PASS_WITH_WARNINGS**（ERROR 0）；两轮都是 quick-diagnostic 诊断档
+- **实板验证（P3 最终 build `20261108055416`）**：
+  `out/calibration/guide-10k/bench/restore-trace-20261108-140801.json`：t≈64 s 四板 `prog=1/1`
+  （COMPLETE）、`reason=0`、`abort=0`、环 `1/1/1/1`；赛后四板 `BOOT:PLAN?` `half_ring=0, boot_done=1,
+  fail_step=0`。同结论在 build `20261108050455`（`...-131349`）与 `20261108040639`（`...-121518`）复现三次。
+- **P3**：最终 `out/HardwareAcceptance/20261108/p3-restore4`（build `20261108055416`）与
+  `p3-restore2`（`041830`）均为 **PASS_WITH_WARNINGS**（ERROR 0）；quick-diagnostic 诊断档
   （`strict_gates_passed=false`，含 450 s 预算超出与 `DEBUG_BOUNDED_FORCE_CONTINUE`），凭证结构按
-  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC` 接受。
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC` 接受。固件提交 `04040e59`（`722c3b29` 为首版）。
+  期间一次 P3 因四板 OTA `durable 512` 退化失败（`OTA:FT?=10,2,17,17,0,256,0,1`），已用整片擦除
+  （`--flash-size 0x1000000`）+ 重刷 + 重写板号恢复，恢复 runbook 见单口指南 §6。
 - **残余**：`CONSOLE-042` 台账行仍 PENDING（console 两文件是另一会话未提交改动，本会话不改）；
   10 MHz 4-cycle 训练敏感性仍 OPEN（见 CAL-TASK-20261108-050）。
 
