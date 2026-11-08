@@ -45,7 +45,19 @@ Last updated: 2026-11-09
     (4040) / 0x37 (55)`（过 7 个），NO.4 `0xE3F (3647) / 0x1C0 (448)`（过 9 个），NO.3 在 P3_PREP 被
     abort（`abort_site=12`、`reason=13`），NO.1 `0xFFE / 0x1`。
 - **更正**：`passed/failed` 是**12-trial 位图**，不是计数——0xFFE=11/12、0x4=1 个 trial 失败、
-  0xFFB≠4040；上一版把首轮掩码与重跑十进制拼在 NO.2 一行，**不成立**。
+  0xFFB≠4040；且**单板 12 位里只有 6 位是硬件证据**：每板只对 2 条链路是端点（`source=L,
+  dest=(L+1)%4`），其余 2 条链路被记成 no-op pass（`app.c:2699-2703`，注释明说 “no hardware
+  evidence”）。所以“0xFFF 全过”不等于该板测了 12 次。
+- **方法学更正（交叉审核）**：
+  ① `p2()/p3()/ladder()` **不调用 archive_evidence**（`guide_cmdplane_probe.py:851-943` 等），
+  只有 `ga` 会归档 → P2 的逐拍证据“未落盘”是**工具结构**，不是操作遗漏；
+  ② `verify` 默认 `gen=0`（`probe.py:1595`），此时**只比 epoch**；`ga` 的“gen 确认”仅比较
+  `plan.gen`（`:974`），同一 gen 重发会假通过，应以 `crc==0x40000000+gen` 确认；
+  ③ `PLAN?` 的 progress 字段**只在 Q 段刷新**（`app_refmem_domain_config.c:832-862`），而 `ga` 的
+  归档可能在 `ctrqs=26/27`（RESTORE_WAIT/REBUILD）就发生 → 归档文件本身可能是跨轮混读
+  （04:23:59 那份即如此：四板分别处 IDLE/P3_RUN/RESTORE_WAIT）。
+  干净协议：每轮新 gen 且 epoch 递增、用 `ga` 执行、等四板 `ctrqs∈{0,28,29}` 再 `verify <a> <epoch>
+  <gen>`（末位 1 归档），并同时保留 `ga` 的 readback。
 - **口径**：`verify()` 的 freshness 只比 epoch，重复触发同一 epoch 会得到“新旧混读”，必须在每轮
   换 gen/epoch 并归档。**“首次四板全过”不成立**：build `20261108142853` 在 00:40 已四板 P1 4/4
   （`evidence/20261109-004017-action1-gen6202/readback.json`），01:05 已有 P2 四板 strict PASS
