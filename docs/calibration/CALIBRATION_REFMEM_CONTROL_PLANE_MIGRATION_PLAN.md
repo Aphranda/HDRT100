@@ -33,7 +33,8 @@ Last updated: 2026-11-08
 
 ## 2. 已入控制面
 
-命令目录共 **43** 条（`components/distributed_refmem/src/refmem_command_catalog_table.c`，自动生成）。
+命令目录共 **38** 条（`components/distributed_refmem/src/refmem_command_catalog_table.c`，自动生成；
+条目数以 `config/refmem/command_catalog.yaml` 与 `refmem_command_catalog_count` 为准，本文数字为快照）。
 其中 DPLL/VDC/T2 共 **11** 条：
 
 | id | 类型 | SCPI |
