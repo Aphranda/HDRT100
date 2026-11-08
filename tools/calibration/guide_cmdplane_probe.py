@@ -1251,6 +1251,21 @@ def ladder_ok(boards, action: int) -> bool:
     return ok
 
 
+def decode_p3_bits(mask: int, nodes: int = 4, repeats: int = 3) -> list[str]:
+    """Decode a P3 passed/failed mask into (trial, link, direction) labels.
+
+    P3 runs nodes*repeats trials with link=(trial//repeats)%nodes and
+    source=link, destination=(link+1)%nodes; each board is only an endpoint of
+    two links, so half of its bits are no-op passes.
+    """
+    out: list[str] = []
+    for trial in range(nodes * repeats):
+        if mask & (1 << trial):
+            link = trial // repeats
+            out.append(f"trial{trial} link{link} ({link}->{(link + 1) % nodes})")
+    return out
+
+
 def window_rate(tag: str, samples: list) -> None:
     """Report the carrier and the frame rate measured inside the window.
 
@@ -1679,6 +1694,10 @@ def main(argv: list[str]) -> int:
         gen = int(argv[3]) if len(argv) > 3 else 210
         epoch = int(argv[4]) if len(argv) > 4 else 310
         ladder(action, gen, epoch)
+        return 0
+    if what == "bits":
+        for line in decode_p3_bits(int(argv[2], 0)):
+            print(line)
         return 0
     if what == "trace":
         action = int(argv[2]) if len(argv) > 2 else 1
