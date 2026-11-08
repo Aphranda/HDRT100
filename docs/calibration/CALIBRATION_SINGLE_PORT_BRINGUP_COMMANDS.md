@@ -3,7 +3,7 @@
 Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_SINGLE_PORT_BRINGUP_COMMANDS.md`
-Related: `docs/calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md`, `docs/calibration/CALIBRATION_HANDOVER_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
+Related: `docs/calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md`, `docs/calibration/CALIBRATION_HANDOVER_PLAN.md`, `docs/calibration/CALIBRATION_REFMEM_CONTROL_PLANE_MIGRATION_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Last updated: 2026-11-08
 
 本指南给**其它会话**直接照做：如何在这套四板台架上用"唯一 P3 镜像"完成严格单口启环与单口 C/T，
@@ -13,15 +13,22 @@ Last updated: 2026-11-08
 
 - **唯一镜像**：P3 验收镜像（`--preset pico2-v2-factory-candidate`，v2 地图）。不允许台架专用镜像或
   编译期开关；契约 `TDMA-BOOTPROFILE-01`（active）。
-- **当前验证 build**：`20261108055416`（四板一致；单口启环与 Q 段恢复均在该版本复验）。镜像不同则先
-  确认 `SYST:FW:BUILD?` 四板相同。
+- **当前验证 build**：`20261108084736`（默认档四板实板验证；`20261108085621` 为同源 P3 构建，
+  凭证尚未取得——本地 OTA 受阻，见 §4.5）。镜像不同则先确认 `SYST:FW:BUILD?` 四板相同。
 - 四板板号 NO.1..4，环线 NO.1→2→3→4；协调口固定 **COM5 / NO.1**。
-- **单口的定义**：*启环与命令下发*只用 COM5。**provisioning 是一次性逐板配置（四口）**，不属于启环流程；
-  四口读回只用于验证，不用于下发。原因：boot profile 写入是**板内本地** SCPI，而能跨板分发命令的
-  REFMEM 命令面**依赖环在运行**；profile 恰恰是启环的前提（鸡生蛋），所以未配置过的板只能逐板接口写入。
-  若要"全程只开 COM5"，必须让 profile 在出厂/夹具阶段预置，而不是在台架上首次 provisioning。
+- **裸板默认入环**：刚烧录的板子只要板号已写（NO.1..4），**无需 provisioning** 就会按镜像内的
+  产品默认档自组 10 kHz 环（level 23 / 4 节点 / slot=板号-1）；`BOOT:PLAN?` 第 20 字段
+  `profile_source=2` 表示默认档，`=1` 表示持久档。板号为 0 时默认档不成立（`action=0`）。
+  当前状态：默认档已在 build `20261108084736` 实板验证（四板 `source=2` 自组），但该固件改动
+  **尚未提交**（等 P3 凭证）；HEAD 镜像仍是持久档/无档行为。
+- **单口的定义**：*启环与命令下发*只用 COM5。**provisioning 是可选的"钉住/覆盖"步骤**（默认档已能
+  启环）；若执行 provisioning，它是逐板本地 SCPI，写的时候需要各板自己的口（四口）——默认档让
+  "换裸板"不再依赖这一步，但持久档写入本身仍是板内命令。
 
-## 1. 一次性 provisioning（每板一次，四口）
+## 1. 一次性 provisioning（可选：钉住/覆盖默认档；写入需板内口）
+
+> 默认档已经能让裸板入环。只有在需要"固定某块板的槽位/拓扑标签/档位"或把默认档替换成显式记录时，
+> 才做这一步。
 
 ```powershell
 # 1) 先停环：每板 SYSTem:TDMA:RING:STOP，并确认 RING:STATus? 首字段=0
@@ -47,7 +54,7 @@ SYST:TDMA:BOOT:PROFile?
 
 | 查询 | 判据 |
 |---|---|
-| `BOOT:PLAN?`（19 字段） | `action`：slot0=1(START_REF)，其余=2(LISTEN)；`steps`=8；`fail_step`=0；`have_profile`=1；`boot_done`=1；`boot_next_step`=8；`half_ring`=0 |
+| `BOOT:PLAN?`（20 字段） | `action`：slot0=1(START_REF)，其余=2(LISTEN)；`steps`=8；`fail_step`=0；`have_profile`=1；`boot_done`=1；`boot_next_step`=8；`half_ring`=0；`profile_source`=1（持久档）或 2（默认档） |
 | `RING:STATus?` | `enabled`=1、`nodes`=4、`up_running`=1、`down_running`=1、`adapter_started`=1 |
 | 帧活性 | 间隔 ≥2 s 两次读 `total_up_tx`/`total_down_rx`（索引 49/50）单调增长 |
 
@@ -74,7 +81,7 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
 
 ## 4. 与其它流程的交互（先读再跑）
 
-1. **CTRQS 阶梯 / Q 段恢复（CONSOLE-042，校准侧已修复；build `20261108050455`）**：
+1. **CTRQS 阶梯 / Q 段恢复（CONSOLE-042，校准侧已修复；P3 最终 build `20261108055416`）**：
    - **旧镜像（≤`20261107175157`）**：boot plan 存在时 `APP_CTRQS_RESTORE_WAIT` 的 REBUILD 回退
      **不可达**（`application/src/app.c` 旧版），窗口关闭后 replay 没把环拉回时只能等满
      `APP_CTRQS_RESTORE_MS=45000` 并报 `NOT_ONLINE_SAFE`（Q 段 `progress_status=3 / reason=14`，
@@ -86,9 +93,9 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
      `enabled=0`。
    - **修复后**：replay 定局后若仍未成环，`RESTORE_WAIT` 会抑制 replay 并回退到显式 REBUILD
      （环已静默则立即、否则 45 s 截止后），失败路径用 `abort_site` 26/27 区分；成功时不置
-     `abort_site`（避免 strict verdict 误判），并清掉 `s_boot_half_ring` 状态锁存。验证：
-     `out/calibration/guide-10k/bench/restore-trace-20261108-131349.json`（四板 `prog=1/1`、
-     `abort=0`、环 `1/1/1/1`、赛后 `half_ring=0`）。
+     `abort_site`（避免 strict verdict 误判），并清掉 `s_boot_half_ring` 状态锁存。三次一致验证：
+     `restore-trace-20261108-121518.json`、`...-131349.json`、`...-140801.json`（P3 最终 build），
+     四板 `prog=1/1`、`abort=0`、环 `1/1/1/1`。
    **跑 CTRQS 阶梯前**仍需等 `BOOT:PLAN?` `boot_done=1 && fail_step=0`；若用旧镜像，先
    `BOOT:PROFile:CLEar` + 重启作为绕过。
 2. **10 MHz 建环**：`RING:TRAIN` 的硬前置是 `enabled!=0 && adapter_started!=0 && data_enabled==0`
@@ -107,15 +114,22 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
    导致校准基线缺失"相矛盾。**不要**先把 4-cycle 失败归因为基线缺失；应按 10 MHz 训练时序敏感性
    复测（cycles=4/16 各 N 次，抓 `RING:TRAIN:STATus?` 的 result/reject 原因）。新 build
    `20261108041830` 的 P1@10M 在 ARM 段就失败（`trials=0`），尚未进入训练步骤。
-4. **P3 重跑**：先 `CLEar` profile 再跑 P3（否则 boot 服务会在 P3 的 STOP/ARM 窗口内自启环），
-   P3 通过后重新 provisioning。
+4. **P3 重跑（默认档之后的新口径）**：默认档存在时，**清 profile 不再阻止上电自组**——P3 复位后
+   默认档会在 3 s 后起环。因此 P3 流程必须在 `boot_done=1 && fail_step=0` 之后显式 `RING:STOP`
+   （或等 ≥33 s 再开始它的 STOP/ARM 序列），不能再用"CLEar profile"当作防自启环手段。
+5. **本地 OTA（durable-512，已知在途缺陷）**：P3 的 OTA 步骤目前会在部分板卡上失败：
+   `stream failed while waiting for durable 512: '0,6,512,5002,5'`，
+   `OTA:FT? = 10,2,17,17,0,256,0,1`（policy gate 17 = `FLASH_TRANSACTION_ERROR_MODE`）。
+   已排除默认档/环占用（板号置 0 不启环仍失败）、RAM 锁存（复位后仍失败）、台架脏状态（整片擦除后
+   仍失败）；对应 `docs/ota/OTA_TODO.md` 的 OTA-HAOFV-012/013，等流式 OTA/OTA owner 修复后重跑 P3。
+   恢复手法见 §6 最后一条。
 
 
 ## 5. 只读判据速查
 
 | 查询 | 关键索引（0 基） |
 |---|---|
-| `BOOT:PLAN?` | 0=action 1=reason 2=steps 3=fail_step 6=have_profile 7=slot 8=nodes 9=level 10=flags 16=half_ring 17=boot_done 18=boot_next_step |
+| `BOOT:PLAN?` | 0=action 1=reason 2=steps 3=fail_step 6=have_profile 7=slot 8=nodes 9=level 10=flags 16=half_ring 17=boot_done 18=boot_next_step 19=profile_source |
 | `RING:STATus?` | 0=enabled 1=nodes 2=local 4=up 5=down 8=adapter 47=baud 48=period 49=total_up_tx 50=total_down_rx |
 | `CMD:STATus?` | 40=frag_ok 42=frag_done 47=q_depth 49=deq 68=ack_ok |
 
@@ -147,8 +161,9 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
 - 四板同 build `20261107175157`，10 kHz 环 `enabled=1, nodes=4, up=1, down=1, adapter=1`，
   单口 C/T 可送达（四板 `gen` 一致）；两条不同的环状态都能稳定形成 → 无永久 PHY 故障。
 - **10 kHz Q 段失败**：窗口内 4 个 trial 全过（`passed_mask=0xF, failed_mask=0`），失败在窗口关闭后的
-  **boot replay 未把环拉回** + `boot plan` 存在时无 REBUILD 回退（`app.c:3783`），盲等 45 s →
-  `NOT_ONLINE_SAFE`。属**固件状态机交互**，不是测量失败。
+  **replay 只拉回半环（`up=1/down=0`）+ 20 s 完整度看门狗停环 + 有 boot plan 时无 REBUILD 回退**，
+  盲等 45 s → `NOT_ONLINE_SAFE`。属**固件状态机交互**，不是测量失败；已在 `20261108055416` 修复并
+  三次实板复验（§4.1）。
 - **10 MHz**：能建环（`10m-start`，且该次 `--skip-train`）；`ARM 后立即 TRAIN` 的 `-200` 是
   `ADAPTER_START_FAILED`（`cfgseq=6/applied=5`、`last_reason=9`）的时序不稳定，不是"顺序规则"。
   **4-cycle 训练失败是真实时序敏感性**（4 cycles 失败 / 16 cycles 通过，候选相关），需要按 10 MHz
