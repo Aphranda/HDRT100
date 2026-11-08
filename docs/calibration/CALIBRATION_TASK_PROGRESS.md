@@ -10,6 +10,21 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-004 - M5：P1@7 能跑完，但 level-7 动作后环回不来（阶梯断点）
+
+- **做法**：重启四板（默认档起 10k 环）→ `OPMode:STAGe/APPLy 7` 已由窗口自己完成 → 直接
+  `ga 1 <gen> <epoch> 7 4000 4 3 0 4 16 1 64`（P1 with level 7）。
+- **结果**（build `20261108174010`，两次一致）：COM5/COM4/COM3 `status=1, trials=4, passed=0xF`；
+  COM6 `status=2, trials=0, reason=13, abort_site=6`。但**四板的环都退化**：
+  `enabled=1, adapter=1, up=0/1, down=0`（COM5 up=1/down=0；COM4/COM3 up=0/down=0；
+  COM6 up=1/down=0）。证据：`out/calibration/guide-10k/bench/p1-level7-20261109.json`。
+- **结论**：level-7 动作本身能测完（P1 甚至 3/4 全绿），但**窗口关闭后的环没有恢复**——`enabled=1`
+  说明 replay 走到 START，而 `up/down=0` 说明物理帧不再流动（疑似 10M persona/时钟状态残留）。
+  环回不来 → 下一条 CONFig 被 `distributed_refmem_control_submit` 拒绝（`-200 TDMA_GUIDE_CONFIG`），
+  阶梯因此断在 P2 之后。这解释了另一会话看到的"P2 之后跑不动"。
+- **下一步**：查窗口关闭/replay 在"刚跑过 level-7 动作"后的 PHY 恢复（persona/clock/staged profile），
+  必要时在 replay 前强制 `STOP` + 重新 `STAGE/APPLY 23`；这是 M5 的真正断点。
+
 ## CAL-TASK-20261109-003 - M5：P2 已能执行并给出真实拒绝码（0x106 PIO stall）
 
 - **现场**（build `20261108174010`，四板）：P1 `ladder 1 9000 9100` COMPLETE（ladder_idx=1）→ 环保持
