@@ -71,34 +71,39 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
 
 ## 4. 与其它流程的交互（先读再跑）
 
-1. **CTRQS 阶梯 / Q 段恢复（CONSOLE-042，已修复于 build `20261108040639`）**：
+1. **CTRQS 阶梯 / Q 段恢复（CONSOLE-042，校准侧已修复；build `20261108050455`）**：
    - **旧镜像（≤`20261107175157`）**：boot plan 存在时 `APP_CTRQS_RESTORE_WAIT` 的 REBUILD 回退
-     **不可达**（`application/src/app.c:3783` 旧版），窗口关闭后的 replay 若没把环拉回，只能等满
+     **不可达**（`application/src/app.c` 旧版），窗口关闭后 replay 没把环拉回时只能等满
      `APP_CTRQS_RESTORE_MS=45000` 并报 `NOT_ONLINE_SAFE`（Q 段 `progress_status=3 / reason=14`，
      即使 `passed_mask=0xF`）。
-   - **根因（实板取证）**：boot replay 只报"接受"，不保证成环；窗口关闭后 STOP/APPLY 的竞序会让
-     最终 applied 配置停在 STOP。取证 `out/calibration/guide-10k/bench/restore-trace-20261108-114735.json`：
-     `BOOT:PLAN?` 全程 `fail_step=0/boot_done=1/next_step=8`，但 `RING:STATus?` `enabled=0`。
+   - **根因（实板取证）**：boot replay 只报"接受"不保证成环——START 成功但只形成
+     `up=1/down=0` 的半环（`applied==config`）；20 s 完整度看门狗随后把半环停掉，旧代码无回退。
+     取证 `out/calibration/guide-10k/bench/restore-trace-20261108-114735.json`：
+     `BOOT:PLAN?` 全程 `fail_step=0/boot_done=1/next_step=8`，t=33.8–52.1 s 为半环、t≈54.4 后
+     `enabled=0`。
    - **修复后**：replay 定局后若仍未成环，`RESTORE_WAIT` 会抑制 replay 并回退到显式 REBUILD
      （环已静默则立即、否则 45 s 截止后），失败路径用 `abort_site` 26/27 区分；成功时不置
-     `abort_site`（避免 strict verdict 误判）。验证：
-     `out/calibration/guide-10k/bench/restore-trace-20261108-121518.json`（四板 `prog=1/1`、`abort=0`、
-     环 `1/1/1/1`）。
+     `abort_site`（避免 strict verdict 误判），并清掉 `s_boot_half_ring` 状态锁存。验证：
+     `out/calibration/guide-10k/bench/restore-trace-20261108-131349.json`（四板 `prog=1/1`、
+     `abort=0`、环 `1/1/1/1`、赛后 `half_ring=0`）。
    **跑 CTRQS 阶梯前**仍需等 `BOOT:PLAN?` `boot_done=1 && fail_step=0`；若用旧镜像，先
    `BOOT:PROFile:CLEar` + 重启作为绕过。
 2. **10 MHz 建环**：`RING:TRAIN` 的硬前置是 `enabled!=0 && adapter_started!=0 && data_enabled==0`
    （`components/tdma/src/tdma_ring_runtime.c:554-566`），所以**停机态 TRAIN 必 `-200`**；
    需要训练时顺序是 **STOP → TOPO/BRINGUP → ARM → 等 `adapter_started=1`（且 `applied==config`）
    → TRAIN → START**。
-   已知事实：成功的 10 MHz 建环（`out/calibration/guide-10k/bench/10m-start-20261108/summary.json`）
-   实际是 `--skip-train`，即**没跑 TRAIN 也建成了环**；而 `ARM 后立即 TRAIN` 的 `-200` 真因是
-   ARM 的 adapter start 没成功（`cfgseq=6/applied=5`、`last_reason=9 = ADAPTER_START_FAILED`），
-   不是"顺序规则"。**不要**把"TRAIN（STOPPED）"写成正确顺序。
-3. **10 MHz P1 的 `failed_mask=0x05`**：先看候选相关性——本例 trial 0/2 是 **4 cycles** 失败、
-   trial 1/3 是 **16 cycles** 通过（`failed_mask=0x05` = bit0|bit2），且 Q 回读 `commit=2`
-   （SKIP_ALREADY_DONE，要求已有匹配 generation 的持久记录）——这与"整片擦除导致校准基线缺失"
-   相矛盾。**不要**先把 4-cycle 失败归因为基线缺失；应按 10 MHz 训练时序敏感性复测
-   （cycles=4/16 各 N 次，抓 `RING:TRAIN:STATus?` 的 result/reject 原因）。
+   已知事实（build `20261107175157`）：成功的 10 MHz 建环
+   （`out/calibration/guide-10k/bench/10m-start-20261108/summary.json`）实际是 `--skip-train`，
+   即**没跑 TRAIN 也建成了环**；而 `ARM 后立即 TRAIN` 的 `-200` 真因是 ARM 的 adapter start 没成功
+   （`cfgseq=6/applied=5`、`last_reason=9 = ADAPTER_START_FAILED`），不是"顺序规则"。
+   **不要**把"TRAIN（STOPPED）"写成正确顺序。（build `20261108041830` 的
+   `10m-ring-m5/summary.json` 同样是无 TRAIN 建成；`10m-prep-m5` 只跑 steps 0–4，未尝试 TRAIN。）
+3. **10 MHz P1 的 `failed_mask=0x05`**：先看候选相关性——旧 build `20261107175157` 的 demo 里
+   trial 0/2 是 **4 cycles** 失败、trial 1/3 是 **16 cycles** 通过（`failed_mask=0x05` = bit0|bit2），
+   且 Q 回读 `commit=2`（SKIP_ALREADY_DONE，要求已有匹配 generation 的持久记录）——这与"整片擦除
+   导致校准基线缺失"相矛盾。**不要**先把 4-cycle 失败归因为基线缺失；应按 10 MHz 训练时序敏感性
+   复测（cycles=4/16 各 N 次，抓 `RING:TRAIN:STATus?` 的 result/reject 原因）。新 build
+   `20261108041830` 的 P1@10M 在 ARM 段就失败（`trials=0`），尚未进入训练步骤。
 4. **P3 重跑**：先 `CLEar` profile 再跑 P3（否则 boot 服务会在 P3 的 STOP/ARM 窗口内自启环），
    P3 通过后重新 provisioning。
 
@@ -119,9 +124,18 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
   5=BRINGUP_NO_CAL、6=SET_FLIGHT_MODE、7=ARM、8=START）。窗口关闭后的 replay 里最常见的是
   **3/4/5**：STOP 是异步的，`STAGE/APPLY/BRINGUP_NO_CAL` 要求 `enabled=0/adapter=0/applied==config`，
   会在 STOP 尚未落地时失败并原地重试。失败现场务必抓 `BOOT:PLAN?` 的 3/17/18 三个字段。
-- 板号丢失（`*IDN?` 显示 NO.0）：`SYSTem:BOARD:NO <n>`。
-- OTA 退化（durable=512 失败）：`picotool_flash.py --full-erase` 整片擦除 + 重刷 factory +
-  逐板重写板号（会丢校准基线）。
+- 板号丢失（`*IDN?` 显示 NO.0）：`SYSTem:BOARD:NO <n>`（整片擦除后必然丢失）。
+- OTA 退化（`stream failed while waiting for durable 512: '0,6,512,5002,5'`，四板
+  `SYST:OTA:FT? = 10,2,17,17,0,256,0,1`）：picotool `erase -a -F` 会因 JEDEC 探测失败报
+  "Cannot determine the flash size"，用显式尺寸回退：
+  ```powershell
+  python tools/picotool_flash/picotool_flash.py <factory.uf2> --serial-number <sn> --full-erase --flash-size 0x1000000
+  # 擦除常在 ~95% 处 180 s 超时（正常），随后不带 --full-erase 再 load 一次：
+  python tools/picotool_flash/picotool_flash.py <factory.uf2> --serial-number <sn>
+  # 逐板 SYSTem:BOARD:NO <n>，再用单板 OTA 验证（OTA:FT 应为全 0）
+  ```
+  整片擦除会丢掉校准基线；恢复后重新 provisioning boot profile。
+
 
 ## 7. 这批阻塞的归因（2026-11-08 独立复核结论）
 

@@ -15,41 +15,49 @@ Last updated: 2026-11-08
 - **10 MHz 环可形成（无 TRAIN）**：`tdma_start_ring.py --level 7 --skip-train --bringup` →
   `out/calibration/guide-10k/bench/10m-ring-m5/summary.json` **passed=true**，四板
   `enabled/up/down/adapter=1`、`baud=10000000, period=1000000`。
-- **10 MHz 的 CTRQS P1 在窗口 ARM 阶段就失败**：同一 build 上 `ga 1 3000 3100 7 ...`，状态序列
-  1→4(ARM)→26(RESTORE_WAIT)→27(REBUILD)→3(FAILED)，`trials=0/4`、`reason=14`，窗口后四板
+- **10 MHz 的 CTRQS P1 在窗口 ARM 阶段就失败**：build `20261108041830` 上 `ga 1 3000 3100 7 ...`，
+  状态序列 1→4(ARM)→26(RESTORE_WAIT)→27(REBUILD)→3(FAILED)，`trials=0/4`、`reason=14`，窗口后四板
   `enabled/adapter/baud=0`。证据：`out/calibration/guide-10k/evidence/20261108-124246-action1-gen3000/`。
   说明：10k 的 REBUILD 修复只覆盖"replay 未成环"，不覆盖 10M 的 **ARM 本身失败**。
-- **TRAIN 证据缺口**：本 build 没有任何一次成功的 10M `RING:TRAIN` 记录——
+- **TRAIN 证据缺口**：**本 build 没有尝试过 10M TRAIN**（`10m-ring-m5` 显式 `--skip-train`，
+  `10m-prep-m5` 只跑 steps 0–4）。仅有的两次 10M TRAIN 都在旧 build `20261107175157` 上失败：
   `10m-order-trace-20261108.json` 的 TRAIN 在 ARM 后立即 `-200`（当时 `adapter_started=0`、
   `last_reason=9 ADAPTER_START_FAILED`）；`10m-ring-20261108/summary.json` 的 TRAIN 在 ARM 前也
   `-200`（`enabled/adapter` 前置不满足）。因此 **cycles=4/16 的 result/reject 仍 UNKNOWN**，
-  `failed_mask=0x05` 的"4-cycle 失败"无法在本轮归因。
+  `failed_mask=0x05` 的"4-cycle 失败"（旧 build 的 demo）无法在本轮归因。
 - **下一步（10M owner 或下轮）**：先拿到"ARM 后 `adapter_started=1` 且 `data_enabled=0`"的稳定顺序
   （`--steps 0-6` 后立刻抓 `RING:STATus?`），再在该状态发 `RING:TRAIN 4/16`，抓
   `RING:TRAIN:STATus?` 的 state/result/reject 与 `RING:TRAIN:STATus?` 的 `request_seq` 变化。
 - **台架已恢复**：四板 reboot 后 10 kHz 自组环（`.../20261108-124404-boot-m5-restore/`，boot=PASS）。
 
-## CAL-TASK-20261108-049 - CONSOLE-042 关闭：Q 段恢复在 replay 未成环时回退 REBUILD
+## CAL-TASK-20261108-049 - CONSOLE-042：Q 段恢复在 replay 未成环时回退 REBUILD（校准侧关闭，台账待 console owner 合并）
 
 - **取证（只读，先做）**：复跑 10k P1 并每 2 s 抓四板 `BOOT:PLAN?`/`RING:STATus?`/`GUIDE:PLAN?`：
   `out/calibration/guide-10k/bench/restore-trace-20261108-114735.json`。关键事实：replay 全程
-  `fail_step=0, boot_done=1, next_step=8`（自认成功），但 `RING:STATus?` `enabled=0`（没成环）；
-  45 s 后四板 `progress_status=3 / reason=14 / abort_site=0`。
-- **根因**：boot replay 只报“接受”不保证成环；窗口关闭后 STOP/APPLY 的竞序让最终 applied 配置停在
-  STOP。旧代码以 `app_ctrqs_boot_plan_present()` 为 REBUILD 门槛，有 boot plan 时无回退 → 盲等 45 s。
+  `fail_step=0, boot_done=1, next_step=8`（自认成功）；t=33.8–52.1 s 四板是**半环**
+  `enabled=1/up=1/down=0`、`applied==config=9`；t≈54.4 的 20 s 完整度看门狗把半环停掉
+  （`cfg 9→10`），此后 `enabled=0`；45 s 后四板 `progress_status=3 / reason=14 / abort_site=0`。
+- **根因**：boot replay 只报“接受”不保证成环——它的 START 成功了，但只形成 `up=1/down=0` 的半环；
+  20 s 完整度看门狗（`app_guide_ring_watch_service`）把半环停掉后，旧代码以
+  `app_ctrqs_boot_plan_present()` 为 REBUILD 门槛，有 boot plan 时无回退 → 盲等 45 s 报
+  `NOT_ONLINE_SAFE`。（此前写的“applied 停在 STOP”与 trace 不符，已按实测更正。）
 - **修复**（`application/src/app.c`）：`APP_CTRQS_RESTORE_WAIT` 不再以 boot plan 为门槛；replay 定局
   （`boot_done`）后若 `restore_formed()` 仍假，抑制 replay（`s_boot_replay_suppressed`）并回退到显式
   REBUILD（环已静默则立即，否则等 45 s 截止，避免拆掉正在形成的环）；失败路径 `abort_site=26/27`，
-  成功不置 `abort_site`（strict verdict 以 `abort_site!=0` 判失败），且不覆盖 `finalize()` 已发布的
-  action verdict。
-- **实板验证**（build `20261108040639`）：同一脚本
-  `out/calibration/guide-10k/bench/restore-trace-20261108-121518.json`：t≈63 s 四板
-  `prog=1/1 (COMPLETE)`、`reason=0`、`abort=0`、环 `enabled/up/down/adapter=1/1/1/1`；对比修复前
-  `prog=1/3 / reason=14 / 环停`。
-- **P3**：`out/HardwareAcceptance/20261108/p3-restore2` **PASS_WITH_WARNINGS**（INFO 34 / WARN 1 /
-  ERROR 0），build `20261108041830`；固件提交 `722c3b29`。
-- **残余**：`CONSOLE-042` 台账行由 console owner 合并状态（本会话不改其未提交文件）；
-  10 MHz 4-cycle 训练敏感性仍 OPEN（M5 下轮按 TRAIN 在 `adapter_started` 之后的顺序复测）。
+  成功不置 `abort_site`（strict verdict 以 `abort_site!=0` 判失败）。26 路径保留 finalize 的 action
+  verdict；27 路径保留已发布的非零 reason、只在没 reason 时填 `NOT_ONLINE_SAFE`（不再吞掉 ARM 类
+  原始失败码）。**同轮修掉状态泄漏**：`s_boot_half_ring` 原只置不清，会让后续 `BOOT:PLAN?` 恒为
+  `half_ring=1`、`BOOT:TOPO? accepted=0`、`boot_verdict` 误判——现在在 `app_guide_window_close()`、
+  恢复成形、rebuild 成形三处清零。
+- **实板验证**（build `20261108050455`）：`out/calibration/guide-10k/bench/restore-trace-20261108-131349.json`：
+  t≈63 s 四板 `prog=1/1 (COMPLETE)`、`reason=0`、`abort=0`、环 `1/1/1/1`；赛后四板
+  `BOOT:PLAN?` `half_ring=0, boot_done=1, fail_step=0`。修复前对照为 `prog=1/3 / reason=14 / 环停`。
+- **P3**：`out/HardwareAcceptance/20261108/p3-restore3`（最终版）与 `p3-restore2`（首版）
+  均为 **PASS_WITH_WARNINGS**（ERROR 0）；两轮都是 quick-diagnostic 诊断档
+  （`strict_gates_passed=false`，含 450 s 预算超出与 `DEBUG_BOUNDED_FORCE_CONTINUE`），凭证结构按
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC` 接受。
+- **残余**：`CONSOLE-042` 台账行仍 PENDING（console 两文件是另一会话未提交改动，本会话不改）；
+  10 MHz 4-cycle 训练敏感性仍 OPEN（见 CAL-TASK-20261108-050）。
 
 ## CAL-TASK-20261108-048 - C11 复审闭环：单口启环契约转 active（build `20261107175157`）
 
