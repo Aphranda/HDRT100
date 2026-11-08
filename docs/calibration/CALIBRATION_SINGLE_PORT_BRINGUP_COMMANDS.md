@@ -73,18 +73,33 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
 
 1. **CTRQS 阶梯 / Q 段恢复（CONSOLE-042，已知冲突）**：boot plan 存在时
    `app_ctrqs_boot_plan_present()` 为真，`APP_CTRQS_RESTORE_WAIT` 的 REBUILD 回退**不可达**
-   （`application/src/app.c:3783`）。若窗口关闭后的 boot replay 未成环，只能等满 45 s 并报
-   `NOT_ONLINE_SAFE`（Q 段 `progress_status=3 / reason=14`，即使 `passed_mask=0xF`）。
+   （`application/src/app.c:3783`）。若窗口关闭后的 boot replay 未成环，只能等满
+   `APP_CTRQS_RESTORE_MS=45000`（`app.c:1709`）并报 `NOT_ONLINE_SAFE`（Q 段
+   `progress_status=3 / reason=14`，即使 `passed_mask=0xF`）。
+   注意两点（实测口径）：
+   - 30 s replay 死线**不会**清 `fail_step`；某个 boot 步失败时 `fail_step≠0`，`RESTORE_WAIT`
+     会直接跳过"已成形"检查、盲等 45 s。所以**失败现场必须抓 `BOOT:PLAN?` 的 `fail_step`/
+     `boot_done`/`boot_next_step`**，否则无法区分"replay 失败"与"replay 成功但没成环"。
+   - 45 s/60 s 的定量排除可证当时 boot plan 存在（10k：窗口≥30.8 s + 45 s ≈ 77 s 观测；
+     10M：4 s + 45 s ≈ 51 s 观测；若走 REBUILD 需 ≥+60 s）。
    **跑 CTRQS 阶梯前**：先 `BOOT:PROFile:CLEar` + 重启（回到无档，恢复旧的 REBUILD 回退），
    或等固件 owner 落地"replay 未成环也允许 REBUILD"的修复；阶梯结束后再按 §1 重新 provisioning。
-2. **10 MHz 建环**：顺序必须是 **STOP → TOPO → `RING:TRAIN 4096`（STOPPED 时）→ ARM → START**。
-   "ARM 后 TRAIN" 会 `-200,"TDMA_RING_TRAIN"`，且 ARM 后 `adapter_started` 保持 0——这是顺序错误，
-   不是建环能力缺失。正确顺序下四板可达 `adapter_started=1, tx/rx=27`（
-   `out/calibration/guide-10k/bench/10m-start-20261108/summary.json`）。
-3. **10 MHz 测量基线**：整片擦除会清掉 calibration/TRN-03 基线，10 MHz P1 的
-   `failed_mask=0x05` 属基线缺失，需要 10M/P3 owner 恢复标定后重测，与建环无关。
+2. **10 MHz 建环**：`RING:TRAIN` 的硬前置是 `enabled!=0 && adapter_started!=0 && data_enabled==0`
+   （`components/tdma/src/tdma_ring_runtime.c:554-566`），所以**停机态 TRAIN 必 `-200`**；
+   需要训练时顺序是 **STOP → TOPO/BRINGUP → ARM → 等 `adapter_started=1`（且 `applied==config`）
+   → TRAIN → START**。
+   已知事实：成功的 10 MHz 建环（`out/calibration/guide-10k/bench/10m-start-20261108/summary.json`）
+   实际是 `--skip-train`，即**没跑 TRAIN 也建成了环**；而 `ARM 后立即 TRAIN` 的 `-200` 真因是
+   ARM 的 adapter start 没成功（`cfgseq=6/applied=5`、`last_reason=9 = ADAPTER_START_FAILED`），
+   不是"顺序规则"。**不要**把"TRAIN（STOPPED）"写成正确顺序。
+3. **10 MHz P1 的 `failed_mask=0x05`**：先看候选相关性——本例 trial 0/2 是 **4 cycles** 失败、
+   trial 1/3 是 **16 cycles** 通过（`failed_mask=0x05` = bit0|bit2），且 Q 回读 `commit=2`
+   （SKIP_ALREADY_DONE，要求已有匹配 generation 的持久记录）——这与"整片擦除导致校准基线缺失"
+   相矛盾。**不要**先把 4-cycle 失败归因为基线缺失；应按 10 MHz 训练时序敏感性复测
+   （cycles=4/16 各 N 次，抓 `RING:TRAIN:STATus?` 的 result/reject 原因）。
 4. **P3 重跑**：先 `CLEar` profile 再跑 P3（否则 boot 服务会在 P3 的 STOP/ARM 窗口内自启环），
    P3 通过后重新 provisioning。
+
 
 ## 5. 只读判据速查
 
@@ -98,19 +113,31 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
 
 - 环不健康：四板 `SYSTem:TDMA:RING:STOP` → 查 `PROFile?` 是否 loaded → 重启；**不要**逐板发
   TOPO/ARM/START（那是旧的四口流程，已退役）。
-- `boot_done=1` 但 `fail_step≠0`：按 fail_step 定位（6 常见于 `SET_FLIGHT_MODE` 的 STOP-only 前置
-  未满足，即 STOP 尚未落地；重试或先确认 `RING:STATus?` 已 enabled=0/adapter=0）。
+- `boot_done=1` 但 `fail_step≠0`：按 fail_step 定位（1=TOPOLOGY、2=STOP、3=STAGE、4=APPLY、
+  5=BRINGUP_NO_CAL、6=SET_FLIGHT_MODE、7=ARM、8=START）。窗口关闭后的 replay 里最常见的是
+  **3/4/5**：STOP 是异步的，`STAGE/APPLY/BRINGUP_NO_CAL` 要求 `enabled=0/adapter=0/applied==config`，
+  会在 STOP 尚未落地时失败并原地重试。失败现场务必抓 `BOOT:PLAN?` 的 3/17/18 三个字段。
 - 板号丢失（`*IDN?` 显示 NO.0）：`SYSTem:BOARD:NO <n>`。
 - OTA 退化（durable=512 失败）：`picotool_flash.py --full-erase` 整片擦除 + 重刷 factory +
   逐板重写板号（会丢校准基线）。
 
-## 7. 为什么这不是硬件问题（本次实测）
+## 7. 这批阻塞的归因（2026-11-08 独立复核结论）
+
+**不是永久性硬件故障**，但也不是一句"非硬件"能带过：
 
 - 四板同 build `20261107175157`，10 kHz 环 `enabled=1, nodes=4, up=1, down=1, adapter=1`，
-  单口 C/T 可送达（四板 `gen` 一致）。
-- 10 MHz 用正确顺序能建环（`10m-start-20261108/summary.json`，`adapter_started=1`、`tx/rx=27`）。
-- 10 kHz Q 段失败是 **boot plan 与 Q 恢复路径的交互**（CONSOLE-042），10 MHz P1 失败是**校准基线
-  被整片擦除清掉**，两者都能在固件/标定侧闭环，不指向 PHY/接线。
+  单口 C/T 可送达（四板 `gen` 一致）；两条不同的环状态都能稳定形成 → 无永久 PHY 故障。
+- **10 kHz Q 段失败**：窗口内 4 个 trial 全过（`passed_mask=0xF, failed_mask=0`），失败在窗口关闭后的
+  **boot replay 未把环拉回** + `boot plan` 存在时无 REBUILD 回退（`app.c:3783`），盲等 45 s →
+  `NOT_ONLINE_SAFE`。属**固件状态机交互**，不是测量失败。
+- **10 MHz**：能建环（`10m-start`，且该次 `--skip-train`）；`ARM 后立即 TRAIN` 的 `-200` 是
+  `ADAPTER_START_FAILED`（`cfgseq=6/applied=5`、`last_reason=9`）的时序不稳定，不是"顺序规则"。
+  **4-cycle 训练失败是真实时序敏感性**（4 cycles 失败 / 16 cycles 通过，候选相关），需要按 10 MHz
+  训练时序复测，不能归为硬件坏或"基线缺失"。
+- **"整片擦除导致校准基线缺失"目前不成立**：P1 的 4-cycle 失败是候选相关；且 Q 回读
+  `commit=2 (SKIP_ALREADY_DONE)` 要求已有匹配 generation 的持久记录，与"基线缺失"相反。
+  若要结这条，需补 `READ:CAL:TRAIN:STAGE:PERSistence?` / TRN-03 stage 回读与 cycles=4/16 重复实验。
+
 
 ## 8. 参考
 
