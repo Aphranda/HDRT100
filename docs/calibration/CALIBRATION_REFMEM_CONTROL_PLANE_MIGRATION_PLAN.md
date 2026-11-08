@@ -138,3 +138,24 @@ ACK/NACK 语义分离。若后续确需 B（同步 `CTRL:READ?`），先单独�
 - 单口运行手册：`docs/calibration/CALIBRATION_SINGLE_PORT_BRINGUP_COMMANDS.md`
 - 契约：`docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`（`TDMA-BOOTPROFILE-01`）
 - OTA 里程碑：`docs/ota/OTA_TODO.md`
+
+## 9. 2026-11-09 夜间进展与残余（快照）
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| 读契约 `REFTMEM-READ-01` | **pending**（8 key 表 + OBS 语义 + registry 已登记；固件未实现） | `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:1440-1496`、`DOCS_REGISTRY.md` |
+| read catalog 生成器 + host 用例 | 已入库 | `2d628593`、`tools/refmem/refmem_read_catalog_gen.py` |
+| `SYST:REFMEM:OBS?` / pilot 存储 | **未实现** | — |
+| M3 控制面（read/write/wait_terminal + 模拟器） | 首批已入库 | `tools/refmem/control_plane.py`、84 host tests |
+| 阶梯 P1@7（level 7） | 四板 PASS（严格 verdict） | `evidence/20261109-055753-verify-1`（build `20261108214336`） |
+| 阶梯 P2 | 四板 COMPLETE | `docs/calibration/CALIBRATION_TASK_PROGRESS.md` CAL-TASK-20261109-010 |
+| 阶梯 P3 | 2/4 板 12/12；NO.1/NO.2 link0 TIMEOUT **OPEN** | `CAL-TASK-20261109-011` |
+| T0–T3 | **未跑** | — |
+
+**关键口径（勿再犯）**：
+
+- C 段首字段是 `candidate_count`；`ga` 必须显式传 count（`ga 1 … 4 3 0 4 16 1 64`）。
+- `PLAN?` 的 progress/masks/ladder 只在 Q 刷新；归档与结案必须等 `ctrqs∈{0,28,29}`。
+- `up/down=0` 在 TRIAL/FORWARD 窗口内正常；`RES:TRAINing?=(0,1)` 是从机 hold 的正常标志。
+- P3 位图每板 12 位里 6 位是 no-op pass；`verify` 必须四板一起。
+
