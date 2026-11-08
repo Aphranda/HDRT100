@@ -87,6 +87,12 @@ static uint32_t s_boot_apply_fail;
 static bool s_boot_attempted;
 static uint64_t s_boot_deadline_ms;
 static size_t s_boot_next_step;
+/* The CTRQS window close triggers the frozen boot replay, but that replay only
+ * reports acceptance: after a window close the staged STOP/APPLY can win the
+ * ordering race and leave the ring disabled while the replay reports
+ * fail_step=0/done=1 (measured 2026-11-08). When the CTRQS restore falls back
+ * to its own rebuild, this flag stops the replay from fighting it. */
+static bool s_boot_replay_suppressed;
 /* First moment this board saw the guide ring carry traffic (START success on
  * the coordinator, first decoded frame on a follower). The P0T scan anchors
  * its trial grid on it so all four boards share one wall-clock schedule. */
@@ -106,6 +112,9 @@ static void app_guide_window_close(uint64_t now_ms)
     s_boot_next_step = 0u;
     s_boot_deadline_ms = now_ms + 30000u;
     s_boot_ring_watch_active = false;
+    /* A new window owns a fresh replay; the CTRQS restore may re-suppress it
+     * if it has to rebuild the ring itself. */
+    s_boot_replay_suppressed = false;
 }
 
 /* M1 P0T pair scan. The schedule is anchored on the local ring-formation
@@ -911,6 +920,9 @@ static bool app_guide_run_step(tdma_boot_step_t step)
 
 bool app_guide_boot_service(void)
 {
+    if (s_boot_replay_suppressed) {
+        return false;
+    }
     if (s_boot_guide_done) {
         return s_boot_fail_step == 0u;
     }
@@ -2011,15 +2023,10 @@ static bool app_ctrqs_ring_formed(void)
 }
 
 /* Some bench images run without a frozen boot plan (BOOT:PLAN? first field 0).
- * app_guide_boot_service() then marks the replay done without forming any ring,
- * so the shared window-close primitive cannot restore the ring by itself. */
-static bool app_ctrqs_boot_plan_present(void)
-{
-    tdma_boot_plan_t plan;
-    return app_guide_boot_plan_get(&plan) &&
-           plan.action != TDMA_BOOT_ACTION_NONE &&
-           plan.action != TDMA_BOOT_ACTION_REJECT;
-}
+ * The CTRQS restore no longer keys the rebuild fallback off the plan: a plan's
+ * replay only reports acceptance and can leave the ring disabled, so the
+ * restore always verifies formation and rebuilds explicitly when it is absent
+ * (CONSOLE-042). */
 
 static bool app_ctrqs_restore_formed(void)
 {
@@ -3775,16 +3782,31 @@ static void app_ctrqs_service(void)
         }
         return;
     case APP_CTRQS_RESTORE_WAIT:
-        if (s_boot_guide_done && s_boot_fail_step == 0u) {
-            if (app_ctrqs_restore_formed()) {
-                s_ctrqs.state = APP_CTRQS_Q;
-                return;
-            }
-            if (!app_ctrqs_boot_plan_present()) {
-                /* No frozen boot plan in this image: the replay marked itself
-                 * done without forming a ring.  Rebuild the captured ring with
-                 * the same TOPO/ARM/START primitives instead. */
+        if (app_ctrqs_restore_formed()) {
+            s_ctrqs.state = APP_CTRQS_Q;
+            return;
+        }
+        /* The frozen boot replay is fire-and-forget: each step only reports
+         * acceptance, so after a window close the staged STOP/APPLY can win the
+         * ordering race and leave the ring disabled while BOOT:PLAN? still says
+         * fail_step=0, boot_done=1, next_step=8 (measured 2026-11-08:
+         * 10 kHz P1, four trials passed, ring enabled=0 after the replay).
+         * A boot plan therefore cannot be trusted to re-form the ring; fall
+         * back to the explicit rebuild, which waits for quiescence between
+         * TOPO/ARM/START. Only enter once the replay is settled, and enter
+         * immediately only when nothing is running: a follower may legitimately
+         * hold its forward window open for APP_CTRQS_FOLLOWER_PHASE_WAIT_MS. */
+        if (s_boot_guide_done) {
+            const bool quiescent = app_ctrqs_ring_quiescent();
+            if (s_boot_fail_step != 0u || quiescent ||
+                now >= s_ctrqs.deadline_ms) {
+                s_boot_replay_suppressed = true;
+                s_boot_ring_watch_active = false;
+                /* abort_site is published as "the executor state at the last
+                 * abort", so a rebuild that succeeds must not leave 26 behind:
+                 * the strict verdict reads abort_site!=0 as a failed round. */
                 s_ctrqs.rebuild_topo_done = false;
+                s_ctrqs.rebuild_armed = false;
                 s_ctrqs.arm_try_ms = 0u;
                 s_ctrqs.deadline_ms = now + APP_CTRQS_REBUILD_MS;
                 s_ctrqs.state = APP_CTRQS_REBUILD;
@@ -3792,9 +3814,14 @@ static void app_ctrqs_service(void)
             }
         }
         if (now >= s_ctrqs.deadline_ms) {
-            s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
-            s_ctrqs.progress.reason =
-                (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE;
+            /* The replay never settled: publish the restore failure without
+             * rewriting the action verdict that finalize() already published. */
+            s_ctrqs_abort_site = (uint32_t)APP_CTRQS_RESTORE_WAIT;
+            if (s_ctrqs.progress.status == (uint32_t)GUIDE_ACTION_PROGRESS_RUNNING) {
+                s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
+                s_ctrqs.progress.reason =
+                    (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE;
+            }
             app_ctrqs_publish();
             s_ctrqs.state = APP_CTRQS_Q;
         }
@@ -3856,6 +3883,7 @@ static void app_ctrqs_service(void)
         }
         return;
     ctrqs_rebuild_failed:
+        s_ctrqs_abort_site = (uint32_t)APP_CTRQS_REBUILD;
         s_ctrqs.progress.status = (uint32_t)GUIDE_ACTION_PROGRESS_FAILED;
         s_ctrqs.progress.reason =
             (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE;
