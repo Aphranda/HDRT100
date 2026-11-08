@@ -10,6 +10,25 @@ Last updated: 2026-11-08
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261108-050 - M5：10 MHz 训练敏感性取证（OPEN，可复跑）
+
+- **10 MHz 环可形成（无 TRAIN）**：`tdma_start_ring.py --level 7 --skip-train --bringup` →
+  `out/calibration/guide-10k/bench/10m-ring-m5/summary.json` **passed=true**，四板
+  `enabled/up/down/adapter=1`、`baud=10000000, period=1000000`。
+- **10 MHz 的 CTRQS P1 在窗口 ARM 阶段就失败**：同一 build 上 `ga 1 3000 3100 7 ...`，状态序列
+  1→4(ARM)→26(RESTORE_WAIT)→27(REBUILD)→3(FAILED)，`trials=0/4`、`reason=14`，窗口后四板
+  `enabled/adapter/baud=0`。证据：`out/calibration/guide-10k/evidence/20261108-124246-action1-gen3000/`。
+  说明：10k 的 REBUILD 修复只覆盖"replay 未成环"，不覆盖 10M 的 **ARM 本身失败**。
+- **TRAIN 证据缺口**：本 build 没有任何一次成功的 10M `RING:TRAIN` 记录——
+  `10m-order-trace-20261108.json` 的 TRAIN 在 ARM 后立即 `-200`（当时 `adapter_started=0`、
+  `last_reason=9 ADAPTER_START_FAILED`）；`10m-ring-20261108/summary.json` 的 TRAIN 在 ARM 前也
+  `-200`（`enabled/adapter` 前置不满足）。因此 **cycles=4/16 的 result/reject 仍 UNKNOWN**，
+  `failed_mask=0x05` 的"4-cycle 失败"无法在本轮归因。
+- **下一步（10M owner 或下轮）**：先拿到"ARM 后 `adapter_started=1` 且 `data_enabled=0`"的稳定顺序
+  （`--steps 0-6` 后立刻抓 `RING:STATus?`），再在该状态发 `RING:TRAIN 4/16`，抓
+  `RING:TRAIN:STATus?` 的 state/result/reject 与 `RING:TRAIN:STATus?` 的 `request_seq` 变化。
+- **台架已恢复**：四板 reboot 后 10 kHz 自组环（`.../20261108-124404-boot-m5-restore/`，boot=PASS）。
+
 ## CAL-TASK-20261108-049 - CONSOLE-042 关闭：Q 段恢复在 replay 未成环时回退 REBUILD
 
 - **取证（只读，先做）**：复跑 10k P1 并每 2 s 抓四板 `BOOT:PLAN?`/`RING:STATus?`/`GUIDE:PLAN?`：
