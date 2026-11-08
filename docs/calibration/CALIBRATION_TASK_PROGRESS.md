@@ -10,30 +10,34 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
-## CAL-TASK-20261109-008 - M5 实板推进：P1@7 4/4、P2 4/4、P3 首跑 12 trial
+## CAL-TASK-20261109-008 - M5：build 20261108192050 上 P1@7/P2 四板推进、P3 位图（含两次执行，口径已更正）
 
-- **顺序**（build `20261108192050`，重启后默认环 1/1/1/1）：
-  1. `ga 1 9981 9991 7 4000 4 3 0 4 16 1 64`（P1@7）→ **四板 `status=1, trials_done=4,
-     passed=15, ladder_idx=1`**（NO.4 本次也通过）；
-  2. `p2 9982 9992`（环可受理屏障生效）→ **四板 `status=1, trials_done=1, passed=1,
-     ladder_idx=2`**；
-  3. `ga 3 9983 9993 7 20000 1 0 0 32 256 3 10000000 50000`（P3）→ 12 个 trial：
-     - NO.1 `passed=0xFFE (4094/4095), failed=1, reason=11 (TIMEOUT), ladder=2`；
-     - NO.2 `passed=0xFFB (4040), failed=4, reason=11`；
-     - NO.4 `passed=3647, failed=448, reason=11`；
-     - NO.3 `trials_done=0, reason=13, abort=12`（trial 未启动）。
-- **结论**：**P1@7 与 P2 在实板上首次四板全过**，P3 已能跑满 12 个 trial 且 NO.1 接近全过；
-  剩余是 P3 的少数链路失败（TIMEOUT）与 NO.3 的 trial 未启动。证据：
-  `out/calibration/guide-10k/bench/ladder-p1p2p3-20261109.json`。
-- **口径**：本轮为单次顺序执行、非 P3 工作流；阶梯记录在 RAM，重启即清零。下一轮需四板复位后
-  重跑 P1@7→P2→P3，并归档 P3 的失败位图（`READ:CAL:...` 或 PLAN 的 passed/failed 位）。
-- **未完成**：T0–T3 未跑；四板阶梯仍会在 P3 处分叉。
+- **P1@7 / P2（间接证据）**：04:23 前后顺序执行 `ga 1 9981 9991 7 4000 4 3 0 4 16 1 64`（P1@7）
+  与 `p2 9982 9992`（P2）。四板在 04:23:59 的 plan 已是 `ladder_idx=2`（NO.3/NO.4 为 3），而 ladder
+  只在 COMPLETE 时前进（`application/src/app.c:3931-3941`、`guide_action_plan.c:301-316`），故
+  **P1 与 P2 四板全过成立**；但这两轮的逐拍 PLAN 读数**未落盘**，所引 bench JSON 不含 P1/P2 记录。
+- **P3（12 trial = 4 链路 × 3 次，`trials` 位图）**：`ga 3 9983 9993 7 20000 1 0 0 32 256 3
+  10000000 50000` 至少执行了**两次**（同一 gen/epoch 未去重，PLAN? 被覆盖）：
+  - 首轮归档（`out/calibration/guide-10k/evidence/20261109-042359-action3-gen9983/readback.json`）：
+    NO.1 `0xFFE / 0x1`（**12 个 trial 过 11 个**），NO.2 `0xFFB / 0x4`（过 11 个，bit2 失败），
+    NO.3 `0xFFF / 0x0`（全过），NO.4 `0xFFF / 0x0`（全过）；NO.3/NO.4 `ladder=3/1`。
+  - 重跑（`out/calibration/guide-10k/bench/ladder-p1p2p3-20261109.json`，04:26:47）：NO.2 `0xFC8
+    (4040) / 0x37 (55)`（过 7 个），NO.4 `0xE3F (3647) / 0x1C0 (448)`（过 9 个），NO.3 在 P3_PREP 被
+    abort（`abort_site=12`、`reason=13`），NO.1 `0xFFE / 0x1`。
+- **更正**：`passed/failed` 是**12-trial 位图**，不是计数——0xFFE=11/12、0x4=1 个 trial 失败、
+  0xFFB≠4040；上一版把首轮掩码与重跑十进制拼在 NO.2 一行，**不成立**。
+- **口径**：`verify()` 的 freshness 只比 epoch，重复触发同一 epoch 会得到“新旧混读”，必须在每轮
+  换 gen/epoch 并归档。**“首次四板全过”不成立**：build `20261108142853` 在 00:40 已四板 P1 4/4
+  （`evidence/20261109-004017-action1-gen6202/readback.json`），01:05 已有 P2 四板 strict PASS
+  （`evidence/20261109-010527-verify-2/verdict.json`）；应写“在该 build 上”。
+- **未完成**：T0–T3 未跑；P3 的 TIMEOUT 链路未定性；NO.3 的 abort_site=12 需单独取证。
 
 ## CAL-TASK-20261109-007 - NO.4 P1@7 失败后停在 REBUILD、环不恢复
 
 - **现场**（build `20261108192050`，重启后默认环四板 `1/1/1/1`）：`ga 1 <gen> <epoch> 7 …`（P1@7）→
   NO.1–3 `status=1, trials=4, passed=0xF`；NO.4（COM6）`status=2, trials_done=0, reason=13,
-  abort_site=6, ladder=0/3`。
+  abort_site=6, ladder=0/3`。证据：`out/calibration/guide-10k/evidence/20261109-034436-action1-gen9900/
+  readback.json` 与 `…035539-action1-gen9900/readback.json`（四板 build=20261108192050，NO.4 3/4 失败）。
 - **失败后**：NO.1–3 环 `1/1/1/1`；**NO.4 环 `0/0/0/0`**，`GUIDE:PLAN?` 的 `ctrqs=26`（**REBUILD**），
   `BOOT:PLAN?` 仍 `fail_step=0 / boot_done=1 / next_step=8`（replay 自称成功但没成环）。
 - **资源表对照**：NO.1 与 NO.4 的 `SYST:RESource:TABle? 0..5` **逐行相同**（FLASH 空闲、
