@@ -10,6 +10,26 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-009 - NO.4 P1@7 拒绝连续 3 次复现；level-7 后环 up/down=0 复现
+
+- **复现**（build `20261108192050`，每次先重启复位）：P1@7（`ga 1 <gen> <epoch> 7 4000 4 …`）
+  连续 3 次（gen 10001、10011 与更早一次）均为 **3/4 板 COMPLETE、NO.4（COM6）
+  `status=2, trials_done=0, reason=13, abort_site=6, ladder=0/3`**；同一 build 上曾出现过一次
+  4/4（04:23），故属**高频复现**而非偶发。
+- **刚抓的上下文**（`out/calibration/guide-10k/bench/no4-recurrence-20261109.json`）：
+  - NO.4 ring `enabled=1, up=0, down=0, cfg=applied=21`，`RES:TRAINing?=0,0`，`RESource?=130226`；
+  - NO.2/NO.3 同为 `up=0, down=0`（`RES:TRAINing?=0,1`，即 `tdma_clock_training_active=1`），
+    `RESource?=117922`（与 NO.1/NO.4 的 130226 不同）；
+  - NO.1 `up=1, down=0`。
+  ⇒ **level-7 动作后环的物理方向（up/down）确实会掉到 0**，且 NO.2/NO.3 停在“时钟训练中”标志。
+  这正是 004/005 说过的现象，但**不是每次都在同一采样点可见**；此前的归档 readback 是动作后更晚的
+  采样，恰好读到已恢复的 1/1。
+- **影响**：环不流动时 P1 的 trial 无法训练/测距 → NO.4 在 TRIAL 被拒（与 `reason=13` 一致），
+  且下一次 CONFIG 会被 ring_admits 屏障挡住；阶梯因此停在 P2 之前。
+- **下一步**（§7.4 阻塞点）：对“level-7 动作后 up/down=0 的恢复”做交叉分析——重点查
+  `tdma_ring_runtime` 的 listen/train 收尾与 `app_flash_park_resume` 的环恢复路径；需要一次
+  逐秒轨迹（PLAN? + RING:STATus? + RES:TRAINing?）覆盖整个窗口关闭过程。
+
 ## CAL-TASK-20261109-008 - M5：build 20261108192050 上 P1@7/P2 四板推进、P3 位图（含两次执行，口径已更正）
 
 - **P1@7 / P2（间接证据）**：04:23 前后顺序执行 `ga 1 9981 9991 7 4000 4 3 0 4 16 1 64`（P1@7）
