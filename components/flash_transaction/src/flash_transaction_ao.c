@@ -300,6 +300,11 @@ bool flash_transaction_ao_get_vector(flash_transaction_vector_t *vector)
     return flash_transaction_fb_get_vector(&s_flash_transaction, vector);
 }
 
+bool flash_transaction_ao_is_occupied(void)
+{
+    return s_flash_transaction.occupied;
+}
+
 /* Completion journaling is owned by FlashTransactionAO as well.  A journal
  * append is requested from inside the active transaction's completion lease;
  * submitting it back through flash_transaction_fb would therefore be a

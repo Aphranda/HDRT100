@@ -35,6 +35,7 @@ typedef struct {
     pota_stream_ingress_source_t active_source;
     pota_stream_ingress_result_t last_result;
     uint32_t last_session_result;
+    uint32_t first_failure_token;
     bool open;
 } pota_stream_ingress_t;
 
@@ -48,6 +49,12 @@ typedef struct {
 
 uint32_t pota_stream_ingress_last_session_result(
     const pota_stream_ingress_t *ingress);
+/* First failure token of the current session; later failures are ignored. */
+void pota_stream_ingress_record_failure(pota_stream_ingress_t *ingress,
+                                        uint32_t token);
+uint32_t pota_stream_ingress_first_failure(
+    const pota_stream_ingress_t *ingress);
+void pota_stream_ingress_clear_failure(pota_stream_ingress_t *ingress);
 
 bool pota_stream_ingress_init(pota_stream_ingress_t *ingress,
                               pota_stream_session_t *session,

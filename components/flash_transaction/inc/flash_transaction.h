@@ -199,6 +199,10 @@ bool flash_transaction_ao_resolve_range(uint32_t absolute_offset,
 bool flash_transaction_ao_submit(const flash_transaction_request_t *request);
 void flash_transaction_ao_service(void);
 bool flash_transaction_ao_request_abort(uint32_t job_id);
+/* True while the AO still owns a submitted transaction.  Callers which hold
+ * an OTA admission must not release it before this becomes false: a terminal
+ * journal append still needs the admission lease. */
+bool flash_transaction_ao_is_occupied(void);
 bool flash_transaction_ao_notify_provider_reset(uint32_t provider_generation);
 bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
                                   flash_transaction_completion_t *completion);

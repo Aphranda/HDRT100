@@ -38,6 +38,27 @@ uint32_t pota_stream_ingress_last_session_result(
     return ingress == NULL ? 0xFFFFFFFFu : ingress->last_session_result;
 }
 
+void pota_stream_ingress_record_failure(pota_stream_ingress_t *ingress,
+                                        uint32_t token)
+{
+    if (ingress != NULL && ingress->first_failure_token == 0u) {
+        ingress->first_failure_token = token;
+    }
+}
+
+uint32_t pota_stream_ingress_first_failure(
+    const pota_stream_ingress_t *ingress)
+{
+    return ingress == NULL ? 0u : ingress->first_failure_token;
+}
+
+void pota_stream_ingress_clear_failure(pota_stream_ingress_t *ingress)
+{
+    if (ingress != NULL) {
+        ingress->first_failure_token = 0u;
+    }
+}
+
 bool pota_stream_ingress_init(pota_stream_ingress_t *ingress,
                               pota_stream_session_t *session,
                               uint32_t source_mask,
@@ -78,6 +99,7 @@ pota_stream_ingress_result_t pota_stream_ingress_open(
     }
     ingress->active_source = source;
     ingress->open = true;
+    ingress->first_failure_token = 0u;
     return remember(ingress, POTA_STREAM_INGRESS_OK);
 }
 

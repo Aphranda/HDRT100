@@ -7,6 +7,7 @@
 #include "ota_partition.h"
 #include "pota_slot_manifest.h"
 #include "pota.h"
+#include "pota_stream_failure.h"
 #include "project_config.h"
 #include "drv_flash.h"
 #include "drv_watchdog.h"
@@ -832,7 +833,8 @@ static bool portable_ota_port_stream_ensure_initialized(void)
     return true;
 }
 
-static uint32_t s_stream_last_service_result;
+/* First service/write failure lives in pota_stream_ingress_t so it can be
+ * covered by the portable host harness. */
 
 pota_stream_ingress_result_t portable_ota_port_stream_open(
     pota_stream_ingress_source_t source,
@@ -866,6 +868,9 @@ pota_stream_ingress_result_t portable_ota_port_stream_open(
         /* 800 + core error: the raw reason behind a CORE rejection. */
         s_stream_init_stage =
             800u + (uint32_t)s_stream_session.core.core.status.error_code;
+    } else {
+        /* A new session must not report the previous session's sticky error. */
+        pota_stream_ingress_clear_failure(&s_stream_ingress);
     }
     return opened;
 }
@@ -883,16 +888,20 @@ pota_stream_ingress_result_t portable_ota_port_stream_write(
         portable_core_perf_record(1u, perf_started);
         return POTA_STREAM_INGRESS_SESSION;
     }
+    pota_stream_ingress_status_t before;
+    const bool already_terminal =
+        portable_ota_port_stream_get_status(&before) &&
+        (before.state == POTA_STREAM_STATE_FAILED ||
+         before.state == POTA_STREAM_STATE_ABORTED);
     const pota_stream_ingress_result_t result =
         pota_stream_ingress_write(&s_stream_ingress, source, offset, data,
                                   size, has_crc32, crc32);
-    if (result != POTA_STREAM_INGRESS_OK) {
+    if (result != POTA_STREAM_INGRESS_OK && !already_terminal) {
         const pota_stream_result_t write_result =
             pota_stream_session_last_write_result();
-        s_stream_last_service_result =
-            write_result == POTA_STREAM_RESULT_CORE
-                ? 6000u + (uint32_t)pota_session_last_write_error()
-                : 5000u + (uint32_t)write_result;
+        const uint32_t token = pota_stream_write_failure_token(
+            write_result, pota_session_last_write_error());
+        pota_stream_ingress_record_failure(&s_stream_ingress, token);
     }
     portable_core_perf_record(1u, perf_started);
     return result;
@@ -933,14 +942,10 @@ pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us
         pota_stream_ingress_service(&s_stream_ingress, status.source,
                                     budget_us);
     if (result != POTA_STREAM_INGRESS_OK) {
-        s_stream_last_service_result =
-            1000u + (uint32_t)pota_stream_session_last_result();
-        if (pota_stream_session_last_result() == POTA_STREAM_RESULT_CORE) {
-            s_stream_last_service_result =
-                s_flash_execute_stage != 0u
-                    ? 2000u + s_flash_execute_stage
-                    : 3000u + (uint32_t)pota_session_last_error();
-        }
+        const uint32_t token = pota_stream_service_failure_token(
+            pota_stream_session_last_result(), s_flash_execute_stage,
+            pota_session_last_error());
+        pota_stream_ingress_record_failure(&s_stream_ingress, token);
     }
     portable_core_perf_record(2u, perf_started);
     return result;
@@ -976,7 +981,7 @@ uint32_t portable_ota_port_stream_last_session_result(void)
 
 uint32_t portable_ota_port_stream_last_service_result(void)
 {
-    return s_stream_last_service_result;
+    return pota_stream_ingress_first_failure(&s_stream_ingress);
 }
 
 bool portable_ota_port_stream_force_reset(void)
@@ -988,9 +993,14 @@ bool portable_ota_port_stream_force_reset(void)
      * CHECKPOINT when no checkpoint sink exists, so the degraded path alone
      * would turn the retry into a permanent failure. */
     if (portable_core_init_stream_surfaces()) {
+        pota_stream_ingress_clear_failure(&s_stream_ingress);
         return true;
     }
-    return portable_core_init_stream_surfaces_degraded();
+    if (portable_core_init_stream_surfaces_degraded()) {
+        pota_stream_ingress_clear_failure(&s_stream_ingress);
+        return true;
+    }
+    return false;
 }
 
 pota_stream_ingress_result_t portable_ota_port_stream_abort(
@@ -1058,7 +1068,8 @@ bool portable_ota_port_stream_get_status(pota_stream_ingress_status_t *status)
      * service result so the failure reason is observable from SCPI. */
     if (status->state == POTA_STREAM_STATE_FAILED ||
         status->state == POTA_STREAM_STATE_ABORTED) {
-        status->stream_token = s_stream_last_service_result;
+        status->stream_token =
+            pota_stream_ingress_first_failure(&s_stream_ingress);
     }
     return true;
 }

@@ -1,7 +1,8 @@
-#include "ota_fb.h"
+﻿#include "ota_fb.h"
 
 #include "drv_watchdog.h"
 #include "diagnostics.h"
+#include "ota_ao.h"
 #include "ota_ao_private.h"
 #include "ota_error.h"
 #include "ota_metadata.h"
@@ -25,7 +26,7 @@ static void ota_fb_set_state(struct ota_ao_context *context, ota_state_t state)
 
 static void ota_fb_set_error(struct ota_ao_context *context, ota_error_t error)
 {
-    resource_arbiter_release_ota_admission();
+    ota_ao_request_admission_release();
     context->vector.error_code = (uint32_t)error;
     context->vector.last_result = (uint32_t)OTA_RESULT_FAILED;
     ota_fb_set_state(context, OTA_STATE_FAILED);
@@ -143,7 +144,7 @@ static void ota_fb_handle_end(struct ota_ao_context *context)
 static void ota_fb_handle_abort(struct ota_ao_context *context)
 {
     const bool ok = portable_ota_port_core_abort(&context->vector);
-    resource_arbiter_release_ota_admission();
+    ota_ao_request_admission_release();
     ota_fb_sync_portable_status(context, ok);
 }
 
@@ -167,7 +168,7 @@ static void ota_fb_handle_commit(struct ota_ao_context *context)
 
     ota_ao_publish_metadata(context, &metadata);
     context->vector.last_result = (uint32_t)OTA_RESULT_COMMITTED;
-    resource_arbiter_release_ota_admission();
+    ota_ao_request_admission_release();
     ota_fb_set_state(context, OTA_STATE_COMMITTED);
 }
 

@@ -1,4 +1,5 @@
-#include "ota_tdma_binding.h"
+﻿#include "ota_tdma_binding.h"
+#include "ota_ao.h"
 
 #include <stddef.h>
 
@@ -98,7 +99,7 @@ static void ota_tdma_binding_update_target_admission(void)
     if (s_ctx->session.target_open && !s_target_admission) {
         s_target_admission = resource_arbiter_request_ota_admission();
     } else if (!s_ctx->session.target_open && s_target_admission) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         s_target_admission = false;
     }
 }
@@ -213,7 +214,7 @@ void ota_tdma_binding_service(uint32_t now_ms, uint8_t max_frames)
             /* The transfer finished: release the OTA admission lease that the
              * relay OPEN acquired so a later maintenance command is not
              * blocked forever. */
-            resource_arbiter_release_ota_admission();
+            ota_ao_request_admission_release();
             /* Failure is sticky until the next OPEN so the host's durable
              * poll can bail out instead of waiting for its own timeout. */
             s_relay_failed = ota_tdma_relay_failed(s_relay);
@@ -240,7 +241,7 @@ void ota_tdma_binding_service(uint32_t now_ms, uint8_t max_frames)
                 ota_tdma_relay_abort(s_relay);
                 s_relay_failed = true;
                 s_last_result = OTA_TDMA_BINDING_RESULT_STALLED;
-                resource_arbiter_release_ota_admission();
+                ota_ao_request_admission_release();
             }
         }
         return;
@@ -267,7 +268,7 @@ void ota_tdma_binding_service(uint32_t now_ms, uint8_t max_frames)
         /* A finished transfer releases the role and the OTA admission lease
          * for the next OPEN frame. */
         if (s_target_admission) {
-            resource_arbiter_release_ota_admission();
+            ota_ao_request_admission_release();
             s_target_admission = false;
         }
         (void)ota_tdma_binding_reset_target();
@@ -365,7 +366,7 @@ void ota_tdma_binding_relay_abort(void)
         s_counters.relay_aborts++;
         ota_tdma_relay_abort(s_relay);
         s_relay = NULL;
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
     }
 }
 
@@ -467,7 +468,7 @@ bool ota_tdma_binding_handle_maintenance_frame(const uint8_t *payload,
         if (session && !s_target_admission) {
             s_target_admission = resource_arbiter_request_ota_admission();
         } else if (!session && s_target_admission) {
-            resource_arbiter_release_ota_admission();
+            ota_ao_request_admission_release();
             s_target_admission = false;
         }
         uint32_t stats[9] = {0};

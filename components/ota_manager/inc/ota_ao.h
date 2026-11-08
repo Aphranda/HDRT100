@@ -11,6 +11,11 @@
 bool ota_ao_init(void);
 bool ota_ao_post_event(const ota_event_t *event);
 void ota_ao_service(uint32_t budget_us);
+/* Request release of the OTA admission.  The release is deferred while a
+ * FlashTransaction still owns the slot; ota_ao_service() completes it once the
+ * terminal owner is drained.  SCPI abort/error paths must use this instead of
+ * releasing resource_arbiter directly. */
+void ota_ao_request_admission_release(void);
 /* Called after the AO consumed an OTA_EVENT_DATA_BLOCK (the block's bytes are
  * no longer referenced).  The TDMA v2 bridge uses it to release its staged
  * block and acknowledge the source pump. */

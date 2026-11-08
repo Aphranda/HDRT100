@@ -72,6 +72,8 @@ static tdma_boot_step_t s_boot_steps[TDMA_BOOT_SEQUENCE_MAX];
 static size_t s_boot_step_count;
 static tdma_boot_profile_t s_boot_profile;
 static bool s_boot_profile_loaded;
+/* True when the in-use profile is the product default (no durable record). */
+static bool s_boot_profile_is_default;
 static bool s_boot_guide_done;
 static uint32_t s_boot_fail_step;
 static bool s_boot_listen_pending;
@@ -269,14 +271,16 @@ static void app_guide_stage_boot_override(void)
 }
 #endif
 
-#if defined(PROJECT_TDMA_GUIDE_AUTOFORM) && PROJECT_TDMA_GUIDE_AUTOFORM
-/* Bench-only: build the guide profile from the board number (NO.1 -> slot 0)
- * so power-up self-forming can be exercised before a provisioning command owns
- * the durable store. The topology identity is a fixed bench tag shared by all
- * boards; an empty store still means "no profile" in product images. */
-static bool app_guide_synth_profile(tdma_boot_profile_t *out)
+/* Product default profile. A board that has been flashed but never provisioned
+ * (or whose durable profile was cleared) still has to be able to join the guide
+ * ring: otherwise a field replacement can never receive the in-band
+ * provisioning command. The default is a product constant (not a bench switch):
+ * level/nodes come from the build, the local slot from the board number, and
+ * the topology tag is a fixed product label. The durable profile, when present,
+ * always wins. */
+static bool app_guide_default_profile(tdma_boot_profile_t *out)
 {
-    static const char k_bench_topology[] = "guide-bench";
+    static const char k_default_topology[] = "DHRT100-GUIDE-4N";
     const uint32_t no = board_identity_get_no();
     if (no < 1u || no > (uint32_t)PROJECT_TDMA_GUIDE_NODES) {
         return false;
@@ -288,7 +292,7 @@ static bool app_guide_synth_profile(tdma_boot_profile_t *out)
         .local_slot = no - 1u,
         .flags = TDMA_BOOT_PROFILE_FLAG_BRINGUP_NO_CAL,
         .topology_crc32 = tdma_boot_profile_crc32(
-            (const uint8_t *)k_bench_topology, sizeof(k_bench_topology) - 1u),
+            (const uint8_t *)k_default_topology, sizeof(k_default_topology) - 1u),
         .generation = 1u,
     };
     if (!tdma_boot_profile_valid(&profile)) {
@@ -297,7 +301,6 @@ static bool app_guide_synth_profile(tdma_boot_profile_t *out)
     *out = profile;
     return true;
 }
-#endif
 
 #define APP_ANALYZER_STORAGE_SEGMENT_RECORDS 128u
 #define APP_ANALYZER_STORAGE_MAGIC 0x59414C53u /* SLAY */
@@ -669,11 +672,12 @@ bool app_init(void)
     (void)tdma_boot_profile_store_init();
     tdma_boot_profile_t boot_profile;
     bool have_boot_profile = tdma_boot_profile_store_get(&boot_profile);
-#if defined(PROJECT_TDMA_GUIDE_AUTOFORM) && PROJECT_TDMA_GUIDE_AUTOFORM
     if (!have_boot_profile) {
-        have_boot_profile = app_guide_synth_profile(&boot_profile);
+        /* A flashed board with no durable profile still joins the guide ring on
+         * the product default; the durable profile overrides it once written. */
+        have_boot_profile = app_guide_default_profile(&boot_profile);
+        s_boot_profile_is_default = have_boot_profile;
     }
-#endif
     if (have_boot_profile) {
         s_boot_profile = boot_profile;
         s_boot_profile_loaded = true;
@@ -1009,6 +1013,11 @@ bool app_guide_boot_profile_get(tdma_boot_profile_t *out)
     }
     *out = s_boot_profile;
     return true;
+}
+
+bool app_guide_boot_profile_is_default(void)
+{
+    return s_boot_profile_loaded && s_boot_profile_is_default;
 }
 
 uint32_t app_guide_boot_fail_step(void)

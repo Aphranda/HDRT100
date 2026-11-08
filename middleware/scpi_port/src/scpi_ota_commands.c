@@ -1,4 +1,4 @@
-#include "scpi_ota_commands.h"
+﻿#include "scpi_ota_commands.h"
 #include <stdio.h>
 #include "osal.h"
 
@@ -77,14 +77,14 @@ scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
         return SCPI_RES_ERR;
     }
     if (portable_ota_port_stream_is_active()) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return SCPI_RES_ERR;
     }
 
     uint32_t size;
     uint32_t crc32;
     if (!scpi_port_read_u32(context, &size) || !scpi_port_read_u32(context, &crc32)) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return SCPI_RES_ERR;
     }
 
@@ -99,7 +99,7 @@ scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
     };
 
     if (!ota_ao_post_event(&event)) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return SCPI_RES_ERR;
     }
     return scpi_port_result_ok(context);
@@ -116,14 +116,14 @@ scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
         return SCPI_RES_ERR;
     }
     if (portable_ota_port_stream_is_active()) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return SCPI_RES_ERR;
     }
 
     uint32_t size;
     uint32_t crc32;
     if (!scpi_port_read_u32(context, &size) || !scpi_port_read_u32(context, &crc32)) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return SCPI_RES_ERR;
     }
 
@@ -138,7 +138,7 @@ scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
     };
 
     if (!ota_ao_post_event(&event)) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return SCPI_RES_ERR;
     }
     return scpi_port_result_ok(context);
@@ -203,7 +203,7 @@ static scpi_result_t scpi_cmd_ota_simple_event_ack(scpi_t *context, ota_event_ty
 
     if (!ota_ao_post_event(&event)) {
         if (type != OTA_EVENT_ABORT) {
-            resource_arbiter_release_ota_admission();
+            ota_ao_request_admission_release();
         }
         return SCPI_RES_ERR;
     }
@@ -296,6 +296,16 @@ scpi_result_t scpi_cmd_ota_ft_q(scpi_t *context)
     SCPI_ResultUInt32(context, vector.requested_bytes);
     SCPI_ResultUInt32(context, vector.processed_bytes);
     SCPI_ResultUInt32(context, vector.completion_level);
+    /* Append-only ownership diagnostics: the legacy 8 fields above stay
+     * stable.  requester/submit_reject distinguish a stale 256-byte BCB or
+     * journal transaction from the current erase request; occupied explains
+     * 4000+2 submit rejects. */
+    SCPI_ResultUInt32(context, vector.requester);
+    SCPI_ResultUInt32(context, vector.job_id);
+    SCPI_ResultUInt32(context, flash_transaction_submit_reject());
+    SCPI_ResultUInt32(context, flash_transaction_first_error());
+    SCPI_ResultUInt32(context,
+                      flash_transaction_ao_is_occupied() ? 1u : 0u);
     return SCPI_RES_OK;
 }
 
@@ -573,7 +583,7 @@ scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
         !scpi_ota_stream_source_matches_control_plane(source) ||
         SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE ||
         length > UINT32_MAX) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return SCPI_RES_ERR;
     }
 
@@ -582,7 +592,7 @@ scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
     pota_stream_open_t open;
     if (!pota_stream_open_decode_le((const uint8_t *)data,
                                     (uint32_t)length, &open)) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return SCPI_RES_ERR;
     }
 
@@ -597,7 +607,7 @@ scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
         drv_watchdog_mark_ota_phase(71u); /* stale relay cleared */
         ota_tdma_binding_relay_clear();
         if (!ota_tdma_binding_relay_start(&open)) {
-            resource_arbiter_release_ota_admission();
+            ota_ao_request_admission_release();
             return SCPI_RES_ERR;
         }
         drv_watchdog_mark_ota_phase(
@@ -647,7 +657,7 @@ scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
         (void)snprintf(open_error, sizeof(open_error),
                        "STREAM_OPEN_%u", (unsigned)open_result);
         scpi_port_push_exec_error(context, open_error);
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return SCPI_RES_ERR;
     }
     return scpi_port_result_ok(context);
@@ -695,6 +705,22 @@ scpi_result_t scpi_cmd_ota_stream_data(scpi_t *context)
         core_state == (uint32_t)POTA_STATE_ABORTED ||
         !portable_ota_port_stream_is_active()) {
         return SCPI_RES_ERR;
+    }
+    /* The first block (package header, or first raw block) is what schedules
+     * the inactive-slot erase.  A host that pipelines the next four blocks can
+     * reach this handler before OtaAO has consumed that first block; at that
+     * instant durable_offset is still zero and the core still says RECEIVING.
+     * Returning QUEUED here would let the next DATA overtake the erase
+     * transition and turn back-pressure into INVALID_STATE (5002).  Keep the
+     * first block single-file: require durable_offset to advance before any
+     * non-zero offset is accepted. */
+    if (offset > 0u) {
+        pota_stream_ingress_status_t stream_status;
+        if (portable_ota_port_stream_get_status(&stream_status) &&
+            stream_status.durable_offset == 0u) {
+            SCPI_ResultCharacters(context, "BUSY", 4u);
+            return SCPI_RES_OK;
+        }
     }
     /* OtaAO recomputes the CRC from the queued copy; the SCPI-side value was
      * already parsed for protocol compatibility. */
@@ -772,14 +798,14 @@ scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context)
     }
     if (ota_tdma_binding_relay_active() || ota_tdma_binding_relay_done()) {
         ota_tdma_binding_relay_abort();
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
         return scpi_port_result_ok(context);
     }
     const pota_stream_ingress_result_t result =
         portable_ota_port_stream_abort(source);
     drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
     if (result == POTA_STREAM_INGRESS_OK) {
-        resource_arbiter_release_ota_admission();
+        ota_ao_request_admission_release();
     }
     return result == POTA_STREAM_INGRESS_OK ? scpi_port_result_ok(context)
                                             : SCPI_RES_ERR;
@@ -797,7 +823,7 @@ scpi_result_t scpi_cmd_ota_stream_boot(scpi_t *context)
         status.state != POTA_STREAM_STATE_READY_TO_REBOOT) {
         return SCPI_RES_ERR;
     }
-    resource_arbiter_release_ota_admission();
+    ota_ao_request_admission_release();
     drv_watchdog_reboot(50u);
     return scpi_port_result_ok(context);
 }

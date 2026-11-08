@@ -1680,6 +1680,12 @@ scpi_result_t scpi_cmd_system_tdma_boot_plan_q(scpi_t *context)
      * be undone by the next ARM/START replay. Existing positions are unchanged. */
     SCPI_ResultUInt32(context, app_guide_boot_done() ? 1u : 0u);
     SCPI_ResultUInt32(context, app_guide_boot_next_step());
+    /* Appended profile source: 1 = durable provisioning record, 2 = product
+     * default (bare board). Without it a host cannot tell a provisioned board
+     * from one that joined on the default profile. */
+    SCPI_ResultUInt32(context,
+                      app_guide_boot_profile_is_default() ? 2u
+                      : (have_profile ? 1u : 0u));
     return SCPI_RES_OK;
 }
 

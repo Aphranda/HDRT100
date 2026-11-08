@@ -89,9 +89,12 @@ bool app_is_ready(void);
  * Execution is a separate step; this accessor only exposes what was decided. */
 bool app_guide_boot_plan_get(tdma_boot_plan_t *out);
 size_t app_guide_boot_steps_get(tdma_boot_step_t *out, size_t capacity);
-/* Loaded guide profile (store or bench auto-form); false when the board booted
- * with no profile. */
+/* Loaded guide profile (durable store or product default); false when the board
+ * booted with no profile at all (v1 map or invalid board number). */
 bool app_guide_boot_profile_get(tdma_boot_profile_t *out);
+/* True when the in-use profile is the product default, i.e. no durable record
+ * was provisioned for this board. */
+bool app_guide_boot_profile_is_default(void);
 /* Execute the frozen guide boot steps once (core0, after the scheduler starts).
  * Returns false on the first failed step; the failing index is 1-based. */
 bool app_guide_boot_service(void);
@@ -128,7 +131,7 @@ uint32_t app_guide_boot_next_step(void);
  * joined, 6 boot steps not finished. */
 bool app_guide_topology_accepted(uint32_t *reason);
 
-/* M1 P0T pair scan (bench build: PROJECT_TDMA_GUIDE_SCAN + AUTOFORM).
+/* M1 P0T pair scan (bench build: PROJECT_TDMA_GUIDE_SCAN).
  *
  * After the guide ring self-forms, the board walks the N*(N-1) directed pairs
  * locally: STOP -> pair topology -> probe mode -> ARM -> START -> sample ->

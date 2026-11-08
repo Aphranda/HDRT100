@@ -1,10 +1,11 @@
-#include "ota_ao.h"
+﻿#include "ota_ao.h"
 
 #include <string.h>
 
 #include "board.h"
 #include "diagnostics.h"
 #include "event_bus.h"
+#include "flash_transaction.h"
 #include "ota_ao_private.h"
 #include "ota_error.h"
 #include "ota_fb.h"
@@ -28,6 +29,49 @@
 
 static struct ota_ao_context s_ota_context;
 static bool s_boot_confirm_done;
+static bool s_release_admission_pending;
+
+/* Never drop the OTA admission while a FlashTransaction still owns the
+ * transaction slot.  Terminal journal/BCB appends are OTA requesters too; if
+ * the lease disappears first they fail with MODE and leave the owner occupied,
+ * so the next OTA erase is rejected with submit_reject=2 (4002). */
+void ota_ao_request_admission_release(void)
+{
+    if (flash_transaction_ao_is_occupied()) {
+        s_release_admission_pending = true;
+        return;
+    }
+    resource_arbiter_release_ota_admission();
+}
+
+static void ota_ao_service_pending_admission_release(void)
+{
+    if (!s_release_admission_pending) {
+        return;
+    }
+    if (portable_ota_port_stream_is_active()) {
+        /* A new session already reused the lease; do not release it. */
+        s_release_admission_pending = false;
+        return;
+    }
+    if (flash_transaction_ao_is_occupied()) {
+        /* A terminal transaction can still own the slot if its last service
+         * step was skipped.  Drain only terminal states here; an active
+         * transaction is not ours to abort from the admission-release path. */
+        flash_transaction_vector_t vector;
+        if (flash_transaction_ao_get_vector(&vector) &&
+            (vector.state == FLASH_TRANSACTION_STATE_FAILED ||
+             vector.state == FLASH_TRANSACTION_STATE_ABORTED ||
+             vector.state == FLASH_TRANSACTION_STATE_COMPLETE)) {
+            flash_transaction_ao_service();
+        }
+        if (flash_transaction_ao_is_occupied()) {
+            return;
+        }
+    }
+    resource_arbiter_release_ota_admission();
+    s_release_admission_pending = false;
+}
 static ota_vector_t s_vector_snapshot[2];
 static ota_metadata_t s_metadata_snapshot[2];
 static uint32_t s_vector_active_index;
@@ -47,7 +91,7 @@ static void ota_ao_fail_no_progress(struct ota_ao_context *context)
     } else {
         (void)portable_ota_port_core_abort(&context->vector);
     }
-    resource_arbiter_release_ota_admission();
+    ota_ao_request_admission_release();
     context->vector.error_code = (uint32_t)OTA_ERR_NO_PROGRESS;
     context->vector.last_result = (uint32_t)OTA_RESULT_FAILED;
     context->vector.state = (uint32_t)OTA_STATE_FAILED;
@@ -198,6 +242,8 @@ void ota_ao_service(uint32_t budget_us)
         return;
     }
 
+    ota_ao_service_pending_admission_release();
+
     /* OTA-HAOFV-013: confirm the running slot once the application has been up
      * long enough to count as healthy.  Without this the confirmed slot stays
      * behind the active one, so the next update targets the only rollback
@@ -252,6 +298,19 @@ void ota_ao_service(uint32_t budget_us)
         return;
     }
 
+    /* A newly opened stream is still in OPEN until the bounded service step
+     * publishes RECEIVING.  Do not consume the queued header before that
+     * transition: a write in OPEN returns INVALID_STATE and the header would
+     * be lost, leaving ERASE? stuck at RECEIVING/0 on the host. */
+    if (portable_ota_port_stream_is_active()) {
+        pota_stream_ingress_status_t open_status;
+        if (portable_ota_port_stream_get_status(&open_status) &&
+            open_status.state == POTA_STREAM_STATE_OPEN) {
+            (void)portable_ota_port_stream_service(budget_us);
+            return;
+        }
+    }
+
     /* Service bounded permission/erase work before consuming DATA.  SCPI
      * producers can queue a DATA block while the inactive slot is still
      * erasing; consuming it early converts normal back-pressure into
@@ -281,7 +340,24 @@ void ota_ao_service(uint32_t budget_us)
     if (event_bus_try_recv_ota_event(&event)) {
         if (event.type == OTA_EVENT_STREAM_DATA) {
             /* Single writer: the USB/SCPI task only queued this block; OtaAO
-             * performs the stream write and publishes the durable offset. */
+             * performs the stream write and publishes the durable offset.
+             * A queued block that outlived a failed/aborted/completed session
+             * must not reach the core write path: it would overwrite the real
+             * service failure with INVALID_STATE (5002) and touch flash after
+             * the session is terminal. */
+            pota_stream_ingress_status_t stream_status;
+            const bool have_stream_status =
+                portable_ota_port_stream_get_status(&stream_status);
+            if (!have_stream_status ||
+                stream_status.state != POTA_STREAM_STATE_RECEIVING) {
+                event_bus_complete_ota_event(&event);
+                if (have_stream_status &&
+                    (stream_status.state == POTA_STREAM_STATE_FAILED ||
+                     stream_status.state == POTA_STREAM_STATE_ABORTED)) {
+                    ota_ao_request_admission_release();
+                }
+                return;
+            }
             const uint32_t stream_crc = pota_crc32_compute(
                 event.payload.data.data, event.payload.data.length);
             const pota_stream_ingress_result_t stream_result =
@@ -296,7 +372,7 @@ void ota_ao_service(uint32_t budget_us)
                 if (portable_ota_port_stream_get_status(&status) &&
                     (status.state == POTA_STREAM_STATE_FAILED ||
                      status.state == POTA_STREAM_STATE_ABORTED)) {
-                    resource_arbiter_release_ota_admission();
+                    ota_ao_request_admission_release();
                 }
             }
             return;
@@ -311,7 +387,7 @@ void ota_ao_service(uint32_t budget_us)
                 if (portable_ota_port_stream_get_status(&status) &&
                     (status.state == POTA_STREAM_STATE_FAILED ||
                      status.state == POTA_STREAM_STATE_ABORTED)) {
-                    resource_arbiter_release_ota_admission();
+                    ota_ao_request_admission_release();
                 }
             }
             return;
@@ -345,7 +421,7 @@ void ota_ao_service(uint32_t budget_us)
                 if (portable_ota_port_stream_get_status(&failed_status) &&
                     (failed_status.state == POTA_STREAM_STATE_FAILED ||
                      failed_status.state == POTA_STREAM_STATE_ABORTED)) {
-                    resource_arbiter_release_ota_admission();
+                    ota_ao_request_admission_release();
                 }
             }
         }

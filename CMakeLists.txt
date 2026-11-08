@@ -67,16 +67,10 @@ set(PROJECT_TDMA_SPI_BAUD_HZ 10000000 CACHE STRING "Product TDMA PIO-SPI bit rat
 # sequence bridge below supplies the local TX latch evidence; keeping it in the
 # normal build preserves the proven process-follower wire timing.
 option(PROJECT_TDMA_EVENT_OBSERVER "Follower paired PIO event observer" ON)
-# Bench-only: when the durable TDMA boot profile store is empty (v2 map), build
-# the single-port guide profile from the board NO. (NO.1 -> slot 0) instead of
-# "no profile". This exists to exercise power-up self-forming on the bench
-# before a provisioning command owns the store; never enable it in a product
-# image, where an empty store must stay "no profile".
-option(PROJECT_TDMA_GUIDE_AUTOFORM
-    "Bench: synthesize the guide boot profile from the board NO. when empty" OFF)
 # Bench-only M1 scan: after the guide ring self-forms, run the P0T directed pair
 # scan locally (no host commands) and publish the per-board activity mask. It
-# needs AUTOFORM; a product image keeps the plain bring-up behaviour.
+# requires a formed guide ring; a product image keeps the plain bring-up
+# behaviour unless the scan is enabled.
 option(PROJECT_TDMA_GUIDE_SCAN
     "Bench: run the P0T pair scan after the guide ring self-forms" OFF)
 # Bench-only S 段: when a committed TRN-03 stage exists, boot on the profile
@@ -983,7 +977,6 @@ pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/syn
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_LOG_UART_OUTPUT=$<BOOL:${PROJECT_ENABLE_LOG_UART_OUTPUT}>
         PROJECT_OTA_TDMA_V2_BRIDGE=$<BOOL:${PROJECT_OTA_TDMA_V2_BRIDGE}>
-        PROJECT_TDMA_GUIDE_AUTOFORM=$<BOOL:${PROJECT_TDMA_GUIDE_AUTOFORM}>
         PROJECT_TDMA_GUIDE_SCAN=$<BOOL:${PROJECT_TDMA_GUIDE_SCAN}>
         PROJECT_TDMA_GUIDE_STAGE_BOOT=$<BOOL:${PROJECT_TDMA_GUIDE_STAGE_BOOT}>
         PROJECT_TDMA_GUIDE_NODES=${PROJECT_TDMA_GUIDE_NODES}
