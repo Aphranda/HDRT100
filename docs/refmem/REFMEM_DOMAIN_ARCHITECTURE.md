@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
-Last updated: 2026-11-05
+Last updated: 2026-11-09
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面，并以统一控制面把系统级命令意图路由到显式目标插槽、聚合 ACK/NACK/fence，使接入点不再决定系统操作语义。
 
@@ -1436,6 +1436,40 @@ RefMem 统一面是**增量层**，不替换单板控制：
 | CP7 | 至多一次有效执行 | 同一 `(coordinator_boot_id, command_seq, target)` 只执行一次；重传只返回既有终态，不重复动作。 |
 | CP8 | 接受不等于完成 | SCPI 的 `OK`/`1` 只表示 envelope 被接受；完成状态只能来自 ACK/NACK/fence 聚合快照。 |
 | CP9 | 单板控制保留 | 统一面是增量层，不替换本地 SCPI/slot/owner/T2；统一面不可用时本地仍可用，远端命令必须拒绝，不得静默缩成单板执行。 |
+
+### REFMEM-READ-01：读 key 与 OBS 聚合读
+
+读面是 CP4 的落地契约：**只读本地镜像、逐槽拼装、不做同步跨板读**。首版不做同步 `CTRL:READ?`
+（D0 决策 2026-11-09 选 A）；若将来确需同步读，先修订 CP4 再立项，不得在客户端或页面层绕过。
+
+**read key 表（v1）。** 每个 key 有唯一 writer、固定行 schema 与 freshness 预算；writer 只在 core0
+service 上下文发布，`seq` 单调递增、`epoch` 随命令 epoch 更新。
+
+| key_id | name | 唯一 writer | freshness_ms | 行 schema（固定字长） |
+|---|---|---|---|---|
+| 1 | `switch1` | sync_io sequence owner | 1000 | `value, desired` |
+| 2 | `switch2` | sync_io sequence owner | 1000 | `value, desired` |
+| 3 | `trigger_state` | trigger AO | 200 | `state, run_state, epoch` |
+| 4 | `guide_plan` | guide executor | 5000 | `action, gen, status, trials_done, passed, failed, abort_site` |
+| 5 | `boot_plan` | boot service | 60000 | `action, fail_step, boot_done, half_ring, profile_source` |
+| 6 | `ring_status` | tdma runtime owner | 1000 | `enabled, up, down, adapter, nodes, local_slot` |
+| 7 | `cal_status` | calibration manager | 60000 | `persisted_valid, generation, level, reject_reason` |
+| 8 | `fault_last` | diagnostics | 60000 | `code, severity, age_ms` |
+| 9 | `node_health` | refmem node table | 1000 | `state, heartbeat, stale_count, fault_code` |
+
+**查询形态。** `SYSTem:REFMEM:OBS? <key>,<offset>,<count>`：按 `slot` 升序返回最多 8 行，每行固定为
+`slot,valid,epoch,seq,age_ms,stale,<schema 字...>`；`offset+count` 越界按可用范围裁剪并逐行报
+`valid=0`，不得整体报错。`valid=0` 时 `age_ms=0xFFFFFFFF`，其余值字段为 0。
+
+**新鲜度。** `stale = (valid==1) && (age_ms > freshness_ms)`；stale 行只能用于诊断，不得当作 current
+fact 参与校准/判据；`required_mask` 内的 key 行 stale 视为缺位，按命令面的 NACK reason 聚合返回，
+不得退化成客户端超时猜测。
+
+**单写者与撕裂。** 每 key 仅一个 writer；发布用 `seq` 校验（读侧 `seq` 变化即重读一次），发布点禁止
+在 core1/ISR 直写。跨 key 不保证同一时刻快照，行级 `epoch/seq` 是唯一一致性口径。
+
+**契约状态**：pending；代码锚点 `components/distributed_refmem/inc/refmem_command.h`；需 host 表
+用例 + 单板 smoke + 四板 OBS HIL 后转 active。
 
 ### 角色与协调者
 
