@@ -10,6 +10,23 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-005 - M5：replay 的 STAGE/APPLY 加静默屏障（环恢复）
+
+- **根因**：窗口关闭后的 replay 里，`STAGE_PROFILE`/`APPLY_PROFILE` 在环仍在收尾时就执行；
+  此时 `tdma_runtime_owner_apply_operating_profile()` 看到 `ring.enabled != 0`，只**排程**配置而
+  不重编程 PHY，随后 ARM/START 用旧的 10 MHz 档起环 → 无引导帧（`enabled=1/adapter=1/up/down=0`），
+  下一条 CONFIG 因无环运输被拒。
+- **修复**（`application/src/app.c`）：新增 `app_guide_ring_quiet()`（`enabled==0 && adapter_started==0
+  && applied_config_seq==config_seq`），`STAGE_PROFILE` 与 `APPLY_PROFILE` 在非静默时返回 false，
+  由 boot service 原地重试，直到环真正停稳再 stage/apply。
+- **实板验证**（build `20261108180849`，四板）：重启 → `ga 1 <gen> <epoch> 7 4000 4 …`（P1@7）→
+  四板环 **全部 `enabled/up/down/adapter=1`**（修复前是 `up/down=0`）；P1 三块板 COMPLETE
+  （`trials=4, passed=0xF`）。证据：`out/calibration/guide-10k/bench/p1-level7-quiet-20261109.json`。
+- **残余**：NO.4（COM6）在 P1@7 的 TRIAL 阶段仍 `abort_site=6 / reason=13`（`trials=0`、ladder 0/3），
+  但它的环已正常；这是与环恢复无关的**单板 P1 trial 拒绝**，待查（下一步先看 NO.4 的 slot3 与
+  reference 的 trial 请求差异）。
+- **P3**：`out/HardwareAcceptance/20261109/p3-quiet`（结果见下条）。
+
 ## CAL-TASK-20261109-004 - M5：P1@7 能跑完，但 level-7 动作后环回不来（阶梯断点）
 
 - **做法**：重启四板（默认档起 10k 环）→ `OPMode:STAGe/APPLy 7` 已由窗口自己完成 → 直接
