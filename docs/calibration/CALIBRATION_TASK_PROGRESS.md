@@ -10,6 +10,23 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-011 - P1 TRIAL 的瞬态快照失败改为重试到 slot 截止（固件已入库）
+
+- **根因**（交叉审核 `eb4e845d`）：参考板 `ring_train` 入队后，下一次
+  `tdma_runtime_owner_get_clk_train_snapshot()` 可能撞进 core1 的 PIO 写窗（64 次 seqlock 重试耗尽），
+  原实现 `app.c:2606` 立即 `abort(TIMEOUT)` ⇒ 整轮 STOPPED、`abort_site=6`、`trials_done=0`；
+  同 build 数分钟后同一轮可 4/4，属**瞬态**。
+- **修复**（`application/src/app.c`）：TRIAL 段两处快照读失败都改为“未到 slot 截止就重试，
+  到截止 `trial_fail_and_advance()`”；`ring_train` 被拒仍 `abort(CONFIG_VALIDATION_FAILED)`。
+  回归面仅 P1 origin（跟随板在 2573 提前返回），P2/P3/T* 各有独立状态。
+- **P3 凭证**：`out/HardwareAcceptance/20261109/p3-trainretry` **PASS_WITH_WARNINGS**
+  （INFO 34 / WARN 1 / ERROR 0，build `20261108214336`，QUICK_DIAGNOSTIC，strict=false）；
+  固件提交 `be1e6eee`。
+- **实板**：P1@7 四板 `status=1, trials=4`（build `20261108212116` 与 `214336`）；P2 四板 COMPLETE；
+  P3 仍非全绿：NO.3/NO.4 `12/12`，**NO.1 `4094/1`、NO.2 `4091/4`，均 `reason=11`**——失败集中在
+  **link0（NO.1→NO.2）**，与本次快照读修复无关（属测量超时，待单独定位）。
+- **口径**：P3 位图每板 12 位里 6 位是硬件证据（其余为 no-op pass）；`verify` 必须四板一起。
+
 ## CAL-TASK-20261109-010 - 正确 C 段形状下的阶梯：P1@7 4/4、P2 4/4、P3 2/4 全过
 
 - **口径**：build `20261108192050`，每次复位后执行；P1 用 `ga 1 <gen> <epoch> 7 4000 4 3 0 4 16 1 64`
