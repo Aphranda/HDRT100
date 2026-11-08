@@ -2816,6 +2816,10 @@
         {
           "path": "tools/tests/run_refmem_read_catalog_tests.ps1",
           "role": "test_runner"
+        },
+        {
+          "path": "tools/refmem/control_plane.py",
+          "role": "module"
         }
       ],
       "depends_on": [],
