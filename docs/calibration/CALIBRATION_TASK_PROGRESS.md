@@ -31,7 +31,7 @@ Last updated: 2026-11-09
   该“残余”降级为**未复现、观测口径未绑定**，不得作为缺陷进入路线图。
 - **NO.4 reason=13**：唯一 TRIAL 态 reason=13 的 abort 点在 `application/src/app.c:2592-2599`
   （行 2597：`!tdma_runtime_owner_get_clk_train_snapshot() || !distributed_refmem_tdma_ring_train()`）；
-  `reason=13` 是应用侧合成码，原始拒绝源（快照失败 / ring_train 拒绝 / 底层 -200）在读回里不可区分，
+  `reason=13` 是应用侧合成码，原始拒绝源（快照失败 / distributed_refmem_tdma_ring_train 拒绝；该调用是直接 C 路径、不产生 SCPI -200）在读回里不可区分，
   **不能**据此归因到 OTA admission（readback 无相关字段）。
 
 ## CAL-TASK-20261109-005 - M5：replay 的 STAGE/APPLY 加静默屏障（环恢复）
@@ -69,9 +69,12 @@ Last updated: 2026-11-09
   `up=0/down=0` 只是窗口内重建瞬态。`p1-level7-20261109.json` 已被 after 内容覆盖（与
   `p1-level7-quiet-20261109.json` 同哈希），不能作 before 证据。
 - **结论**：P1@7 能跑完；“环回不来”**未复现**，现有观测口径（动作后采样）无法区分瞬态与稳态。
-  阶梯断在 P2 的真实原因是下一条 CONFIG 在**环未稳定**时被 `distributed_refmem_control_submit`
-  拒绝（`-200 TDMA_GUIDE_CONFIG`），需要在每步之间显式确认 `RING:STATus? enabled=1` 再下发。
-- **下一步**：阶梯驱动加“环就绪”屏障（读回 enabled/up/down），而不是改 replay。
+  阶梯断在 P2 的可能分支是**下一条 CONFIG 在环未就绪时被 `distributed_refmem_control_submit` 拒绝**
+  ——但 `-200 TDMA_GUIDE_CONFIG` 同时覆盖 transport 未就绪、maintenance 队列满/适配器为空、参数早退，
+  文本不标识原因；须在拒绝瞬间同时抓 `RING:STATus?`（enabled/adapter/config_seq/applied）与
+  `SYSTem:REFMEM:CMD:STATus?` 才能定因。
+- **下一步**：阶梯驱动加“环可受理”屏障（`enabled+adapter+applied==config`，并等 `PLAN?.ctrqs==0`），
+  超时覆盖 45 s RESTORE + 60 s REBUILD；探针已按此实现 `ring_admits()`/`wait_ring_ready(120 s)`。
 
 ## CAL-TASK-20261109-003 - M5：P2 已能执行并给出真实拒绝码（0x106 PIO stall）
 
