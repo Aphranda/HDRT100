@@ -144,6 +144,17 @@ def open_boards() -> list[Board]:
     return boards
 
 
+def ring_is_four_nodes(boards: list[Board]) -> bool:
+    """The evidence is only meaningful when all four physical boards answered.
+
+    open_boards() only prints the identity; a board that failed *IDN? keeps
+    no=0 and would silently drop out of a four-board verdict (or shift the
+    slot mapping). Every action and verdict therefore checks the set here.
+    """
+    nos = [b.no for b in boards]
+    return sorted(nos) == [1, 2, 3, 4]
+
+
 def plan_line(b: Board) -> str:
     vals = b.plan()
     if not vals:
@@ -954,6 +965,11 @@ def guide_action(action: int, gen: int, epoch: int, level: int, window: int,
     """
     boards = open_boards()
     ref = boards[0]
+    if not ring_is_four_nodes(boards):
+        print(f"{now()} ABORT: expected NO.1..NO.4, got {[b.no for b in boards]}")
+        for b in boards:
+            b.close()
+        return
     if not wait_ring_ready(boards):
         for b in boards:
             b.close()
@@ -1033,6 +1049,16 @@ def guide_action(action: int, gen: int, epoch: int, level: int, window: int,
         # ring faster than the PLAN? sweep while the window is open.
         time.sleep(0.2)
     window_rate(f"action{action}", ring_samples)
+    # PLAN?'s progress fields still show the previous round until this round's
+    # Q publishes, and the loop above can leave on RESTORE_WAIT/REBUILD (26/27).
+    # Archive only after every board reached Q/IDLE/DONE, otherwise the
+    # persisted masks and ladder belong to an older round (measured 2026-11-09).
+    t_q = time.monotonic()
+    while time.monotonic() - t_q < 90.0:
+        ctrqs = [b.plan()[9] if len(b.plan()) > 9 else -1 for b in boards]
+        if all(c in (0, 28, 29) for c in ctrqs):
+            break
+        time.sleep(0.5)
     archive_evidence(f"action{action}-gen{gen}", boards, action, gen, epoch,
                      ring_samples, text)
     for b in boards:
@@ -1106,6 +1132,12 @@ def verify(action: int, epoch: int, gen: int = 0, repeats: int = 3,
     boards = open_boards()
     ok = True
     lines: list[str] = []
+    if not ring_is_four_nodes(boards):
+        print(f"{now()} verify=FAIL: expected NO.1..NO.4, got "
+              f"{[b.no for b in boards]}")
+        for b in boards:
+            b.close()
+        return False
     # Trial count and pass mask are set by the executor, not by the plan for
     # every action: P1 sets one bit per trial (4), P3 runs nodes x repeats,
     # T0 runs t0_repeats (candidates[4]), T1/T2 use the plan's trial_count and
