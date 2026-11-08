@@ -158,4 +158,6 @@ ACK/NACK 语义分离。若后续确需 B（同步 `CTRL:READ?`），先单独�
 - `PLAN?` 的 progress/masks/ladder 只在 Q 刷新；归档与结案必须等 `ctrqs∈{0,28,29}`。
 - `up/down=0` 在 TRIAL/FORWARD 窗口内正常；`RES:TRAINing?=(0,1)` 是从机 hold 的正常标志。
 - P3 位图每板 12 位里 6 位是 no-op pass；`verify` 必须四板一起。
+- 手写 CONFig 时第二个字段必须是 **`0x40000000 + gen`**（不是任意常量），trigger 的 epoch 必须非 0 且每轮递增；
+  否则 PLAN? 显示 `epoch=0`，本轮根本没触发（2026-11-09 实测踩过一次）。
 
