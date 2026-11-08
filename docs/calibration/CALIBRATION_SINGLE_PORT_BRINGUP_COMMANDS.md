@@ -149,6 +149,50 @@ python tools/calibration/guide_cmdplane_probe.py ct <gen> <tag>
    `OTA:FT? = 10,2,17,17,0,256,0,1`（policy gate 17 = `FLASH_TRANSACTION_ERROR_MODE`）。
    已排除默认档/环占用（板号置 0 不启环仍失败）、RAM 锁存（复位后仍失败）、台架脏状态（整片擦除后
    仍失败）；对应 `docs/ota/OTA_TODO.md` 的 OTA-HAOFV-012/013，等流式 OTA/OTA owner 修复后重跑 P3。
+
+### 4.6 动作阶梯与各动作 C 段载荷（P1/P2/P3/T0–T3）
+
+**动作是阶梯**：必须按 P1(1)→P2(2)→P3(3)→T0(4)→T1(5)→T2(6)→T3(7) 顺序跑。
+`app_ctrqs_start()` 只接受 `action == ladder_index+1` 或"重复上一个动作"（`app.c:2288-2299`）；
+阶梯一旦分叉，后续动作全部拒绝，必须先复位四板再重来。
+
+**参考脚本**：`tools/calibration/guide_cmdplane_probe.py` 里已有各动作的规范载荷，不要自己拼：
+
+```powershell
+python tools/calibration/guide_cmdplane_probe.py ladder 1 <gen> <epoch>   # 按阶梯跑
+python tools/calibration/guide_cmdplane_probe.py p2 <gen> [epoch] [window] # P2 规范载荷
+python tools/calibration/guide_cmdplane_probe.py ga <action> <gen> <epoch> <level> <window> <trials> <cand...> <lo> <hi>
+python tools/calibration/guide_cmdplane_probe.py verify <action> <epoch> [gen] [repeats] [archive]
+```
+
+| 动作 | C 段 `candidates[]` | `threshold_low/high` | `trial_count` | 校验要点（`app.c:2300-2482`） |
+|---|---|---|---|---|
+| P1(1) 时钟 | `[ref_slot, TRAIN cycles...]`（≥2） | — | 窗口内 trial 数 | slot=window/trials，按 `3×period×max_cycles+500` 抬升 |
+| P2(2) 编码 | `[ref_slot, codebook≤3, min_lag, max_lag, min_margin]`（**必须 5**） | lo=probe_phase≠0、hi=max_distance≠0 | **必须 1** | min_lag<max_lag；跨度≤256；level≠0 |
+| P3(3) 时延 | `[start_link<nodes, signal_group≤1, pulse 1..4096, capture_words 1..1024, repeats 1..4]`（5） | lo=baud_hz(1k..50M)、hi=容差‰(≤50000) | 由固件算 `nodes×repeats` | — |
+| T0(4) margin | `[origin_node<nodes, codebook 1..3, link_base_delay_ns≤1e6, offset_samples, repeats 1..4]`（5） | — | repeats | — |
+| T1(5) SCK | `[link_index<nodes, link_base_delay_ns 1..1e6, search_start<search_end(≤256), sck_launch_guard≤64]`（5） | lo=max_best_distance≠0、hi=min_margin | trial_count | — |
+| T2(6) DATA | `[link_index<nodes, link_base_delay_ns 1..1e6, search_start<search_end(≤256), marker_to_data 1..1e6]`（5） | lo=max_best_distance≠0、hi=min_margin | trial_count | — |
+| T3(7) stage | 忽略候选表 | — | 1 | **`profile_level` 必须 =7（10 MHz）** |
+
+规范示例（10 kHz 引导档、`gen` 任意）：
+
+```text
+P1: SYST:TDMA:GUIDE:CONFig 1,<0x12340000+gen>,<gen>,23,4000,4,3,0,4,16,1,64
+P2: SYST:TDMA:GUIDE:CONFig 2,<0x22000000+gen>,<gen>,7,8000,1,5,0,1,80,120,0,10,512
+P3: SYST:TDMA:GUIDE:CONFig 3,<0x33000000+gen>,<gen>,7,20000,1,5,0,0,32,256,3,10000000,50000
+```
+
+**`reason=13`（CONFIG_VALIDATION_FAILED）不等于"动作没实现"**：P2–T3 的 trial body 在
+`app.c` 里是存在的（P2 校验 `2334-2354`、P3 `2355-2386`、T0–T3 `2387-2482`；P2 的 trial 调用
+`3395-3397`、P3 的链路推导 `2694`）。`reason=13` 的常见原因是**载荷形状不符**（候选个数/trial_count/
+阈值给错），或**跨过了阶梯顺序**。另注意 `app.c:1722` 的注释"only P1 wired"是旧注释，早于
+P2–T3 的 trial body，不要据此判定"未接线"。
+
+**旧 Q 记录**：若 CONFig 在 SCPI 层就被拒（没有进入 `app_ctrqs_start`），`GUIDE:PLAN?` 会保留
+上一轮的 progress（例如 P1 的 `trials=4/passed=0xF`）而 `action` 已是新动作；判读时先核对
+`gen/epoch` 与 `action` 是否同一轮。固件对"进入执行器后被拒"的场景会发布 `FAILED/13/trials=0`
+（`app.c:2483-2498`），两种情形要区分开。
    恢复手法见 §6 最后一条。
 
 
