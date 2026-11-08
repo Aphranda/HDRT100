@@ -2591,8 +2591,17 @@ static void app_ctrqs_trial(void)
     }
     if (!s_ctrqs.train_pending) {
         tdma_pio_spi_clk_train_snapshot_t train;
-        if (!tdma_runtime_owner_get_clk_train_snapshot(&train) ||
-            !distributed_refmem_tdma_ring_train(
+        if (!tdma_runtime_owner_get_clk_train_snapshot(&train)) {
+            /* Same transient read race as below, one poll earlier: retry until
+             * the slot deadline instead of aborting the round. A rejection by
+             * the training gate itself is a plan/persona error and still
+             * aborts with CONFIG_VALIDATION_FAILED. */
+            if (now >= slot_start + s_ctrqs.slot_ms) {
+                app_ctrqs_trial_fail_and_advance();
+            }
+            return;
+        }
+        if (!distributed_refmem_tdma_ring_train(
                 s_ctrqs.cycles[s_ctrqs.trial % s_ctrqs.cycle_count])) {
             app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
             return;
@@ -2603,7 +2612,17 @@ static void app_ctrqs_trial(void)
     }
     tdma_pio_spi_clk_train_snapshot_t train;
     if (!tdma_runtime_owner_get_clk_train_snapshot(&train)) {
-        app_ctrqs_abort((uint32_t)REFMEM_COMMAND_REASON_TIMEOUT);
+        /* The snapshot read can lose a race with core1's PIO program write:
+         * the reader's bounded seqlock retry lands inside the writer window
+         * and reports false for that poll only. Treat it as "not ready yet"
+         * and retry until the slot deadline instead of aborting the whole
+         * round on a transient (measured 2026-11-09: the training reference
+         * aborted TRIAL with TIMEOUT on the first poll, while the same build
+         * completed the identical round minutes later). A read that keeps
+         * failing still fails the trial at the deadline below. */
+        if (now >= slot_start + s_ctrqs.slot_ms) {
+            app_ctrqs_trial_fail_and_advance();
+        }
         return;
     }
     if (train.state == TDMA_PIO_SPI_CLK_TRAIN_ERROR) {
