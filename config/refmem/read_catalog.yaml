@@ -1,0 +1,38 @@
+schema: REFMEM_READ_CATALOG_V1
+# Read keys for the local-mirror observation plane (contract REFMEM-READ-01).
+# Every key has exactly one writer and a fixed row schema; the row on the wire is
+#   slot,valid,epoch,seq,age_ms,stale,<schema words...>
+# Freshness is taken from the RefMemSlotContract stale_window_us, not from this file.
+keys:
+  - id: 1
+    name: switch1
+    writer: SYNC_IO
+    schema: [value, desired]
+  - id: 2
+    name: switch2
+    writer: SYNC_IO
+    schema: [value, desired]
+  - id: 3
+    name: trigger_state
+    writer: TRIGGER
+    schema: [state, run_state, epoch]
+  - id: 4
+    name: guide_plan
+    writer: GUIDE
+    schema: [action, gen, status, trials_done, passed, failed, abort_site]
+  - id: 5
+    name: boot_plan
+    writer: BOOT
+    schema: [action, fail_step, boot_done, half_ring, profile_source]
+  - id: 6
+    name: ring_status
+    writer: TDMA
+    schema: [enabled, up, down, adapter, nodes, local_slot]
+  - id: 7
+    name: cal_status
+    writer: CAL
+    schema: [persisted_valid, generation, reject_reason]
+  - id: 8
+    name: node_health
+    writer: REFMEM
+    schema: [state, heartbeat, stale_count, fault_code]

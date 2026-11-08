@@ -2896,6 +2896,16 @@ bool calibration_manager_commit_training_stage(void)
 bool calibration_manager_restore_training_stage(void)
 {
     tdma_ring_calibration_stage_t saved;
+    /* A board that never had a persisted stage (e.g. the product-default
+     * bring-up with no TRN-03 commit yet) has nothing to restore.  That is not
+     * an error: P2/P3 clear the in-RAM stage so the coded/ranging personas can
+     * take the PIO resources, and the window close must still succeed on a
+     * board that carried no stage before the window opened. */
+    calibration_training_store_status_t status;
+    calibration_training_store_get_status(&status);
+    if (status.persisted_valid == 0u) {
+        return true;
+    }
     if (!calibration_training_store_get_stage(&saved) || saved.enabled == 0u ||
         saved.node_count < 2u ||
         saved.node_count > CALIBRATION_TRAINING_PHASE_MAX_NODES) {

@@ -3483,7 +3483,11 @@ static void app_ctrqs_service(void)
                 (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
         }
         /* Re-stage the persisted calibration record cleared by P2_PREP so the
-         * window close can pass the ring phase admission again. */
+         * window close can pass the ring phase admission again.  A board with
+         * no persisted record has nothing to restore; that is handled inside
+         * calibration_manager_restore_training_stage() and must not fail the
+         * round (measured 2026-11-09: P2 ended STOPPED/NOT_ONLINE_SAFE on a
+         * default-profile bench where no stage had ever been committed). */
         if (!calibration_manager_restore_training_stage() &&
             s_ctrqs.hard_fail_reason == 0u) {
             s_ctrqs.hard_fail_reason =

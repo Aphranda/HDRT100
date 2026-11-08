@@ -5,6 +5,7 @@
 
 #include "drv_flash.h"
 #include "drv_watchdog.h"
+#include "ota_ao.h"
 #include "ota_crc32.h"
 #include "ota_metadata_flash.h"
 #include "pota_boot_control_facade.h"
@@ -474,7 +475,12 @@ bool ota_metadata_confirm_active_snapshot(ota_metadata_t *committed_metadata)
     }
     const bool stored = ota_metadata_store(&metadata);
     if (borrowed_admission) {
-        resource_arbiter_release_ota_admission();
+        /* Route the release through the AO: a stream session opened between the
+         * check above and this point must keep its lease, otherwise the first
+         * 512-byte durable write is denied with FLASH_TRANSACTION_ERROR_MODE
+         * (measured 2026-11-08: 3/4 boards failed at the first block right after
+         * a boot confirmation). */
+        ota_ao_request_admission_release();
     }
 #endif
     if (!stored) {

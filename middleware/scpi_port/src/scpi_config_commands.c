@@ -1,5 +1,6 @@
 #include "scpi_config_commands.h"
 
+#include "sync_io_sequence.h"
 #include "trigger_sequence_service.h"
 
 scpi_result_t scpi_config_trigger_parameter_q(scpi_t *context)
@@ -158,11 +159,17 @@ scpi_result_t scpi_config_switch_q(scpi_t *context)
 {
     int32_t numbers[1];
     SCPI_CommandNumbers(context, numbers, 1u, 1);
+    const uint32_t number = (numbers[0] > 0) ? (uint32_t)numbers[0] : 1u;
+    /* number/valid/applied/value/desired/reserved: value is the physical
+     * position (SWITCH1 read back from the SP8T lines, SWITCH2 from the last
+     * applied value) and desired is the last commanded target. */
+    const uint32_t value = sync_io_sequence_get_switch(number);
+    const uint32_t desired = sync_io_sequence_get_switch_desired(number);
     SCPI_ResultInt32(context, numbers[0]);
     SCPI_ResultUInt32(context, 1u);
-    SCPI_ResultUInt32(context, 1u);
-    SCPI_ResultBool(context, FALSE);
-    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, (value == desired) ? 1u : 0u);
+    SCPI_ResultUInt32(context, value);
+    SCPI_ResultUInt32(context, desired);
     SCPI_ResultUInt32(context, 0u);
     return SCPI_RES_OK;
 }

@@ -210,6 +210,15 @@ uint32_t sync_io_sequence_get_switch(uint32_t switch_number)
     return 0u;
 }
 
+uint32_t sync_io_sequence_get_switch_desired(uint32_t switch_number)
+{
+    /* Last commanded target; for SWITCH2 there is no independent readback, so
+     * desired == actual by construction. */
+    if (switch_number == 1u) return s_switch1;
+    if (switch_number == 2u) return s_switch2;
+    return 0u;
+}
+
 uint32_t sync_io_sequence_read_inputs(void)
 {
     const uint32_t raw = (gpio_get_all() >> BOARD_SYNC_INPUT_BASE_PIN) &

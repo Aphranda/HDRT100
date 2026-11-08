@@ -167,6 +167,10 @@ uint32_t sync_io_sequence_owned_mask(void);
  * therefore fails while a sequence (or another GPIO owner) is active. */
 bool sync_io_sequence_set_switch(uint32_t switch_number, uint32_t value);
 uint32_t sync_io_sequence_get_switch(uint32_t switch_number);
+/* Last commanded target for the same switch number (SWITCH1: the value passed
+ * to the setter; SWITCH2: same as get_switch).  Used by READ:SWITch#? to tell
+ * "commanded" from "physically applied". */
+uint32_t sync_io_sequence_get_switch_desired(uint32_t switch_number);
 
 /* Existing SMA mutators take this transient lease around their entire call.
  * Nesting is confined to one core; never hold it across an asynchronous call. */
