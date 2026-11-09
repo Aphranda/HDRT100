@@ -679,6 +679,11 @@ def checked_action(board: Board, command: str,
                    args: argparse.Namespace) -> dict[str, Any]:
     drained = drain_errors(board, args)
     response = board_command(board, command, args)
+    if response.lstrip().startswith("-"):
+        # The matcher surfaces a refused set command's -200,"<info>" line
+        # instead of timing out; keep the firmware's own reason in the failure.
+        raise RuntimeError(
+            f"{board.address}: {command} rejected: {response!r}")
     error_after = board_command(board, "SYSTem:ERR?", args)
     evidence = {
         "command": command,

@@ -103,6 +103,15 @@ TDMA_CONTROL_RESULT_FIELDS = {
     "CAL:TRAIN:STAGE:LINK": 2, "CALIBRATION:TRAINING:STAGE:LINK": 2,
 }
 
+# Result-returning set commands whose refusal must be surfaced, not swallowed:
+# the matcher otherwise skips the -200 line and the caller reports a timeout.
+RESULT_WRITE_ERROR_HEADERS = frozenset({
+    "SYST:TDMA:OPMODE:APPLY", "SYSTEM:TDMA:OPMODE:APPLY",
+    "SYST:TDMA:OPMODE:STAGE", "SYSTEM:TDMA:OPMODE:STAGE",
+    "CAL:TRAIN:STAGE:BEGIN", "CALIBRATION:TRAINING:STAGE:BEGIN",
+    "CAL:TRAIN:STAGE:LINK", "CALIBRATION:TRAINING:STAGE:LINK",
+})
+
 SERIAL_LIFECYCLE_COMMAND = "command"
 SERIAL_LIFECYCLE_PHASE = "phase"
 # A storage read reply carries each byte as two ASCII hex characters, plus its
@@ -289,6 +298,11 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         text = strip_scpi_ack_prefix(text)
     if not text or is_scpi_log_line(text):
         return False
+    if header in RESULT_WRITE_ERROR_HEADERS and text.lstrip().startswith("-"):
+        # A refused result-returning set command answers with -200,"<info>".
+        # Returning it lets the caller report the firmware's own reason instead
+        # of a misleading <timeout> (observed 2026-11-09 on TDMA:OPMode:APPLy).
+        return True
 
     if header in {"SYST:FW:BUILD?", "SYSTEM:FW:BUILD?", "SYST:FW:BUILD?", "SYSTEM:FW:BUILD?"}:
         return re.fullmatch(r'"[^"]+"', text) is not None
