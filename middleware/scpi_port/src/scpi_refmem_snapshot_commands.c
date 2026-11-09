@@ -1374,6 +1374,23 @@ scpi_result_t scpi_cmd_refmem_obs_q(scpi_t *context)
         result.row_words = 2u;
         result.row[0] = sync_io_sequence_get_switch(key);
         result.row[1] = sync_io_sequence_get_switch_desired(key);
+    } else if (key == 5u) {
+        /* boot_plan: the boot service state is local to this board. */
+        tdma_boot_plan_t plan;
+        if (app_guide_boot_plan_get(&plan)) {
+            tdma_boot_profile_t profile;
+            const bool have_profile = app_guide_boot_profile_get(&profile);
+            result.valid = 1u;
+            result.age_ms = 0u;
+            result.row_words = 5u;
+            result.row[0] = (uint32_t)plan.action;
+            result.row[1] = app_guide_boot_fail_step();
+            result.row[2] = app_guide_boot_done() ? 1u : 0u;
+            result.row[3] = app_guide_boot_half_ring() ? 1u : 0u;
+            result.row[4] = app_guide_boot_profile_is_default()
+                                ? 2u
+                                : (have_profile ? 1u : 0u);
+        }
     } else if (key == 4u) {
         /* guide_plan: the planner snapshot is local; the row mirrors the
          * BOOT/PLAN progress readback so a single OBS key carries the round
