@@ -1469,11 +1469,9 @@ report，二者都不是可发布的故障码来源；补 writer 后再增 key�
 `refmem_read_catalog.h` 与 `refmem_read_catalog_table.c`；host 用例
 `tests/unit/test_refmem_read_catalog.c`（`tools/tests/run_refmem_read_catalog_tests.ps1`）。
 
-**存储预算（pilot 与全量分开）。** 单板 node slot 288 B、现用 232 B、尾部仅 56 B（`refmem_vector_table.h`），
-**pilot 不放 node slot 尾部**。pilot 用一块独立 region（约 1 KiB，候选为当前零消费的 statistics 区，
-region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/switch2/guide_plan/ring_status`），
-4 key × 8 槽 ≈ 864–928 B。全量 8 key 需要新 region + `layout_version` 递增（`REFTMEM-LAYOUT-01`），
-不与 pilot 同批改。
+**存储预算。** 8 key 当前由本地 provider 直取，**不使用** node slot 尾部或独立 region；
+若 A′/B′ 需要镜像/存储，按所选方案另行核算（上一版“pilot ≤4 key、独立 1 KiB region”已被
+8/8 key 本地 provider 与 A′/B′ 决策取代）。
 
 **查询形态（M1 定稿，2026-11-09）。** `SYSTem:REFMEM:OBS? <key>,<offset>,<count>`：
 - `<key>` 为 key_id 数字（1..8）；
@@ -1536,27 +1534,35 @@ runtime”不够，必须扩模型（A′）或新建契约表/镜像/选择器�
 | 决策 | HAOFV 依据 | 后果 |
 |---|---|---|
 | M2 发布面复用既有 `DataLinkTable` + `REFMEM_DELTA`（`field_id=data_link_id`，镜像按 `(slot,data_link_id)`），不新增帧类型/席位 | ① 不新增总线/payload class；③ 单写者；⑥ 预算可核算 | 维护流 ~4 B/s 的“新 OBS 帧”方案与私有 `0x100` 命名空间均被排除 |
-| 开关命令在非 `SWITCH_A/SWITCH_B` owner 上返回 reason 12（PERMISSION_DENIED），不静默 no-op | ② 执行必在目标 owner；④ fail-closed + reason 可观测 | 广播 `target_mask=0xF` 会 NACK，调用方必须显式指向开关槽 |
+| 开关命令按原因分档：BUSY→6（RESOURCE_BUSY）、无部署→13（CONFIG_VALIDATION_FAILED）、非 `SWITCH_A/B`→12（PERMISSION_DENIED），不静默 no-op | ② 执行必在目标 owner；④ fail-closed + reason 可观测 | 广播 `target_mask=0xF` 会 NACK；调用方须显式指向开关槽 |
 | 旧 `CONFigure:SWITch#` 返回 `USE_CTRL_EXECUTE` | ③ 单一入口；④ 不静默接受 | 旧 SCPI 不再假装成功，必须走 `CTRL:EXECute` |
 | 读 key 的 `stale` 用 DataLink 条目的 `stale_window_us`，不用“值未变多久” | ② 读不改变控制事实；④ 新鲜度可判 | 稳定值不会因未变而误判 stale |
 
 **单写者与撕裂。** 每 key 仅一个 writer；读侧用 `seq` 校验（`seq` 变化即重读一次）；跨 key 不保证
 同一时刻快照，行级 `epoch/seq` 是唯一一致性口径。
 
-**契约状态**：pending（**pilot 6/8 key；逐槽行已于 M4 实装，真实 seq/age 待 R1-3**）；代码锚点
+**契约状态**：pending（**8/8 key 本地；逐槽行已于 M4 实装，真实 seq/age 待 R1-3**）；代码锚点
 `components/distributed_refmem/src/refmem_obs.c`（行编码）、
 `middleware/scpi_port/src/scpi_refmem_snapshot_commands.c`（`SYSTem:REFMEM:OBS?`）。
 
-已实装（2026-11-09 实板证据，build `20261109051835`；证据 `out/refmem_read/obs_smoke_20261109.txt`）：
+已实装（2026-11-09 实板证据，build `20261109063728`；证据 `out/refmem_read/obs_8keys_20261109.txt`）：
 - 行编码：定宽（按 key 的 `schema_words`，短补零/长截断）、`valid=0` → `age_ms=0xFFFFFFFF`、
   未知 key / `offset≥DISTRIBUTED_REFMEM_NODE_COUNT` / `count` 越界各自 fail-closed；
 - 查询：`SYSTem:REFMEM:OBS? <key>,<offset>,<count>`，`count` 缺省/越界按
   `DISTRIBUTED_REFMEM_NODE_COUNT - offset` 裁剪；
-- **6/8 key 取自本地快照**（无跨板读）：`switch1/2`（sync_io 配置值与 desired）、
-  `guide_plan`（action/gen/status/trials/passed/failed/abort_site）、`boot_plan`（action/fail_step/
-  boot_done/half_ring/profile_source）、`ring_status`（enabled/up/down/adapter/nodes/local_slot）、
-  `cal_status`（persisted_valid/generation/reject_reason）；
+- **8/8 key 取自本地快照**（无跨板读）：`switch1/2`（sync_io 配置值与 desired）、
+  `trigger_state`（state/run_state/epoch）、`guide_plan`（action/gen/status/trials/passed/failed/abort_site）、
+  `boot_plan`（action/fail_step/boot_done/half_ring/profile_source）、
+  `ring_status`（enabled/up/down/adapter/nodes/local_slot）、
+  `cal_status`（persisted_valid/generation/reject_reason）、
+  `node_health`（state/heartbeat/stale_count/fault_code）；
 - host 证据：`tools/refmem/control_plane_smoke.py`、`tests/unit/test_refmem_obs.c`。
+
+**key 3/8 语义（2026-11-09）。** `trigger_state` = `[state, run_state, epoch]`：`state` 为
+`trigger_sequence_service_state_t`（0 IDLE…7 FAULT），`run_state` 仅在 RUNNING 时为 1，
+`epoch` 为该次 `run_id`；行头 `epoch` 仍是发布代际占位 1，两者不同名不同义，读侧以行头为准。
+`node_health` = `[state, heartbeat, stale_count, fault_code]`，`state=0` 表示 MISSING/未更新；
+行级 `stale` 是发布新鲜度，不替代 node 内部 stale。
 
 已补齐 `trigger_state`（service 快照 `state/run_state/epoch`）与 `node_health`（node status
 `state/heartbeat/stale_count/fault_code`），**8/8 key 本地可用**（build `20261109063728`，

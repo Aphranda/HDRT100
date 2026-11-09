@@ -14,7 +14,7 @@ Last updated: 2026-11-09
 - 8/8 key 的本地 provider（`switch1/2`、`guide_plan`、`boot_plan`、`ring_status`、`cal_status`，以及 `trigger_state`/`node_health`，`6c28df1c`）；
 - `tools/refmem/control_plane.py` 的 `read/write/wait_terminal` 与 `tools/refmem/control_plane_smoke.py`。
 
-## 2. 当前实现状态（2026-11-09，build `20261109001932`）
+## 2. 当前实现状态（2026-11-09，build `20261109063728`）
 
 | 项 | 状态 | 证据 |
 |---|---|---|
@@ -23,7 +23,7 @@ Last updated: 2026-11-09
 | key provider | 8/8 | `836dae7a`、`c6f2c76e`、`3624f322`、`6c28df1c` |
 | host 用例 | 通过 | `test_refmem_obs.c`、`test_refmem_control_plane.py`（8 passed） |
 | 单板 smoke | 有归档 | `out/refmem_read/obs_smoke_20261109.txt`（build `20261109051835`：`OBS? 6,0,4` 四行、`OBS? 1,0,2` 两行） |
-| 逐槽行 / 发布面 / 2 key / 四板 HIL | 逐槽行 **M4 已做**；其余未做 | 架构 §「未实装」 |
+| 逐槽行 / 8 key / 发布面 / 四板 HIL | 逐槽行 **M4 已做**；8/8 key 本地 **M3 已做**；发布面/四板 HIL 未做 | 架构 §「未实装」 |
 
 ## 3. 审计发现与处置（2026-11-09）
 
@@ -31,7 +31,7 @@ Last updated: 2026-11-09
 |---|---|---|---|
 | 1 | 契约写逐槽行 `slot,valid,epoch,seq,age_ms,stale,<schema>`，实现只返回本板单行 `key,offset,count,valid,age_ms,<schema>` | M4 已实装逐槽行（本地 valid、对端 stale）；真实 `seq/age` 待 R1-3 | CLOSED（M4，seq/age 待 M2） |
 | 2 | `ControlPlane.wait_terminal` 调不存在的 `SYST:REFMEM:COMMAND:STATus?` | 改读 `SYST:COMMAND:TARget? <slot>`，终态 4/5/6 | CLOSED（本轮） |
-| 3 | `control_plane_smoke.py` 仍把 5/7 key 当未实装 | 改为 PILOT={1,2,4,5,6,7}、NOT={3,8} | CLOSED（本轮） |
+| 3 | `control_plane_smoke.py` 仍把 5/7 key 当未实装 | 曾改为 PILOT={1,2,4,5,6,7}、NOT={3,8}；**现已 8/8（PILOT=1..8、NOT={}）** | CLOSED（历史，已更新） |
 | 4 | `SCPI_COMMANDS.md` 写「实现待 M2，当前返回 -200」 | 改为「pilot 6/8 已实装」并补逐槽行说明 | CLOSED（本轮） |
 | 5 | 登记表 READ-01 证据写「pilot 4 key / 待 host / 待 smoke」 | 回写 6/8 + host/smoke 已完成 + 剩余项 | CLOSED（本轮） |
 | 6 | 契约 id `REFTMEM-READ-01` 与登记 `REFMEM-READ-01` 混用 | READ-01 三处改为 `REFMEM-`；历史 `REFTMEM-LEASE/IDLE` 为既有登记，不批量改 | PARTIAL（READ-01 已一致） |
@@ -70,8 +70,8 @@ Last updated: 2026-11-09
 
 | 发现 | 处置 |
 |---|---|
-| M4 文档仍是旧口径（build `20261109001932`、`offset≥4`、`4-offset`） | 已改 build `20261109051835`、`DISTRIBUTED_REFMEM_NODE_COUNT`；四行冒烟归档 `out/refmem_read/obs_smoke_20261109.txt` |
-| 提交单/登记表「逐槽行未做」与「M4 已实装」矛盾 | 已统一为「逐槽行 M4 已做，发布面/2 key/四板 HIL 未做」 |
+| M4 文档仍是旧口径（build `20261109001932`、`offset≥4`、`4-offset`） | 已改 build `20261109063728`、`DISTRIBUTED_REFMEM_NODE_COUNT`；8-key 冒烟归档 `out/refmem_read/obs_8keys_20261109.txt` |
+| 提交单/登记表「逐槽行未做」与「M4 已实装」矛盾 | 已统一为「逐槽行 M4 已做、8/8 key M3 已做；发布面/四板 HIL 未做」 |
 | M2 决策表仍冻结 `field_id=0x100+key*16+word`，stale 语义冲突 | 已改为 `field_id=data_link_id` / `stale_window_us` |
 | DataLink 为标量表且 14/14 已满；DELTA 只接受 width≤4、每源槽一个 mirror | 已写入架构/登记表：M2 是模型级改动（version/CRC/package、可能扩 instance 表），不是只补 runtime |
 | M6 用 STOP-gated `trigger_deployment_snapshot()`，RUN 下会误拒 SWITCH_A/B | 已改为 `trigger_deployment_snapshot_cached()`，待新 P3 |
@@ -87,11 +87,25 @@ Last updated: 2026-11-09
 |---|---|---|
 | cached snapshot + P3 build `20261109055830` 源绑定 | 成立（指纹可复算） | 凭证保留；但**不覆盖开关功能路径**（`unverified_scope` 含 sync I/O trigger paths） |
 | boot wait 35 s | 实现成立；**“boot_done 陈旧”归因不成立**（BOOT:RESET 清 BSS） | 已改注释与判据：`fail_step=0 && boot_done=1 && half_ring=0`，pending 非空抛 `AcceptanceError`（`1c6a16c7`） |
-| 无 deployment ⇒ 全板 reason 12 | 成立 | SWITCH_A 正向仍需 stage+activate 部署后补 |
+| 无 deployment ⇒ 全板 reason 12 | **已更正**：`9aeb173d` 后为 reason 13（CONFIG_VALIDATION_FAILED）；12 仅用于角色不符 | SWITCH_A 正向仍需 stage+activate 部署后补 |
 | “广播曾写 NO1/NO3 OUT1-OUT3” | 部分成立（机制在，历史读回无归档） | 不作为完成证据 |
 | M2 方案可照写 | **不成立** | 提案已重写：A′/B′ 待裁决；`0x100` 与“每周期通用 field/value”均证伪 |
 
-**新发现**：`BOOT:PLAN?` 字段数文档漂移（19 vs 20、0/1-based 混用）；reason 12 同时表示未配置/角色不符/锁竞争（BUSY=32 也映射 12），语义稀释；`wait_boot_replay` 每 2 s `discover()` 会重扫所有串口。均已记录；reason 映射细化留待下次固件批次。
+**新发现**：`BOOT:PLAN?` 字段数文档漂移（19 vs 20、0/1-based 混用）；`wait_boot_replay` 每 2 s `discover()` 会重扫所有串口。**reason 语义稀释已由 `9aeb173d` 修正**（BUSY→6、无部署→13、非 owner→12）。
+
+## 4.4 第四轮复核（只读子代理 `d33f58cb`，2026-11-09）
+
+| 发现 | 处置 |
+|---|---|
+| 8/8 已实装，但 host `control_plane_smoke.py`、simulator、`test_read_unimplemented_key_is_stale` 仍把 3/8 当未实装 | 已改：PILOT=1..8、`OBS_IMPLEMENTED`=all、测试改为 key 3/8 valid（host 12 passed） |
+| 多处文档仍写 6/8（arch、SCPI、README、迁移清单、登记表、提交单） | 已统一为 8/8 |
+| key 3 语义（state/run_state/epoch）未文档化，且行头 epoch=1 与 `epoch=run_id` 同名不同义 | 架构新增「key 3/8 语义」段 |
+| 历史记录“无部署⇒12”已被 `9aeb173d` 取代 | 提交单 §4.3、§4.2 已更正为 13 |
+| commit `9aeb173d` 用 `REFMEM-READ-01`，实际属控制/入口面 | **OPEN**：后续 M6 提交改用 `REFMEM-CTRL-01`/`REFMEM-ENTRY-01` |
+| `BOOT:PLAN?` 字段数 19/20 与 0/1-based 漂移 | **OPEN**：M3 文档批次统一 |
+| 8-key 冒烟晚于 receipt 6 s、reason 13 现场未归档 | 8-key 已归档；reason 13 补归档 `out/refmem_read/switch_reason_20261109.txt` |
+| `wait_boot_replay` 每 2 s `discover()` 副作用 | 已改为 discover 一次、集合不匹配才刷新（`1c6a16c7`）；残余为每 2 s 轮询 |
+| BUSY→6 / 角色→12 无 host 用例 | **OPEN**：需 host 侧 reason 映射用例 |
 
 ## 5. C11 待复核项
 
