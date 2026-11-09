@@ -33,6 +33,7 @@ Last updated: 2026-11-09
 - M2 设计输入（2026-11-09 审计）：**当前树没有远端 node region 的 writer**——`NODES?` 远端恒 stale=1；process-image REFMEM 片仅 10 B；DELTA 每帧 1 个 u32。R1-3 需新增发布通道；推荐 `REFMEM_SYNC_FRAME_OBS`（打包 key 记录 ≤256 B）+ `statistics` 区 1024 B mirror，待 TDMA 线格式/席位评审。详见架构 REFMEM-READ-01「发布面运输」。
 - M4 行格式（2026-11-09）：`OBS?` 改逐槽行（本地槽 valid、对端槽 stale）；`refmem_obs` 编码器支持多行；`ControlPlane.read` 解析 per-slot rows（并兼容旧单行）；simulator/用例同步（12 passed）；firmware 全量 build 1482 targets OK。
 - P3 dpll60（2026-11-09）：OTA 失败根因=复用目录里的旧 `DHRT100_UPDATE.pkg`（build `20261105063447`），v2 构建实际产出 `DHRT100_V2_CANDIDATE_UPDATE.pkg`（`20261109043018`）；四板 FAIL=`POTA_ERR_SIGNATURE_INVALID(16)`、0 erase/0 FT。已修包选择（`3c7759b4`）与 picotool UF2 选择；12:33 重跑 OTA 4/4 passed（208.7s），随后 TRN-03B `CAL:TRAIN:STAGe:LINK 2,10` 失败，P3 未产出（只读子代理取证中）。
+- TRN-03B 首败（12:37）根因=host framing：`CAL:TRAIN:STAGe:LINK` 成功回显 `2,1` 无终止符，晚到后拼进 `SYST:ERR?` 的 `0,"No error"`，被误读成 `2,10,"No error"`；已修 `38d09e17`（`TDMA_CONTROL_RESULT_FIELDS` LINK=2/BEGIN=7）。复跑（12:51，package reuse）改在 NO.2 `SYST:TDMA:OPMode:APPLy` 返回 `-200` 失败，第二份只读取证中；P3 仍未产出。
 - 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2）、pilot region（R1-2a）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、开关语义与广播误伤（M6）、四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
