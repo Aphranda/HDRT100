@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tools.common.scpi.scpi_serial import SerialSession  # noqa: E402
 from tools.refmem.control_plane import ControlPlane  # noqa: E402
 
-PILOT = {1: 'switch1', 2: 'switch2', 4: 'guide_plan', 6: 'ring_status'}
-NOT_IMPLEMENTED = {3: 'trigger_state', 5: 'boot_plan', 7: 'cal_status',
-                  8: 'node_health'}
+PILOT = {1: 'switch1', 2: 'switch2', 4: 'guide_plan', 5: 'boot_plan',
+         6: 'ring_status', 7: 'cal_status'}
+NOT_IMPLEMENTED = {3: 'trigger_state', 8: 'node_health'}
 
 
 def main(port: str = 'COM5') -> int:

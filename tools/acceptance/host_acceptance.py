@@ -39,6 +39,7 @@ DEFAULT_PATHS = (
     "tests/python/test_split_unit_hooks.py",
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_host_units.py",
+    "tests/python/test_refmem_control_plane.py",
 )
 SUMMARY = re.compile(
     r"(?P<passed>\d+) passed(?:, (?P<failed>\d+) failed)?"

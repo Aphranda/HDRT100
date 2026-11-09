@@ -2,11 +2,11 @@
 
 One object owns the read/write/wait surface so pages stop hand-rolling SCPI:
 
-* ``write`` submits a catalog command through ``SYSTem:REFMEM:CMD:SUBMit:TYPe``
+* ``write`` submits a catalog command through ``SYSTem:CTRL:EXECute``
   and returns the accepted sequence (or raises a typed error);
 * ``read`` pages a read key through ``SYSTem:REFMEM:OBS?`` (contract
-  REFMEM-READ-01; the firmware side lands with M2) and returns per-page rows;
-* ``wait_terminal`` polls ``COMMAND:STATus?``/``NODE:CONTrol?`` until every
+  REFMEM-READ-01) and returns per-page rows;
+* ``wait_terminal`` polls ``SYSTem:COMMAND:TARget?`` per slot until every
   targeted slot is terminal, returning per-slot results instead of a bool.
 
 The transport is any object with ``execute(command) -> str`` (a SCPI session or
@@ -56,23 +56,29 @@ class ControlPlane:
         """Submit one catalog command; returns the sequence number.
 
         ``command_type`` is the catalog id (``config/refmem/command_catalog.yaml``),
-        ``targets``/``required`` are slot masks. Raises ``RejectedError`` when
-        the device answers with an execution error (``-200``/``ERR``).
+        ``targets``/``required`` are slot masks.  The device answers
+        ``QUEUED,<command_seq>`` (``SYSTem:CTRL:EXECute``); an execution error
+        (``-200``/``ERR``) raises ``RejectedError``.
         """
         parts = [str(int(command_type)), str(int(targets)), str(int(required))]
         if params:
             parts += [str(int(p)) for p in params]
-        response = self._execute('SYSTem:REFMEM:CMD:SUBMit:TYPe ' + ','.join(parts))
+        response = self._execute('SYSTem:CTRL:EXECute ' + ','.join(parts))
         tokens = _fields(response)
         if not tokens:
-            raise TransportError('empty submit response')
-        text = response.upper()
-        if '-200' in response or 'ERR' in text:
+            raise TransportError('empty CTRL:EXECute response')
+        if self._is_error(response):
             raise RejectedError('command rejected', response)
+        # The contract answer is "QUEUED,<seq>"; accept a bare sequence too so a
+        # firmware that only returns the number keeps working.
+        if tokens[0].upper() == 'QUEUED':
+            if len(tokens) < 2:
+                raise TransportError(f'QUEUED without sequence: {response!r}')
+            tokens = tokens[1:]
         try:
             return int(tokens[0], 0)
         except ValueError as exc:
-            raise TransportError(f'bad submit response {response!r}') from exc
+            raise TransportError(f'bad CTRL:EXECute response {response!r}') from exc
 
     # -- read ------------------------------------------------------------
     def read(self, key: int, offset: int = 0, count: int = 0) -> dict:
@@ -86,7 +92,7 @@ class ControlPlane:
         response = self._execute(
             f'SYSTem:REFMEM:OBS? {int(key)},{int(offset)},{int(count)}')
         tokens = _fields(response)
-        if any(t.lstrip('-').isdigit() is False for t in tokens[:6]) and tokens:
+        if self._is_error(response):
             raise RejectedError('read rejected', response)
         if len(tokens) < 6:
             raise TransportError(f'short OBS response {response!r}')
@@ -105,38 +111,50 @@ class ControlPlane:
         }
 
     # -- wait ------------------------------------------------------------
+    TERMINAL_STATES = (4, 5, 6)  # ACKED / NACKED / TIMED_OUT
+
     def wait_terminal(self, slots: list[int], timeout_s: float = 60.0,
                       poll_s: float = 0.2) -> dict[int, int]:
-        """Poll until every slot reports a terminal command state.
+        """Poll every slot until its command record is terminal.
 
-        Returns ``{slot: status}`` where status is the raw device field; raises
-        ``TimeoutError`` listing the slots that never settled (instead of
-        returning a misleading bool).
+        Reads ``SYSTem:COMMAND:TARget? <slot>`` (the per-slot REFMEM record,
+        not the origin-only ``CTRL:STATus?``).  Returns ``{slot: state}``;
+        states follow ``refmem_command_state_t`` and terminal means
+        ACKED(4)/NACKED(5)/TIMED_OUT(6).  A slot that never settles raises
+        ``TimeoutError`` with the last ``(state, reason)`` per pending slot.
         """
         deadline = self._clock() + timeout_s
         pending = sorted(set(int(s) for s in slots))
-        last: dict[int, int] = {}
+        last: dict[int, tuple[int, int]] = {}
         while self._clock() < deadline:
             for slot in list(pending):
-                status = self._slot_status(slot)
-                last[slot] = status
-                if status in (0, 1, 2):  # IDLE / COMPLETE / FAILED per contract
+                state, reason = self._slot_state(slot)
+                last[slot] = (state, reason)
+                if state in self.TERMINAL_STATES:
                     pending.remove(slot)
             if not pending:
-                return last
+                return {slot: state for slot, (state, _) in last.items()}
             time.sleep(poll_s)
         raise TimeoutError(
             f'terminal state not reached for slots {pending} (last={last})')
 
-    def _slot_status(self, slot: int) -> int:
-        response = self._execute(f'SYSTem:REFMEM:COMMAND:STATus? {int(slot)}')
+    def _slot_state(self, slot: int) -> tuple[int, int]:
+        response = self._execute(f'SYSTem:COMMAND:TARget? {int(slot)}')
         tokens = _fields(response)
         if not tokens:
-            raise TransportError('empty status response')
-        try:
-            return int(tokens[0], 0)
-        except ValueError as exc:
-            raise TransportError(f'bad status response {response!r}') from exc
+            raise TransportError('empty COMMAND:TARget response')
+        if self._is_error(response):
+            raise RejectedError('target read rejected', response)
+        # slot,command_seq,state,type,target,required,ack,nack,last_reason
+        if len(tokens) < 9:
+            raise TransportError(
+                f'short COMMAND:TARget response {response!r}')
+        return int(tokens[2], 0), int(tokens[8], 0)
+
+    @staticmethod
+    def _is_error(response: str) -> bool:
+        head = response.strip()
+        return head.startswith('-') or head.upper().startswith('ERR')
 
     def _execute(self, command: str) -> str:
         try:
@@ -159,15 +177,16 @@ class SimulatedTransport:
     def execute(self, command: str) -> str:  # noqa: C901 - small protocol switch
         self.commands.append(command)
         nums = [t for t in _fields(command) if t.lstrip('-').isdigit()]
-        if command.startswith('SYSTem:REFMEM:CMD:SUBMit:TYPe'):
+        if command.startswith('SYSTem:CTRL:EXECute'):
             self._seq += 1
             self._polls = {s: 0 for s in self.slots}
-            return str(self._seq)
-        if command.startswith('SYSTem:REFMEM:COMMAND:STATus?'):
+            return f'QUEUED,{self._seq}'
+        if command.startswith('SYSTem:COMMAND:TARget?'):
             slot = int(nums[0], 0)
             count = self._polls.get(slot, 0)
             self._polls[slot] = count + 1
-            return '1' if count >= self.terminal_after else '3'
+            state = 4 if count >= self.terminal_after else 3
+            return f'{slot},{self._seq},{state},45,15,15,0,0,0'
         if command.startswith('SYSTem:REFMEM:OBS?'):
             key, offset, count = (int(t, 0) for t in nums)
             if key <= 0 or key > 8:

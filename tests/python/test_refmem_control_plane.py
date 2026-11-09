@@ -14,7 +14,7 @@ def test_write_returns_sequence():
     t = SimulatedTransport()
     plane = ControlPlane(t)
     assert plane.write(50, [1, 2, 3]) == 1
-    assert t.commands[-1].startswith('SYSTem:REFMEM:CMD:SUBMit:TYPe 50,15,15')
+    assert t.commands[-1].startswith('SYSTem:CTRL:EXECute 50,15,15,1,2,3')
 
 
 def test_write_rejects_execution_error():
@@ -53,14 +53,27 @@ def test_wait_terminal_returns_per_slot():
     plane = ControlPlane(t)
     plane.write(50)
     result = plane.wait_terminal([1, 2, 3, 4], timeout_s=1.0, poll_s=0.0)
-    assert result == {1: 1, 2: 1, 3: 1, 4: 1}
+    assert result == {1: 4, 2: 4, 3: 4, 4: 4}
+    assert all(cmd.startswith('SYSTem:COMMAND:TARget?')
+               for cmd in t.commands if 'COMMAND:TARget' in cmd)
+
+
+def test_wait_terminal_treats_nack_terminal():
+    class Nack(SimulatedTransport):
+        def execute(self, command):
+            if command.startswith('SYSTem:COMMAND:TARget?'):
+                return '3,9,5,45,15,15,0,2,12'
+            return super().execute(command)
+
+    plane = ControlPlane(Nack())
+    assert plane.wait_terminal([3], timeout_s=0.05, poll_s=0.0) == {3: 5}
 
 
 def test_wait_terminal_timeout_lists_pending():
     class Stuck(SimulatedTransport):
         def execute(self, command):
-            if command.startswith('SYSTem:REFMEM:COMMAND:STATus?'):
-                return '3'
+            if command.startswith('SYSTem:COMMAND:TARget?'):
+                return '2,7,3,45,15,15,0,0,0'
             return super().execute(command)
 
     plane = ControlPlane(Stuck())
