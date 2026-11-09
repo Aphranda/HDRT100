@@ -254,6 +254,7 @@ docs/
 | `tdma/TDMA_SEAT_ACCEPTANCE_REVIEW.md` | 2026-10-11 一等席验收矩阵：把"稳定性达到特等席水平"拆成 16 条可核查条目（实现落点/证据/状态）与待决事项、复核命令；仅作索引，不定义语义；非契约。 |
 | `refmem/README.md` | 反射内存域 README。 |
 | `refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义 RefMem Domain 的职责边界、静态分布式应用模型和目标代码形态。 |
+| `refmem/REFMEM_UNIFIED_CONTROL_COMMANDS.md` | REFMEM 统一控制面命令与代码指南：CTRL:EXECute/OBS/部署/环、状态与原因码、ControlPlane 用法、固件代码地图与常见坑。 |
 | `refmem/REFMEM_DOMAIN_TODO.md` | Distributed RefMem 内部主域待办，跟踪分布式应用模型、slot 契约、ACK/NACK、sync protocol 和组件化。 |
 | `refmem/REFMEM_TASK_PROGRESS.md` | Distributed RefMem 内部主域任务进度。 |
 | `refmem/REFMEM_UNIFIED_CONTROL_REVIEW.md` | REFMEM 统一控制面收口快照（未完成）：子项总表、证据索引、开放项。 |
