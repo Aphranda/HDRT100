@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-11-06
+Last updated: 2026-11-09
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -204,6 +204,7 @@ docs/
 | `docs/check/submissions/REFMEM_C11_REVIEW_04.md` | `REFMEM-ENTRY-01` N9 收尾文本复核（C11 第四轮）：QUICK+HIL 定级一致、不冒充 full；C11-03 五项 2 闭环/2 部分/1 未闭环；结论 `PASS_WITH_CHANGES`，ENTRY-01 不得转 active，CTRL-01 保持 pending。 |
 | `docs/check/submissions/REFMEM_C11_REVIEW_05.md` | `REFMEM-ENTRY-01` 终审（C11 第五轮）：三项整改 2 闭环/1 部分（登记行过期句未删、TODO 旧 reason 12 口径），快照 P3/单口证据已回正；结论 `PASS_WITH_CHANGES`，ENTRY-01 暂不得转 active，CTRL-01 保持 pending。 |
 | `docs/check/submissions/REFMEM_C11_REVIEW_06.md` | N10.2 环停远端命令 fail-closed 修复独立复核（C11 第六轮）：SCPI/submit 双层拒绝成立、拒绝先于记录写入，HIL 环停拒绝 + 环起 `ack=14`；必改 3 项（状态/条款文本、build+ring 证据行、submit 层覆盖与拒绝可观测）；结论 `PASS_WITH_CHANGES`，N10.2 有条件闭环。 |
+| `docs/check/submissions/REFMEM_READ_CROSS_REVIEW_01.md` | `REFMEM-READ-01` 读面补位提交：8 key 目录、`OBS?` 接线、6/8 provider、`ControlPlane` read/write/wait；7 项审计发现（逐槽行/假命令/smoke 期望/文档口径/id 混用/硬编码 4）与处置；待独立 C11 复核，不冒充通过。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 首次层间核验：硬件/构建/实现/域文档一致性与当前 v1 偏差。 |
 | `docs/check/submissions/VDC_CROSS_REVIEW_01.md` | VDC 服务边界频率命令的 wire、owner、实际应用 ACK 及取消规则 C11 核验。 |
 | `docs/check/submissions/VDC_CROSS_REVIEW_02.md` | VDC 同命令原有效期内有界重复运输、ACK 退休与至多一次应用 C11 核验。 |

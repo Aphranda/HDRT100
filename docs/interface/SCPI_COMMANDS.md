@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`
-Last updated: 2026-10-24
+Last updated: 2026-11-09
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -75,11 +75,11 @@ Last updated: 2026-10-24
 | `SYSTem:CONFigure:NACK? [reason_id]` | 查询 NACK reason 表条目；省略 `reason_id` 时查询 0。返回 `version,reason_count,reason_id,severity,retryable,blocking,detail_code,name`。首版 reason 覆盖 `NONE`、配置 CRC、硬件 profile、节点 stale/fault 和 flash lockout 未就绪；产品化 reason 需要扩展 resource busy、RUN denied、payload CRC、epoch mismatch、dup seq、timeout 和 permission denied。 |
 | `SYSTem:SCPI:RUN:ALLOW? [index]` | 查询 RUN 态 SCPI 白名单策略表；省略 `index` 时查询 0。返回 `version,entry_count,enforced,policy_crc32,index,class_id,run_allowed,query_allowed,write_allowed,forbidden_error_code,pattern`。关键触发/采样/时钟/BiSS/Storage/OTA 写入口已按表拒绝，禁止码 `2401=RUN_STATE_DENIED`、`2402=RESOURCE_BUSY`。 |
 | `SYSTem:REFMEM:STATus?` | 查询 RefMem 内部主域的本地 DistributedVectorTable P0 快照：`table_size,layout_version,table_seq,local_node_id,node_count,local_heartbeat,service_count,flags,initialized,init_stage,init_error`。`init_stage` 使用 `DISTRIBUTED_REFMEM_INIT_STAGE_*` 固定枚举，`init_error=0` 表示初始化无错误。 |
-| `SYSTem:REFMEM:OBS? <key>,<offset>,<count>` | **契约 `REFTMEM-READ-01`（实现待 M2，当前返回 `-200`）**：读取本地镜像里的只读观测 key，返回 `key,offset,count,valid,age_ms,row...`；`valid=0` 时 `age_ms=0xFFFFFFFF` 且行数据不可用（stale）。分页按 `count` 裁剪，`offset≥NODE_COUNT` 报错；只读本地快照，不做同步跨板读（CP4）。key/行列定义见 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md` 的 REFMEM-READ-01 一节与 `config/refmem/read_catalog.yaml`。 |
+| `SYSTem:REFMEM:OBS? <key>,<offset>,<count>` | **契约 `REFMEM-READ-01`（pending；pilot 6/8 key 已实装）**：读取只读观测 key。契约行格式为 `slot,valid,epoch,seq,age_ms,stale,<schema>`；当前固件实装的是本板单行 `key,offset,count,valid,age_ms,<schema>`（逐槽行尚未实装，见契约 M1/M4）。`valid=0` 时 `age_ms=0xFFFFFFFF` 且行数据不可用（stale）；`offset≥NODE_COUNT` 报错、`count` 裁剪；只读本地快照，不做同步跨板读（CP4）。key 与 schema 见 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md` 的 REFMEM-READ-01 一节与 `config/refmem/read_catalog.yaml`。 |
 | `SYSTem:REFMEM:NODE? [node_id]` | 查询 RefMem 内部主域的 NodeSlot P0 快照；省略时读取本节点，当前预留 A0-A7 八个通用节点，真实板卡、脉冲分发、链路切换、仪表控制、模型网分、模拟转台、网关和测试代理作为 role/persona/instance 载入节点。返回 `node_id,state,heartbeat,slot_version,last_update_ms,stale_count,fault_code,flags,node_type`。 |
 | `SYSTem:REFMEM:NODE:CONTrol? [node_id]` | 查询本板（或指定节点）node slot 内的每板控制记录：`node_id,control_seq,control_crc32,state,command_seq,source_node,target_mask,required_mask,command_type,command_class,ack_flags,nack_flags,busy_flags,timeout_flags,last_reason,last_reason_slot,evidence_index,last_completed_seq,run_id,issue_epoch,payload_crc32`。该记录属于 REFMEM 快照；`control_seq=0` 或 CRC 不匹配时返回错误。 |
 | `SYSTem:REFMEM:NODES? [offset[,count]]` | 聚合节点状态：每节点 `node_id,state,heartbeat,slot_version,last_update_ms,age_ms,stale,stale_count,fault_code,flags,node_type,control_state,ack_flags,nack_flags,last_reason`。 |
-| `SYSTem:CTRL:EXECute <id/name>,<target_mask>,<required_mask>[,params]` | 统一控制面执行入口：查静态命令目录，写本板 node 控制记录；本地 owner 执行，远端 target 经 `REFMEM_CMD` 分段投递；返回 `QUEUED,<command_seq>`。目标终态经 process-image ACK 席位回传，源板聚合后写入源 node 记录（`state/ack_flags/nack_flags/last_reason`）。目录含 `REFTMEM_MAINTENANCE_SELF_CHECK`（RUN 中可执行的控制面探针）与 `REFTMEM_LOAD_BOARD/NODE/SD`（配置类，RUN 中按本地门禁 NACK）。 |
+| `SYSTem:CTRL:EXECute <id/name>,<target_mask>,<required_mask>[,params]` | 统一控制面执行入口：查静态命令目录，写本板 node 控制记录；本地 owner 执行，远端 target 经 `REFMEM_CMD` 分段投递；返回 `QUEUED,<command_seq>`。目标终态经 process-image ACK 席位回传，源板聚合后写入源 node 记录（`state/ack_flags/nack_flags/last_reason`）。目录含 `REFMEM_MAINTENANCE_SELF_CHECK`（RUN 中可执行的控制面探针）与 `REFMEM_LOAD_BOARD/NODE/SD`（配置类，RUN 中按本地门禁 NACK）。 |
 | `SYSTem:CTRL:STATus?` | 读本板 node 控制记录：`seq,crc,state,command_seq,target_mask,required_mask,ack_flags,nack_flags,busy_flags,timeout_flags,last_reason,last_reason_slot,last_completed_seq`。源板执行远端命令时，`state`/`ack_flags`/`nack_flags` 为已回传目标的聚合结果。 |
 | `SYSTem:CTRL:CATalog? [offset[,count]]` | 分页输出命令目录：`id,name,command_type,owner,param_words,param_kind,realtime`。 |
 | `SYSTem:REFMEM:CMD:REPLy?` | 查询命令回复回程的只读计数与最近聚合：`rx_count,applied_count,stale_count,bad_target_count,duplicate_count,armed_count,published_count,publish_remaining,pending_seq,aggregate_state,acked_mask,nacked_mask,last_slot,last_state,last_reason`。`armed_count/published_count` 在目标侧有意义，其余字段在源板读取聚合结果；不触发跨板查询。 |
