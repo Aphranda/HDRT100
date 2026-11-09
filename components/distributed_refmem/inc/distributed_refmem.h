@@ -817,6 +817,10 @@ void distributed_refmem_node_control_diag(uint32_t *calls,
                                           uint32_t *read_params_fail,
                                           uint32_t *broadcast_wait,
                                           uint32_t *last_skip);
+
+/* Raw record sequence (no CRC gate): used only to tell "no record" apart from
+ * "a live record whose params could not be read". */
+uint32_t distributed_refmem_node_control_sequence(uint32_t node_id);
 bool distributed_refmem_node_control_read(uint32_t node_id,
                                           refmem_command_snapshot_t *snapshot,
                                           uint32_t *seq,

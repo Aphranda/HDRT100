@@ -107,3 +107,10 @@ bool distributed_refmem_node_control_clear(uint32_t node_id)
                                      &node->control_seq,
                                      &node->control_crc32);
 }
+
+uint32_t distributed_refmem_node_control_sequence(uint32_t node_id)
+{
+    const refmem_vector_node_region_t *node =
+        distributed_refmem_node_region(node_id);
+    return node != NULL ? node->control_seq : 0u;
+}

@@ -195,11 +195,17 @@ void distributed_refmem_node_control_service(void)
     refmem_command_snapshot_t snapshot;
     uint32_t params[REFMEM_NODE_CONTROL_PARAM_WORDS];
     const uint32_t local_slot = distributed_refmem_local_slot();
+    const uint32_t raw_seq =
+        distributed_refmem_node_control_sequence(local_slot);
+    const bool live_record =
+        raw_seq != 0u && raw_seq != s_node_control_last_command_seq;
     s_dispatch_service_calls++;
     if (!distributed_refmem_node_control_read_params(
             local_slot, &snapshot, params, NULL, NULL)) {
-        s_dispatch_read_params_fail++;
-        s_dispatch_last_skip = 1u;
+        if (live_record) {
+            s_dispatch_read_params_fail++;
+            s_dispatch_last_skip = 1u;
+        }
         return;
     }
     if (snapshot.command_seq == 0u ||
@@ -271,7 +277,6 @@ void distributed_refmem_node_control_service(void)
     const bool posted =
         distributed_refmem_post_command_replacing_complete(&request,
                                                            osal_tick_ms());
-    s_node_control_last_command_seq = snapshot.command_seq;
     if (!posted) {
         return;
     }
@@ -279,6 +284,34 @@ void distributed_refmem_node_control_service(void)
         distributed_refmem_command_try_take(local_slot, request.issue_epoch,
                                             request.run_id,
                                             request.payload_crc32, 0u);
+    if (take != REFMEM_COMMAND_TAKE_TAKEN) {
+        /* Do not advance last_seq without a terminal state: a consumed-but-
+         * POSTED record is unobservable and never retried.  A refused take is
+         * terminal for this record, so mirror a NACK with the reason instead
+         * of wedging the command record. */
+        s_node_control_last_command_seq = snapshot.command_seq;
+        if (take == REFMEM_COMMAND_TAKE_ALREADY_COMPLETE ||
+            take == REFMEM_COMMAND_TAKE_NO_COMMAND) {
+            return;
+        }
+        uint32_t reason = (uint32_t)REFMEM_COMMAND_REASON_EPOCH_MISMATCH;
+        if (take == REFMEM_COMMAND_TAKE_PAYLOAD_CRC_MISMATCH) {
+            reason = (uint32_t)REFMEM_COMMAND_REASON_PAYLOAD_CRC_MISMATCH;
+        } else if (take == REFMEM_COMMAND_TAKE_NOT_TARGET) {
+            reason = (uint32_t)REFMEM_COMMAND_REASON_PERMISSION_DENIED;
+        }
+        (void)distributed_refmem_command_nack(local_slot, reason, 0u);
+        (void)distributed_refmem_node_control_update_status(
+            local_slot, (uint32_t)REFMEM_COMMAND_STATE_NACKED, 0u,
+            (1u << local_slot), 0u, 0u, reason, local_slot, 0u,
+            snapshot.command_seq);
+        distributed_refmem_cmd_reply_arm(
+            snapshot.command_seq, snapshot.source_node,
+            (uint32_t)REFMEM_COMMAND_STATE_NACKED, reason);
+        s_dispatch_last_skip = 6u;
+        return;
+    }
+    s_node_control_last_command_seq = snapshot.command_seq;
     if (take == REFMEM_COMMAND_TAKE_TAKEN) {
         const bool executed =
             distributed_refmem_dispatch_control(&snapshot, params, local_slot);
