@@ -56,6 +56,7 @@ Last updated: 2026-11-09
 - 上下电后广播复测（2026-11-09）：10 kHz 环启动成功（NO.2 ARM 恢复），但广播 `45,15,15` 仍停在 `CTRL:STATus?` state 1（QUEUED），仅本板 slot0 有 NACK 记录、远端槽无记录；加 `LOAD:MASK 27` 无效。判为简易起环未配置维护/二等席命令窗口，需 P3/TRN-03 级 setup；已 STOP/CLEar。广播聚合仍 OPEN。
 - M2 通道复核（2026-11-09）：`refmem_sync_commit_delta()` 已接受任意 `field_id/width<=4` 并保存值，发送端每周期已带 `field_id/value`（现写 baseline 0 + `s_service_count`）；因此 M2 选 **B″（REFMEM 本地字段复用）**——发送轮转 + `[slot][field]` mirror + OBS 组合，不改 wire/模型 version/CRC/package，也不需要 TDMA 选择器。待 C11 复核 id 范围/隔帧 baseline/RAM 后实现。
 - 广播命令席复测（2026-11-09）：三种假设均失败——10 kHz + `LOAD:MASK 27` → QUEUED；再加 `--process-image` → 仍 QUEUED；10 MHz 训练环 → NO.2 `TDMA_RING_TRAIN` 失败。代码定位 `tdma_maintenance_select_origin_tx()` 需 `maintenance_pending && window_open && credit >= max_frame_size`；10 kHz bringup profile 无维护窗口，10 MHz 训练又失败。广播留 TDMA/校准域，已 STOP/CLEar。
+- M2 运输补充（2026-11-09）：REFMEM 的 `field_id/value` 走 **process-image 帧**（`distributed_refmem.c:820-826` 组帧、`refmem_sync_commit_delta` 接收），10 kHz 环 up 时 up/down 计数已在增长，因此 **OBS 发布不依赖维护窗口**；只有广播命令依赖 `tdma_maintenance_select_origin_tx` 的 window/credit。M2 可在 10 kHz 环上验证，无需 10 MHz 训练或维护席。
 - 当前 OPEN：发布面实现（R1-3/B″）、页面迁移（M5）、广播聚合/缺板 HIL（M7，命令需维护窗口）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
