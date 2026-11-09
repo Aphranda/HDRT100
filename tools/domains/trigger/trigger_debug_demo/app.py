@@ -396,6 +396,9 @@ class QueryPanel(ttk.Frame):
     def read_selected(self) -> None:
         if self.current is None or not self.app.connected:
             return
+        if self.current.key in ("read.switch1", "read.switch2"):
+            self.app.read_obs_query(1 if self.current.key == "read.switch1" else 2)
+            return
         try:
             command = catalog.build_query(self.current, self._values())
         except ValueError as exc:
@@ -410,6 +413,9 @@ class QueryPanel(ttk.Frame):
         if not self.app.connected:
             return
         for query in self.queries:
+            if query.key in ("read.switch1", "read.switch2"):
+                self.app.read_obs_query(1 if query.key == "read.switch1" else 2)
+                continue
             values = {field.name: field.default for field in query.args}
             try:
                 command = catalog.build_query(query, values)
@@ -2083,6 +2089,24 @@ class DemoApp(tk.Tk):
             page_id = self.router.current_page_id()
         self.store.update_ui(status_text=self.status_var.get(),
                              selected_item=page_id)
+
+    def read_obs_query(self, key: int) -> bool:
+        """M5: read a switch key through ControlPlane.read (not raw SCPI)."""
+        if not self.connected or self.transport is None:
+            self.dialogs.warning("未连接", "请先连接协调板端口")
+            return False
+        try:
+            from .obs_read import read_switch_obs
+        except ImportError:
+            from obs_read import read_switch_obs  # type: ignore
+        try:
+            text = read_switch_obs(self.transport, key)
+        except Exception as exc:  # noqa: BLE001 - surfaced on the page
+            self.readback_page.show_result(f"read.switch{key}", "", str(exc))
+            return False
+        self.readback_page.show_result(f"read.switch{key}", text, "")
+        self.log(f"OBS switch{key}: {text}", "INFO")
+        return True
 
     def send_command(self, command: str, source: str = "") -> bool:
         if self.ota_busy and not source.startswith("ota"):

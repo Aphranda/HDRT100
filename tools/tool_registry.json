@@ -1161,6 +1161,10 @@
         {
           "path": "tools/domains/trigger/trigger_debug_demo/calibration_action.py",
           "role": "module"
+        },
+        {
+          "path": "tools/domains/trigger/trigger_debug_demo/obs_read.py",
+          "role": "module"
         }
       ],
       "depends_on": [],
