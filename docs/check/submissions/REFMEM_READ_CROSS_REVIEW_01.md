@@ -22,8 +22,8 @@ Last updated: 2026-11-09
 | `OBS?` 接线 | 已实装 | `scpi_refmem_snapshot_commands.c:1325-1430` |
 | key provider | 6/8 | `836dae7a`、`c6f2c76e`、`3624f322` |
 | host 用例 | 通过 | `test_refmem_obs.c`、`test_refmem_control_plane.py`（8 passed） |
-| 单板 smoke | 有读数 | `control_plane_smoke.py`、build `20261109001932` |
-| 逐槽行 / 发布面 / 2 key / 四板 HIL | **未做** | 架构 §「未实装」 |
+| 单板 smoke | 有归档 | `out/refmem_read/obs_smoke_20261109.txt`（build `20261109051835`：`OBS? 6,0,4` 四行、`OBS? 1,0,2` 两行） |
+| 逐槽行 / 发布面 / 2 key / 四板 HIL | 逐槽行 **M4 已做**；其余未做 | 架构 §「未实装」 |
 
 ## 3. 审计发现与处置（2026-11-09）
 
@@ -63,6 +63,23 @@ Last updated: 2026-11-09
 | N7 | 迁移清单把 R1-2a（region/存储）与 R1-3（发布面）混写为「逐槽行」 | 已改：两线分开列 |
 | N8 | 登记表声称 `build 20261109001932` 的 smoke，产物不可复跑 | 已改为「作者记录、产物未入库、不可复跑」 |
 | N9 | demo `device.py` 目录仅 36 行、按名字查表，无法承接数字 id | OPEN（M5 页面迁移一并修） |
+
+## 4.2 第二轮复核（只读子代理 `a1492f4e`，2026-11-09）
+
+基线 HEAD `a685e06a` → 复核期间 `0c064db2`/`84302916`；未改文件、未跑硬件。
+
+| 发现 | 处置 |
+|---|---|
+| M4 文档仍是旧口径（build `20261109001932`、`offset≥4`、`4-offset`） | 已改 build `20261109051835`、`DISTRIBUTED_REFMEM_NODE_COUNT`；四行冒烟归档 `out/refmem_read/obs_smoke_20261109.txt` |
+| 提交单/登记表「逐槽行未做」与「M4 已实装」矛盾 | 已统一为「逐槽行 M4 已做，发布面/2 key/四板 HIL 未做」 |
+| M2 决策表仍冻结 `field_id=0x100+key*16+word`，stale 语义冲突 | 已改为 `field_id=data_link_id` / `stale_window_us` |
+| DataLink 为标量表且 14/14 已满；DELTA 只接受 width≤4、每源槽一个 mirror | 已写入架构/登记表：M2 是模型级改动（version/CRC/package、可能扩 instance 表），不是只补 runtime |
+| M6 用 STOP-gated `trigger_deployment_snapshot()`，RUN 下会误拒 SWITCH_A/B | 已改为 `trigger_deployment_snapshot_cached()`，待新 P3 |
+| 旧 `CONFigure:SWITch#` 文档未同步 | 已改 `SCPI_COMMANDS.md`：明确返回 `-200,"USE_CTRL_EXECUTE"` |
+| 「P3 passed」口径 overreach | 统一改为「DPLL60_JOINT 构建凭证；未覆盖 OBS/开关路径」 |
+| M4 receipt 的 package 已被 M6 构建覆盖 | **残余**：源码指纹仍绑 `142d70ff`，二进制路径不可复验 |
+| M6 receipt 复用旧 trn03 矩阵 | **残余**：证据强度打折，行为证据需另补 |
+| `required_mask`/`last_reason` 语义坑（非 required NACK 写 last_reason） | **残余**：调用方按 `required` + `ack/nack` 判读，不以 `last_reason` 单独判失败 |
 
 ## 5. C11 待复核项
 

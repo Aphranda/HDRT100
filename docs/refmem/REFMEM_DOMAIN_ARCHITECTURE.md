@@ -1514,6 +1514,11 @@ B 的约定：写者按 `update_period_us` 采样自己的 DataLink 条目（单
 `(slot, data_link_id)` 的最新 `seq`/值；`stale` 用条目的 `stale_window_us`，不用“值未变多久”。
 时基用读者本地 tick；跨板 `age_ms` 近似，`stale` 只用同一读者的时基。
 
+**落地前置（2026-11-09 复核）。** DataLink 是标量表且 **14/14 已满**；`REFMEM_DELTA` 接收端拒绝
+`field_width > 4`，且每个源槽只有一个 mirror。8 个读 key 共 32 个 schema word，因此必须
+**扩模型**（`REFMEM_APP_MODEL_VERSION`、wire size、table CRC、package CRC，可能还要扩
+`writer_instance` 表）或按 word 拆成多条 DataLink；这是模型级改动，不是“只补 runtime”。
+
 **实现状态（M4 行格式，2026-11-09）。** `OBS?` 已按本节返回逐槽行：本地槽由本板 provider
 出 `valid=1`（`epoch/seq` 暂为占位 1，真实发布计数器随 R1-3）；对端槽无发布者时
 `valid=0 / age=0xFFFFFFFF / stale=1`。`stale_window_us` 判定与真实 `age_ms` 仍待 R1-3
@@ -1531,10 +1536,10 @@ B 的约定：写者按 `update_period_us` 采样自己的 DataLink 条目（单
 
 | 决策 | HAOFV 依据 | 后果 |
 |---|---|---|
-| M2 发布面复用 process-image REFMEM 片 + `REFMEM_DELTA`（`field_id=0x100+key*16+word`），不新增帧类型/席位 | ① 不新增总线/payload class；③ 单写者；⑥ 预算可核算 | 维护流 ~4 B/s 的“新 OBS 帧”方案被排除 |
+| M2 发布面复用既有 `DataLinkTable` + `REFMEM_DELTA`（`field_id=data_link_id`，镜像按 `(slot,data_link_id)`），不新增帧类型/席位 | ① 不新增总线/payload class；③ 单写者；⑥ 预算可核算 | 维护流 ~4 B/s 的“新 OBS 帧”方案与私有 `0x100` 命名空间均被排除 |
 | 开关命令在非 `SWITCH_A/SWITCH_B` owner 上返回 reason 12（PERMISSION_DENIED），不静默 no-op | ② 执行必在目标 owner；④ fail-closed + reason 可观测 | 广播 `target_mask=0xF` 会 NACK，调用方必须显式指向开关槽 |
 | 旧 `CONFigure:SWITch#` 返回 `USE_CTRL_EXECUTE` | ③ 单一入口；④ 不静默接受 | 旧 SCPI 不再假装成功，必须走 `CTRL:EXECute` |
-| 读 key 的 `stale` 用“一轮 word 心跳是否轮完”，不用“值未变多久” | ② 读不改变控制事实；④ 新鲜度可判 | 稳定值不会因未变而误判 stale |
+| 读 key 的 `stale` 用 DataLink 条目的 `stale_window_us`，不用“值未变多久” | ② 读不改变控制事实；④ 新鲜度可判 | 稳定值不会因未变而误判 stale |
 
 **单写者与撕裂。** 每 key 仅一个 writer；读侧用 `seq` 校验（`seq` 变化即重读一次）；跨 key 不保证
 同一时刻快照，行级 `epoch/seq` 是唯一一致性口径。
@@ -1543,10 +1548,11 @@ B 的约定：写者按 `update_period_us` 采样自己的 DataLink 条目（单
 `components/distributed_refmem/src/refmem_obs.c`（行编码）、
 `middleware/scpi_port/src/scpi_refmem_snapshot_commands.c`（`SYSTem:REFMEM:OBS?`）。
 
-已实装（2026-11-09 实板证据，build `20261109001932`）：
+已实装（2026-11-09 实板证据，build `20261109051835`；证据 `out/refmem_read/obs_smoke_20261109.txt`）：
 - 行编码：定宽（按 key 的 `schema_words`，短补零/长截断）、`valid=0` → `age_ms=0xFFFFFFFF`、
-  未知 key / `offset≥4` / `count` 越界各自 fail-closed；
-- 查询：`SYSTem:REFMEM:OBS? <key>,<offset>,<count>`，`count` 缺省/越界按 `4-offset` 裁剪；
+  未知 key / `offset≥DISTRIBUTED_REFMEM_NODE_COUNT` / `count` 越界各自 fail-closed；
+- 查询：`SYSTem:REFMEM:OBS? <key>,<offset>,<count>`，`count` 缺省/越界按
+  `DISTRIBUTED_REFMEM_NODE_COUNT - offset` 裁剪；
 - **6/8 key 取自本地快照**（无跨板读）：`switch1/2`（sync_io 配置值与 desired）、
   `guide_plan`（action/gen/status/trials/passed/failed/abort_site）、`boot_plan`（action/fail_step/
   boot_done/half_ring/profile_source）、`ring_status`（enabled/up/down/adapter/nodes/local_slot）、
@@ -1554,8 +1560,8 @@ B 的约定：写者按 `update_period_us` 采样自己的 DataLink 条目（单
 - host 证据：`tools/refmem/control_plane_smoke.py`、`tests/unit/test_refmem_obs.c`。
 
 未实装：`trigger_state`（无触发现有的本地状态访问器）、`node_health`（缺 `stale_count` 的本地计数源，
-需 R1-6 补）；R1-2a 的专用 pilot 区与 `seq/crc` 发布语义未做。转 active 仍需：其余 2 key +
-四板 OBS HIL。
+需 R1-6 补）；真实 `seq/epoch/age` 与对端行需 DataLink runtime。转 active 仍需：其余 2 key +
+DataLink runtime + 四板 OBS HIL。
 
 
 ### 角色与协调者

@@ -242,7 +242,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 | 命令 | 说明 |
 |---|---|
-| `CONFigure:SWITch# <value>` | 独立切换开关；`#=1` 表示 SWITCH1（原 SP8T），`#=2` 表示 SWITCH2（原 SP2T）。SWITCH1 取 `1..8`，SWITCH2 取 `0/1`。运行中或开关已被序列引擎占用时返回 busy。 |
+| `CONFigure:SWITch# <value>` | **已废弃**：返回 `-200,"USE_CTRL_EXECUTE"`，不再静默接受。开关写入必须走统一控制面 `SYSTem:CTRL:EXECute TRIGGER_SWITCH,<target>,<required>,<n>,<v>`；`#=1` 为 SWITCH1（原 SP8T，值 1..8），`#=2` 为 SWITCH2（原 SP2T，值 0/1）；目标应显式指向 SWITCH_A/B 槽。 |
 | `READ:SWITch#?` | 查询开关当前目标和状态；`#=1` 或 `#=2`。 |
 
 ## 角度配置
