@@ -49,6 +49,7 @@ Last updated: 2026-11-09
 - reason 分档（2026-11-09，`9aeb173d`）：cached snapshot 返回 BUSY→reason 6、UNCONFIGURED/其他→13、角色不符→12，修正“未配置/角色不符/BUSY 都报 12”的稀释。P3 build `20261109062402`；现场无 deployment 时 NO1/NO2 本地开关命令均 NACK **reason 13**（不再是 12）；SWITCH_A ACK 仍需部署后补。
 - M3 8/8 key（2026-11-09，`6c28df1c`）：`trigger_state`（service 快照 state/run_state/epoch）与 `node_health`（node status state/heartbeat/stale_count/fault_code）补齐；P3 build `20261109063728`；实板 8 个 key 本地行均 valid=1（`out/refmem_read/obs_8keys_20261109.txt`）。
 - M6 正向（2026-11-09，build `20261109072222`）：用台架序列号作 `board_uid` 构造最小部署（COUNTER/SWITCH_A/GATEWAY/SWITCH_B）并逐板 stage/activate 后，SWITCH_A/B 本地开关命令 **ACKED**（state 4，`READ:SWITch1?` 值跟随 5→4/3→4），COUNTER/GATEWAY **NACK reason 12** 且本地状态不变；证据 `out/refmem_read/switch_role_hil_20261109.txt`。广播 `0xF` 聚合因环未运行（`NOT_ONLINE_SAFE`）未证，留 M7。
+- M7 广播聚合尝试（2026-11-09）：10 kHz bring-up（`--level 23 --skip-train`，含/不含 `--bringup`）两次均在 NO.2 `ARM timeout`（`ring_node_count=0`、`ring_config_seq=24`、`ring_adapter_started=0`），广播未发出；已 `RING:STOP` + `DEPloyment:CLEar` 清理。另：清部署后重复 stage 同一 generation 被拒（`GENERATION=6`），需换 generation。广播聚合仍 OPEN，待 TDMA/载波侧修复 NO.2 ARM。
 - 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2，A′/B′ 待 C11/TDMA）、页面迁移（M5）、广播聚合与四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
