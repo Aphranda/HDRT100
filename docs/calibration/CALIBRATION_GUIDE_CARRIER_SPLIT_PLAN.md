@@ -93,3 +93,40 @@ replay/REBUILD 的竞态决定停在哪个档；T3 成功也会被 `app_guide_wi
 2. C 段是否还有可用保留槽（决定设计 A 是否要动 wire 契约）；
 3. T3 latch 用 boot profile 还是新字段（影响 `BOOT:PLAN?` 的兼容性）；
 4. 持久 calibration stage 的 `profile_crc32` 归属，决定收尾改 23 是否撞校准门。
+
+## 8. 基线重跑 runbook（bench 空闲时照做）
+
+目标：在 HEAD 上重跑 11-07 的对照（`20261107-211534-action7-gen2410`：四板 `ladder=6/2(DONE)`、
+T3 后 `baud=10000000`），并把载波证据固化进 verdict。
+
+前提：四板同一 build、默认档（`BOOT:PLAN?` 第 20 字段=2）、环 `1/1/1/1`。
+
+```powershell
+# 0) 基线快照（verify 已把 baud/period 写进 verdict）
+python tools/calibration/guide_cmdplane_probe.py plan
+python tools/calibration/guide_cmdplane_probe.py stage 23       # 引导档显式化，避免继承
+
+# 1) P1（引导 10 kHz；level 字段对 P1 惰性，传 23 即可）
+python tools/calibration/guide_cmdplane_probe.py ga 1 <gen1> <epoch1> 23 4000 4 3 0 4 16 1 64
+python tools/calibration/guide_cmdplane_probe.py verify 1 <epoch1> <gen1> 3 1
+
+# 2) P2（R 段 10 MHz 测量）
+python tools/calibration/guide_cmdplane_probe.py ga 2 <gen2> <epoch2> 7 8000 1 5 0 1 80 120 0 10 512
+python tools/calibration/guide_cmdplane_probe.py verify 2 <epoch2> <gen2> 3 1
+
+# 3) P3（R 段 10 MHz 测量）
+python tools/calibration/guide_cmdplane_probe.py ga 3 <gen3> <epoch3> 7 20000 1 5 0 0 32 256 3 10000000 50000
+python tools/calibration/guide_cmdplane_probe.py verify 3 <epoch3> <gen3> 3 1
+
+# 4) T0..T3（按阶梯顺序；T3 结束后必须读到 10 MHz 环）
+python tools/calibration/guide_cmdplane_probe.py plan
+```
+
+判据：
+
+- 每轮 `verify` 的 `lines` 里 `baud/period/level` 与口径一致（C/T/Q 段 10000/150000000，
+  R 段动作的计划 level=7）；
+- T3 后四板 `RING:STATus?` 的 `baud_hz=10000000, cycle_period_ns=1000000` 且 `enabled/up/down=1`；
+- `ladder=6/2(DONE)`（与 `action7-gen2410` 对齐）。
+
+未达成时：按 §7 的未决问题逐项取证据，不要回到“调 guard”或“恢复 10M 残留”的老路。
