@@ -2743,3 +2743,23 @@ def test_save_previous_record_reports_incomplete_save(monkeypatch):
     with pytest.raises(RuntimeError, match="SAVE did not complete"):
         trn03.save_previous_record(
             _Board(), SimpleNamespace(arm_wait=0.01), [])
+
+
+def test_feedback_sequence_bound_is_origin_three_follower_zero():
+    # Origin both generates and forwards: measured depth 1..3 with zero bad frames.
+    assert trn03.feedback_sequence_ok(0, 0)
+    assert trn03.feedback_sequence_ok(3, 0)
+    assert not trn03.feedback_sequence_ok(4, 0)
+    # A follower has no generation offset and must stay exactly in step.
+    assert trn03.feedback_sequence_ok(0, 1)
+    assert not trn03.feedback_sequence_ok(1, 1)
+
+
+def test_feedback_sequence_drift_is_the_loss_invariant():
+    # Equal advances are loss-free; the origin tolerates one frame of phase lead.
+    assert trn03.feedback_sequence_drift_ok(79, 79, 0)
+    assert trn03.feedback_sequence_drift_ok(79, 78, 0)
+    assert not trn03.feedback_sequence_drift_ok(79, 77, 0)
+    # A follower has no lead and must advance exactly in step.
+    assert trn03.feedback_sequence_drift_ok(84, 84, 2)
+    assert not trn03.feedback_sequence_drift_ok(84, 83, 2)

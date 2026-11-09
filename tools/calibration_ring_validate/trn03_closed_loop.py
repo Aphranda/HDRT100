@@ -1601,6 +1601,31 @@ def host_soak(ordered: list[Board], args: argparse.Namespace, progress,
     return result
 
 
+def feedback_sequence_ok(gap: int, node_index: int) -> bool:
+    """Whether an instantaneous ``up_tx - down_rx`` depth is still healthy.
+
+    The origin both generates and forwards frames, so its TX sequence runs
+    ahead of its own RX: one frame generated before the first capture, one in
+    the ring and one in the accept pipeline.  Measured runs show 1..3 with
+    ``ring_adapter_rx_bad_count`` unchanged, so the origin bound is 3; a
+    follower has no such offset and must stay exactly 0.
+    """
+    return gap <= 3 if node_index == 0 else gap == 0
+
+
+def feedback_sequence_drift_ok(up_delta: int, down_delta: int,
+                               node_index: int) -> bool:
+    """Whether one interval's TX/RX advance stayed loss-free.
+
+    The instantaneous depth (``feedback_sequence_ok``) is a phase snapshot: the
+    origin's TX runs ahead of its own RX by 1..3 frames by design (generated
+    frame + ring + accept pipeline) and jitters by one frame.  A lost frame is
+    what breaks the *advance*: the two counters stop moving together, so each
+    interval must advance by the same count (origin at most one apart).
+    """
+    return abs(up_delta - down_delta) <= 1 if node_index == 0 else up_delta == down_delta
+
+
 def save_previous_record(board, args, actions):
     """Finish a record the previous run left FROZEN (state 5).
 
@@ -1912,6 +1937,9 @@ def validate_node(node_index: int, node_count: int,
     )
     runtime_deltas = counter_deltas(
         runtime_before, runtime_after, runtime_delta_fields)
+    feedback_drift_ok = feedback_sequence_drift_ok(
+        runtime_deltas["ring_up_tx_sequence"],
+        runtime_deltas["ring_down_rx_sequence"], node_index)
     process_delta_fields = (
         "map_apply_count", "input_bytes", "output_bytes",
         "map_reject_count", "length_reject_count",
@@ -1939,9 +1967,7 @@ def validate_node(node_index: int, node_count: int,
     # transport sequence, not a received count, so the origin legitimately holds
     # one frame in the ring plus one in the accept pipeline.  Deeper than that is
     # a real loss and stays an error.
-    feedback_sequence_ok = (
-        feedback_sequence_gap <= 2 if node_index == 0 else
-        feedback_sequence_gap == 0)
+    feedback_ok = feedback_sequence_ok(feedback_sequence_gap, node_index)
     feedback_crc_comparable = feedback_sequence_gap == 0
     feedback_crc_match = (
         not feedback_crc_comparable or
@@ -1977,7 +2003,8 @@ def validate_node(node_index: int, node_count: int,
          "tx_crc_missing"),
         (runtime_after["ring_down_rx_frame_crc32"] != 0,
          "rx_crc_missing"),
-        (feedback_sequence_ok, "feedback_sequence_out_of_window"),
+        (feedback_ok, "feedback_sequence_out_of_window"),
+        (feedback_drift_ok, "feedback_sequence_drift"),
         (feedback_crc_match, "crc_mismatch"),
         (runtime_after["ring_adapter_last_error"] == 0,
          "adapter_error"),

@@ -23,28 +23,28 @@
     "tests/python/test_trn03_closed_loop.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 10.031,
+  "duration_s": 12.093,
   "returncode": 0,
   "summary": {
-    "passed": 220,
+    "passed": 222,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 1
   },
-  "summary_line": "220 passed, 1 xfailed in 9.21s",
+  "summary_line": "222 passed, 1 xfailed in 10.97s",
   "tail": [
     "........................................................................ [ 32%]",
-    "..........................x............................................. [ 65%]",
-    "........................................................................ [ 97%]",
-    ".....                                                                    [100%]",
+    "..........................x............................................. [ 64%]",
+    "........................................................................ [ 96%]",
+    ".......                                                                  [100%]",
     "=========================== short test summary info ===========================",
     "XFAIL tests/python/test_trn03_closed_loop.py::test_load_mask_releases_only_newly_enabled_loads - pre-existing: app.c quarantine release now includes the foundation mask (~ (newly_enabled | APP_REALTIME_LOAD_FOUNDATION_MASK)); the assertion predates that change and needs an owner decision",
-    "220 passed, 1 xfailed in 9.21s"
+    "222 passed, 1 xfailed in 10.97s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "01c8e1f1ca3e18e325c93c52cabaa419d1dacdafaae517f4e1c33f4c086dc021",
+  "fingerprint": "3b8a2729860a89baf536bf549faf7e705c4b1f3464997058ed15fcbb652d5e61",
   "file_count": 1179,
-  "working_fingerprint": "3d38872e95d8e7a7af2229712dd1a5290f90738c61b9a974d14471b0c176c0b7",
-  "started_at_utc": "2026-11-09T09:27:35.101726+00:00"
+  "working_fingerprint": "b55975390bee35fca743e80f71a66ba02ee90d9cd022110d76aecc67cd4adc1c",
+  "started_at_utc": "2026-11-09T09:36:49.708777+00:00"
 }
