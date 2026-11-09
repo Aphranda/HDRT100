@@ -108,6 +108,19 @@ DPLL_SHORT_UNVERIFIED_SCOPE = (
     "flash/OTA robustness beyond one successful write",
     "external scope measurement path",
 )
+
+
+def _dpll_unverified_scope(dpll_summary: dict[str, Any]) -> list[str]:
+    """The static list minus what this run actually measured externally.
+
+    A DPLL60_JOINT receipt that used the HDO scope and passed its external
+    phase check must not keep claiming "external scope measurement path" as
+    unverified; that text is only true for internal-evidence fallbacks.
+    """
+    external = (dpll_summary.get("scope_enabled") is True and
+                dpll_summary.get("external_status") == "PASS")
+    return [item for item in DPLL_SHORT_UNVERIFIED_SCOPE
+            if not (external and item == "external scope measurement path")]
 REQUIRED_OTA_BLOCK_SIZE = 4096
 SCHEDULE_HEADER_FIELDS = 8
 SCHEDULE_PHASE_FIELDS = 11
@@ -5252,7 +5265,7 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
         "tdma_stage_passed": bool(tdma_summary.get("passed")),
         "dpll_passed": bool(dpll_summary.get("passed")),
         "hardware_acceptance_timing": timing,
-        "unverified_scope": list(DPLL_SHORT_UNVERIFIED_SCOPE),
+        "unverified_scope": _dpll_unverified_scope(dpll_summary),
         "restore_full_condition": (
             "a staged change under " + ", ".join(DPLL_SHORT_UNCOVERED_PREFIXES)),
     }
