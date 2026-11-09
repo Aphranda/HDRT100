@@ -1317,11 +1317,97 @@ scpi_result_t scpi_cmd_ctrl_function_catalog_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* Fill one local slot row from this board's provider.  Returns false when the
+ * key has no provider on this board (the caller then publishes a stale row).
+ * `epoch/seq` are placeholders until the R1-3 publish plane supplies the real
+ * publisher counters; `age_ms` is 0 because the snapshot is taken now. */
+static bool refmem_obs_fill_local_row(uint32_t key, refmem_obs_row_t *row)
+{
+    if (row == NULL) {
+        return false;
+    }
+    switch (key) {
+    case 1u:
+    case 2u:
+        /* switch1/switch2: the configured switch state is local to this board. */
+        row->row_words = 2u;
+        row->row[0] = sync_io_sequence_get_switch(key);
+        row->row[1] = sync_io_sequence_get_switch_desired(key);
+        return true;
+    case 4u: {
+        /* guide_plan: the planner snapshot is local; the row mirrors the
+         * BOOT/PLAN progress readback so a single OBS key carries the round
+         * verdict without five separate queries. */
+        app_cal_guide_snapshot_t guide;
+        if (!app_cal_guide_snapshot(&guide)) {
+            return false;
+        }
+        row->row_words = 7u;
+        row->row[0] = guide.action_id;
+        row->row[1] = guide.generation;
+        row->row[2] = guide.progress_status;
+        row->row[3] = guide.trials_done;
+        row->row[4] = guide.passed_mask;
+        row->row[5] = guide.failed_mask;
+        row->row[6] = guide.abort_site;
+        return true;
+    }
+    case 5u: {
+        /* boot_plan: the boot service state is local to this board. */
+        tdma_boot_plan_t plan;
+        if (!app_guide_boot_plan_get(&plan)) {
+            return false;
+        }
+        tdma_boot_profile_t profile;
+        const bool have_profile = app_guide_boot_profile_get(&profile);
+        row->row_words = 5u;
+        row->row[0] = (uint32_t)plan.action;
+        row->row[1] = app_guide_boot_fail_step();
+        row->row[2] = app_guide_boot_done() ? 1u : 0u;
+        row->row[3] = app_guide_boot_half_ring() ? 1u : 0u;
+        row->row[4] = app_guide_boot_profile_is_default()
+                          ? 2u
+                          : (have_profile ? 1u : 0u);
+        return true;
+    }
+    case 6u: {
+        /* ring_status: the ring runtime snapshot is local to this board. */
+        tdma_ring_runtime_snapshot_t ring;
+        if (!tdma_runtime_owner_get_ring_snapshot(&ring)) {
+            return false;
+        }
+        row->row_words = 6u;
+        row->row[0] = ring.enabled;
+        row->row[1] = ring.up_running;
+        row->row[2] = ring.down_running;
+        row->row[3] = (ring.up_configured != 0u && ring.down_configured != 0u)
+                          ? 1u
+                          : 0u;
+        row->row[4] = ring.node_count;
+        row->row[5] = ring.local_slot_id;
+        return true;
+    }
+    case 7u: {
+        /* cal_status: the calibration training store is the local writer. */
+        calibration_training_store_status_t store;
+        calibration_manager_get_training_store_status(&store);
+        row->row_words = 3u;
+        row->row[0] = store.persisted_valid;
+        row->row[1] = store.record_generation;
+        row->row[2] = store.reject_reason;
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
 /* REFMEM-READ-01 observation read. The wire format and the stale/valid rules
- * are owned by refmem_obs; this handler only parses the paging arguments and
- * maps the contract's error codes onto SCPI execution errors. A board without
- * a local snapshot answers with valid=0 (age 0xFFFFFFFF) instead of failing:
- * a missing local mirror row is a freshness fact, not a command error. */
+ * are owned by refmem_obs; this handler parses the paging arguments, fills one
+ * row per slot, and maps contract error codes onto SCPI execution errors. Only
+ * the local slot can be valid today: peer rows are filled by the R1-3 publish
+ * plane (not implemented), so they answer valid=0/age=0xFFFFFFFF/stale=1
+ * instead of borrowing the local provider value. */
 scpi_result_t scpi_cmd_refmem_obs_q(scpi_t *context)
 {
     uint32_t key = 0u;
@@ -1337,90 +1423,50 @@ scpi_result_t scpi_cmd_refmem_obs_q(scpi_t *context)
         scpi_port_push_exec_error(context, "OBS_KEY");
         return SCPI_RES_ERR;
     }
-    if (offset >= 4u) {
+    if (offset >= DISTRIBUTED_REFMEM_NODE_COUNT) {
         scpi_port_push_exec_error(context, "OBS_OFFSET");
         return SCPI_RES_ERR;
     }
-    if (count == 0u || count > 4u - offset) {
-        count = 4u - offset;
+    if (count == 0u || count > DISTRIBUTED_REFMEM_NODE_COUNT - offset) {
+        count = DISTRIBUTED_REFMEM_NODE_COUNT - offset;
     }
-    refmem_obs_result_t result = {
-        .key = (uint8_t)key,
-        .offset = (uint16_t)offset,
-        .count = (uint16_t)count,
-        .valid = 0u,
-        .age_ms = REFMEM_OBS_AGE_INVALID,
-        .row_words = 0u,
-    };
-    if (key == 6u) {
-        /* ring_status is the first pilot key with a real local provider: the
-         * ring runtime snapshot is local, so the row never crosses the ring. */
-        tdma_ring_runtime_snapshot_t ring;
-        if (tdma_runtime_owner_get_ring_snapshot(&ring)) {
-            result.valid = 1u;
-            result.age_ms = 0u;
-            result.row_words = 6u;
-            result.row[0] = ring.enabled;
-            result.row[1] = ring.up_running;
-            result.row[2] = ring.down_running;
-            result.row[3] = (ring.up_configured != 0u &&
-                             ring.down_configured != 0u) ? 1u : 0u;
-            result.row[4] = ring.node_count;
-            result.row[5] = ring.local_slot_id;
-        }
-    } else if (key == 1u || key == 2u) {
-        /* switch1/switch2: the configured switch state is local to this board. */
-        result.valid = 1u;
-        result.age_ms = 0u;
-        result.row_words = 2u;
-        result.row[0] = sync_io_sequence_get_switch(key);
-        result.row[1] = sync_io_sequence_get_switch_desired(key);
-    } else if (key == 5u) {
-        /* boot_plan: the boot service state is local to this board. */
-        tdma_boot_plan_t plan;
-        if (app_guide_boot_plan_get(&plan)) {
-            tdma_boot_profile_t profile;
-            const bool have_profile = app_guide_boot_profile_get(&profile);
-            result.valid = 1u;
-            result.age_ms = 0u;
-            result.row_words = 5u;
-            result.row[0] = (uint32_t)plan.action;
-            result.row[1] = app_guide_boot_fail_step();
-            result.row[2] = app_guide_boot_done() ? 1u : 0u;
-            result.row[3] = app_guide_boot_half_ring() ? 1u : 0u;
-            result.row[4] = app_guide_boot_profile_is_default()
-                                ? 2u
-                                : (have_profile ? 1u : 0u);
-        }
-    } else if (key == 7u) {
-        /* cal_status: the calibration training store is the local writer. */
-        calibration_training_store_status_t store;
-        calibration_manager_get_training_store_status(&store);
-        result.valid = 1u;
-        result.age_ms = 0u;
-        result.row_words = 3u;
-        result.row[0] = store.persisted_valid;
-        result.row[1] = store.record_generation;
-        result.row[2] = store.reject_reason;
-    } else if (key == 4u) {
-        /* guide_plan: the planner snapshot is local; the row mirrors the
-         * BOOT/PLAN progress readback so a single OBS key carries the round
-         * verdict without five separate queries. */
-        app_cal_guide_snapshot_t guide;
-        if (app_cal_guide_snapshot(&guide)) {
-            result.valid = 1u;
-            result.age_ms = 0u;
-            result.row_words = 7u;
-            result.row[0] = guide.action_id;
-            result.row[1] = guide.generation;
-            result.row[2] = guide.progress_status;
-            result.row[3] = guide.trials_done;
-            result.row[4] = guide.passed_mask;
-            result.row[5] = guide.failed_mask;
-            result.row[6] = guide.abort_site;
-        }
+    if (count > REFMEM_OBS_MAX_ROWS) {
+        count = REFMEM_OBS_MAX_ROWS;
     }
-    char text[128];
+
+    const uint32_t local_slot = distributed_refmem_local_slot();
+    refmem_obs_result_t result;
+    memset(&result, 0, sizeof(result));
+    result.key = key;
+    result.offset = offset;
+    result.count = count;
+
+    for (uint32_t i = 0u; i < count; i++) {
+        refmem_obs_row_t *row = &result.rows[i];
+        row->slot = offset + i;
+        row->row_words = refmem_obs_schema_words((uint8_t)key);
+        if (row->row_words > REFMEM_OBS_MAX_ROW_WORDS) {
+            row->row_words = REFMEM_OBS_MAX_ROW_WORDS;
+        }
+        if (offset + i != local_slot ||
+            !refmem_obs_fill_local_row(key, row)) {
+            /* No publisher for this slot on this board: honest stale row. */
+            row->valid = 0u;
+            row->epoch = 0u;
+            row->seq = 0u;
+            row->age_ms = REFMEM_OBS_AGE_INVALID;
+            row->stale = 1u;
+            continue;
+        }
+        /* Local snapshot taken now; real seq/epoch arrive with R1-3. */
+        row->valid = 1u;
+        row->epoch = 1u;
+        row->seq = 1u;
+        row->age_ms = 0u;
+        row->stale = 0u;
+    }
+
+    char text[512];
     if (refmem_obs_encode(&result, text, sizeof(text)) != REFMEM_OBS_OK) {
         scpi_port_push_exec_error(context, "OBS_ENCODE");
         return SCPI_RES_ERR;

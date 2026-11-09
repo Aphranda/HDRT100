@@ -1,7 +1,10 @@
 schema: REFMEM_READ_CATALOG_V1
 # Read keys for the local-mirror observation plane (contract REFMEM-READ-01).
-# Every key has exactly one writer and a fixed row schema; the row on the wire is
+# Every key has exactly one writer and a fixed row schema; the contract wire row is
 #   slot,valid,epoch,seq,age_ms,stale,<schema words...>
+# Current firmware answers the per-slot form; seq/epoch are placeholder 1 and
+# age_ms 0 for the local row until the R1-3 publish plane lands.  Peer rows are
+# valid=0/age=0xFFFFFFFF/stale=1.
 # Freshness is taken from the RefMemSlotContract stale_window_us, not from this file.
 keys:
   - id: 1
