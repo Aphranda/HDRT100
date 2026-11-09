@@ -14,6 +14,12 @@
 static uint32_t s_node_control_last_command_seq;
 static refmem_lease_result_t s_lease_last_result;
 static uint32_t s_dispatch_reason;
+/* Diagnostics for the target-side dispatch gate: why a posted record was not
+ * consumed.  Counters are cheap and never change the dispatch decision. */
+static uint32_t s_dispatch_service_calls;
+static uint32_t s_dispatch_read_params_fail;
+static uint32_t s_dispatch_broadcast_wait;
+static uint32_t s_dispatch_last_skip;
 
 static bool distributed_refmem_is_config_type(uint32_t type)
 {
@@ -189,18 +195,23 @@ void distributed_refmem_node_control_service(void)
     refmem_command_snapshot_t snapshot;
     uint32_t params[REFMEM_NODE_CONTROL_PARAM_WORDS];
     const uint32_t local_slot = distributed_refmem_local_slot();
+    s_dispatch_service_calls++;
     if (!distributed_refmem_node_control_read_params(
             local_slot, &snapshot, params, NULL, NULL)) {
+        s_dispatch_read_params_fail++;
+        s_dispatch_last_skip = 1u;
         return;
     }
     if (snapshot.command_seq == 0u ||
         snapshot.command_seq == s_node_control_last_command_seq ||
         snapshot.state != REFMEM_COMMAND_STATE_POSTED) {
+        s_dispatch_last_skip = 2u;
         return;
     }
     /* Accept local and remote issuers; the target mask is the authority.
      * (A record written by a remote source must still be consumed here.) */
     if ((snapshot.target_mask & (1u << local_slot)) == 0u) {
+        s_dispatch_last_skip = 3u;
         return;
     }
 
@@ -227,6 +238,8 @@ void distributed_refmem_node_control_service(void)
         const uint32_t remote_required =
             snapshot.required_mask & ~(1u << local_slot);
         if (remote_required != 0u && !refmem_cmd_load_broadcast_landed()) {
+            s_dispatch_broadcast_wait++;
+            s_dispatch_last_skip = 4u;
             return; /* the wire copy is still being delivered */
         }
     }
@@ -297,5 +310,24 @@ void distributed_refmem_node_control_service(void)
                 snapshot.command_seq, snapshot.source_node,
                 (uint32_t)REFMEM_COMMAND_STATE_NACKED, reason);
         }
+    }
+}
+
+void distributed_refmem_node_control_diag(uint32_t *calls,
+                                          uint32_t *read_params_fail,
+                                          uint32_t *broadcast_wait,
+                                          uint32_t *last_skip)
+{
+    if (calls != NULL) {
+        *calls = s_dispatch_service_calls;
+    }
+    if (read_params_fail != NULL) {
+        *read_params_fail = s_dispatch_read_params_fail;
+    }
+    if (broadcast_wait != NULL) {
+        *broadcast_wait = s_dispatch_broadcast_wait;
+    }
+    if (last_skip != NULL) {
+        *last_skip = s_dispatch_last_skip;
     }
 }

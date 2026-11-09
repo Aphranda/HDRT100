@@ -809,6 +809,14 @@ void distributed_refmem_obs_publish_words(const uint32_t *values,
 bool distributed_refmem_node_control_write(uint32_t node_id,
                                            const refmem_command_snapshot_t *snapshot,
                                            uint32_t seq);
+
+/* Diagnostics: how often the target-side service ran and which gate skipped
+ * the posted record (1=params read, 2=seq/state, 3=target mask, 4=broadcast
+ * wait).  Read-only counters, never change the dispatch decision. */
+void distributed_refmem_node_control_diag(uint32_t *calls,
+                                          uint32_t *read_params_fail,
+                                          uint32_t *broadcast_wait,
+                                          uint32_t *last_skip);
 bool distributed_refmem_node_control_read(uint32_t node_id,
                                           refmem_command_snapshot_t *snapshot,
                                           uint32_t *seq,

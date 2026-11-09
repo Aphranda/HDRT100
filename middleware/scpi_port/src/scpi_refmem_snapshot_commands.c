@@ -637,6 +637,18 @@ scpi_result_t scpi_cmd_refmem_cmd_drop(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_cmd_dispatch_q(scpi_t *context)
+{
+    uint32_t calls = 0u, read_params_fail = 0u, broadcast_wait = 0u, last_skip = 0u;
+    distributed_refmem_node_control_diag(&calls, &read_params_fail,
+                                         &broadcast_wait, &last_skip);
+    SCPI_ResultUInt32(context, calls);
+    SCPI_ResultUInt32(context, read_params_fail);
+    SCPI_ResultUInt32(context, broadcast_wait);
+    SCPI_ResultUInt32(context, last_skip);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context)
 {
     refmem_cmd_load_status_t status;
