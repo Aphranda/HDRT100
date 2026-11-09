@@ -95,6 +95,12 @@ TDMA_CONTROL_RESULT_FIELDS = {
     "SYST:TDMA:OPMODE:STAGE": 6, "SYSTEM:TDMA:OPMODE:STAGE": 6,
     "SYST:TDMA:OPMODE:APPLY": 6, "SYSTEM:TDMA:OPMODE:APPLY": 6,
     "CAL:TOP:PROB": 2, "CALIBRATION:TOPOLOGY:PROBE": 2,
+    # Result-returning *set* commands: libscpi does not terminate their echo
+    # (only queries get a terminator), so a late flush can prefix the next
+    # command's reply.  Declaring the field count makes the reader consume the
+    # echo in the same transaction (observed 2026-11-09 as `2,10,"No error"`).
+    "CAL:TRAIN:STAGE:BEGIN": 7, "CALIBRATION:TRAINING:STAGE:BEGIN": 7,
+    "CAL:TRAIN:STAGE:LINK": 2, "CALIBRATION:TRAINING:STAGE:LINK": 2,
 }
 
 SERIAL_LIFECYCLE_COMMAND = "command"
