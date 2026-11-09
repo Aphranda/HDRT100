@@ -64,7 +64,10 @@ Last updated: 2026-11-09
 - 跨板 OBS 验证（2026-11-09）：起 10 kHz 环时 NO.2/NO.3 轮换 `ARM timeout`（`ring_node_count=0`）；软件 `BOOT:RESET` 未清，待上下电后重试。
 - M2 跨板 HIL（2026-11-09，build `20261109110157`，10 kHz 环）：SWITCH_A（COM4）写 `45,2,2,1,4` → ACK、`READ:SWITch1?`=`1,1,1,4,4,0`、本板 OBS slot1 `[4,4]`；COM5 `OBS? 1,0,4` 读到 slot1 `valid=1/age=183ms/stale=0/[4,4]`，slot0/2/3 仍 `[1,1]`；`OBS? 2,0,4` 全 `[0,0]`。证据 `out/refmem_read/obs_write_read_20261109.txt`。**写→跨板读一致**。
 - M7 stale/停发 HIL（2026-11-09，build `20261109113327`）：基线 `OBS? 1,0,4` 四行 `valid=1/stale=0/age≈104ms`；停 COM6（slot3）后 16 s，slot1/2/3 均 `valid=1/age≈17.3s/stale=1`（窗口 10 s）。证据 `out/refmem_read/obs_stale_20261109.txt`。单板缺板（环仍存活）与广播聚合仍未证。
-- 当前 OPEN：广播聚合（M7）、单板缺板 NACK、页面迁移（M5）；契约仍 pending（广播未证）。
+- M5 起点（2026-11-09，`e3e9b9c8`）：readback 页 `read.switch1/2` 改走 `ControlPlane.read`（新 `obs_read.py`，2 用例），不再直接发 `READ:SWITch#`；demo 31 passed。
+- 广播第 3 假设（2026-11-09）：按 TDMA 文档设 `SEAT:ROTation 1,3,1`（f=3、s=1）后，`45,15,15` 仍 30 s QUEUED、仅本板记录。`LOAD:MASK`/process-image/seat 三假设均失败，广播留 TDMA 域。
+- 另一会话停止：其 demo 在途改动作为继承提交 `7d3f2ef6`（calibration 页/工作流，tests 31 passed），M5 在其上继续。
+- 当前 OPEN：广播聚合（M7）、单板缺板 NACK、M5 其余页面；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
