@@ -73,7 +73,8 @@ Last updated: 2026-11-09
 - 广播根因（2026-11-09）：`refmem_cmd_load` 的发送预算取自 `tdma_maintenance_runtime_delivery_budget_ms(bytes,frames)`（或显式 `timeout_us`）；10 kHz bringup 的维护流实际需 ~16 s，超预算 → 提前 `STATE_TIMED_OUT/reason 11`，目标停在 `POSTED(1)`。**10 kHz bringup 不适合命令面**；广播 HIL 应在 10 MHz 维护流（P3/TRN-03 级）下做。
 - 10 MHz 对照（2026-11-09，`--leave-on-failure` 保留 TRN-03 环，build `20261109113327`）：广播结果与 10 kHz **完全一致**——COM3 NACK 12，COM4/6 state 1，origin TIMEOUT 11 / ack=0xA / nack=0x4；同一环上 COM4 本地写 ACK。`SYST:REFMEM:CLAIM?` 四板一致。结论：**非速率/预算问题**；远端写入的命令记录在 SWITCH 角色板上不 dispatch（GATEWAY 正常 NACK），本地记录正常。
 - dispatch 诊断（2026-11-09，`63817965`，build `20261109121613`）：新增 `SYST:REFMEM:CMD:DISPatch?`（service_calls/read_params_fail/broadcast_wait/last_skip）。10 MHz 环上实测：四板计数 ~29 万次调用、~28 万次 read_params 失败，但**绝大多数是空闲轮询无记录**，不能区分广播记录；SWITCH 仍 state 1、origin TIMEOUT 11。下一步需“仅在新 seq 上计数”或对比远端载荷同步。
-- 当前 OPEN：远端记录在 SWITCH 板不 dispatch（需 per-record 诊断）、广播聚合、单板缺板 NACK；契约仍 pending。
+- take/状态更新诊断（2026-11-09，`2a196a58`，build `20261109124923`）：新增 `distributed_refmem_node_control_sequence()`，只统计 live 新记录的 `read_params` 失败；10 MHz 环广播后四板 `read_params_fail=0`、`last_skip=2`（记录已被消费），但 COM4/6 仍 `state 1` → 问题在**执行后 node-control 状态更新未生效**，不在读取/传输。take 被拒路径已改为镜像 NACK（防御性，防止静默消费）。
+- 当前 OPEN：node-control 状态更新未生效（SWITCH 角色）、广播聚合、单板缺板 NACK；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
