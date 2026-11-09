@@ -11,7 +11,7 @@ Last updated: 2026-11-09
 - 契约 `REFMEM-READ-01`：只读本地镜像、逐槽拼装、不做同步跨板读（D0 决策 2026-11-09 选 A）；
 - `config/refmem/read_catalog.yaml` 8 个 read key + 生成器与静态表；
 - `SYSTem:REFMEM:OBS? <key>,<offset>,<count>` 查询；
-- 6/8 key 的本地 provider（`switch1/2`、`guide_plan`、`boot_plan`、`ring_status`、`cal_status`）；
+- 8/8 key 的本地 provider（`switch1/2`、`guide_plan`、`boot_plan`、`ring_status`、`cal_status`，以及 `trigger_state`/`node_health`，`6c28df1c`）；
 - `tools/refmem/control_plane.py` 的 `read/write/wait_terminal` 与 `tools/refmem/control_plane_smoke.py`。
 
 ## 2. 当前实现状态（2026-11-09，build `20261109001932`）
@@ -20,7 +20,7 @@ Last updated: 2026-11-09
 |---|---|---|
 | 读目录 8 key | 已生成 | `refmem_read_catalog_table.c`、`test_refmem_read_catalog.c` |
 | `OBS?` 接线 | 已实装 | `scpi_refmem_snapshot_commands.c:1325-1430` |
-| key provider | 6/8 | `836dae7a`、`c6f2c76e`、`3624f322` |
+| key provider | 8/8 | `836dae7a`、`c6f2c76e`、`3624f322`、`6c28df1c` |
 | host 用例 | 通过 | `test_refmem_obs.c`、`test_refmem_control_plane.py`（8 passed） |
 | 单板 smoke | 有归档 | `out/refmem_read/obs_smoke_20261109.txt`（build `20261109051835`：`OBS? 6,0,4` 四行、`OBS? 1,0,2` 两行） |
 | 逐槽行 / 发布面 / 2 key / 四板 HIL | 逐槽行 **M4 已做**；其余未做 | 架构 §「未实装」 |

@@ -1558,9 +1558,10 @@ runtime”不够，必须扩模型（A′）或新建契约表/镜像/选择器�
   `cal_status`（persisted_valid/generation/reject_reason）；
 - host 证据：`tools/refmem/control_plane_smoke.py`、`tests/unit/test_refmem_obs.c`。
 
-未实装：`trigger_state`（无触发现有的本地状态访问器）、`node_health`（缺 `stale_count` 的本地计数源，
-需 R1-6 补）；真实 `seq/epoch/age` 与对端行需 DataLink runtime。转 active 仍需：其余 2 key +
-DataLink runtime + 四板 OBS HIL。
+已补齐 `trigger_state`（service 快照 `state/run_state/epoch`）与 `node_health`（node status
+`state/heartbeat/stale_count/fault_code`），**8/8 key 本地可用**（build `20261109063728`，
+证据 `out/refmem_read/obs_8keys_20261109.txt`）。未实装：真实 `seq/epoch/age` 与对端行需
+DataLink runtime。转 active 仍需：DataLink runtime + 四板 OBS HIL。
 
 
 ### 角色与协调者
