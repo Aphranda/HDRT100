@@ -48,7 +48,8 @@ Last updated: 2026-11-09
 - 第三轮交叉复核（`33b11994`）：cached/P3 源绑定成立（不覆盖开关功能）；boot wait 归因被证伪（BSS 清零，非 boot_done 陈旧），已改判据为 `fail_step=0 && boot_done=1 && half_ring=0` 且 pending 失败（`1c6a16c7`）；M2 提案的 `0x100` 与“每周期通用 field/value”前提均被证伪，提案已重写为 A′/B′ 待裁决；reason 12 语义稀释（未配置/角色不符/BUSY 都映射 12）记为残余。
 - reason 分档（2026-11-09，`9aeb173d`）：cached snapshot 返回 BUSY→reason 6、UNCONFIGURED/其他→13、角色不符→12，修正“未配置/角色不符/BUSY 都报 12”的稀释。P3 build `20261109062402`；现场无 deployment 时 NO1/NO2 本地开关命令均 NACK **reason 13**（不再是 12）；SWITCH_A ACK 仍需部署后补。
 - M3 8/8 key（2026-11-09，`6c28df1c`）：`trigger_state`（service 快照 state/run_state/epoch）与 `node_health`（node status state/heartbeat/stale_count/fault_code）补齐；P3 build `20261109063728`；实板 8 个 key 本地行均 valid=1（`out/refmem_read/obs_8keys_20261109.txt`）。
-- 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2，A′/B′ 待 C11/TDMA）、页面迁移（M5）、M6 的 SWITCH_A 正向证据、四板 HIL（M7）；契约仍 pending。
+- M6 正向（2026-11-09，build `20261109072222`）：用台架序列号作 `board_uid` 构造最小部署（COUNTER/SWITCH_A/GATEWAY/SWITCH_B）并逐板 stage/activate 后，SWITCH_A/B 本地开关命令 **ACKED**（state 4，`READ:SWITch1?` 值跟随 5→4/3→4），COUNTER/GATEWAY **NACK reason 12** 且本地状态不变；证据 `out/refmem_read/switch_role_hil_20261109.txt`。广播 `0xF` 聚合因环未运行（`NOT_ONLINE_SAFE`）未证，留 M7。
+- 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2，A′/B′ 待 C11/TDMA）、页面迁移（M5）、广播聚合与四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
