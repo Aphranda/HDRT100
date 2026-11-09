@@ -177,6 +177,14 @@
       "evidence_root": "out/trigger_debug_demo/ (WorkflowRunner state_dir/report_root supplied by the demo app)",
       "resume": "WorkflowRunner.load(run_id) then continue from the same state",
       "reason": "单口（仅协调口）校准引导流程：发送 GUIDE C/T 并在同一口确认 gen/epoch/progress；四板一致性由调用方负责。为解除共享提交门禁按事实登记，生命周期待其属主判定。"
+    },
+    {
+      "tool": "TOOL-REFMEM-OBS-MATRIX",
+      "form": "STANDALONE",
+      "entry": "tools/refmem/obs_hil_matrix.py",
+      "evidence_root": "out/refmem_read/",
+      "resume": "rerun against the same ports; JSON report is overwritten",
+      "reason": "Four-board OBS contract matrix (REFTMEM-READ-01 M7/M8 evidence): reads every catalog key from every board and checks per-slot valid/stale/schema invariants."
     }
   ]
 }

@@ -5960,6 +5960,35 @@
       "validation": [],
       "handoff_evidence": null,
       "notes": "Registered factually (WorkflowSpec + WorkflowRunner with a caller-supplied state_dir) so the shared tool-governance gate can pass; lifecycle stays UNASSESSED until its owner judges it."
+    },
+    {
+      "id": "TOOL-REFMEM-OBS-MATRIX",
+      "purpose": "Four-board OBS contract matrix for REFMEM-READ-01: per-slot valid/stale/schema checks.",
+      "domain": "REFMEM",
+      "owner": "REFMEM read plane",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "OFFLINE",
+      "entrypoints": [
+        "tools/refmem/obs_hil_matrix.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem/obs_hil_matrix.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [
+        "pyyaml",
+        "pyserial"
+      ],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [
+        "tools/refmem/obs_hil_matrix.py"
+      ],
+      "handoff_evidence": null,
+      "notes": "PASS requires local valid rows and peer stale rows until the M2 publish plane lands."
     }
   ]
 }
