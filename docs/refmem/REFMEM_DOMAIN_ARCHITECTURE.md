@@ -1475,11 +1475,23 @@ region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/sw
 4 key × 8 槽 ≈ 864–928 B。全量 8 key 需要新 region + `layout_version` 递增（`REFTMEM-LAYOUT-01`），
 不与 pilot 同批改。
 
-**查询形态。** `SYSTem:REFMEM:OBS? <key>,<offset>,<count>`：
+**查询形态（M1 定稿，2026-11-09）。** `SYSTem:REFMEM:OBS? <key>,<offset>,<count>`：
 - `<key>` 为 key_id 数字（1..8）；
-- `offset >= DISTRIBUTED_REFMEM_NODE_COUNT` → SCPI 错误（与 `NODES?` 一致，不返回空行）；
-- `count` 裁剪到 `node_count - offset`，上限 `DISTRIBUTED_REFMEM_NODE_COUNT`；
-- 每行固定 `slot,valid,epoch,seq,age_ms,stale,<schema 字...>`。
+- `offset`/`count` 是**槽位区间**：`offset >= DISTRIBUTED_REFMEM_NODE_COUNT` → SCPI 错误；
+  `count` 裁剪到 `DISTRIBUTED_REFMEM_NODE_COUNT - offset`；
+- 应答 = `key,offset,count` 头 + `count` 条定宽行；行内不重复 key；
+- 每行固定 `slot,valid,epoch,seq,age_ms,stale,<schema 字...>`，schema 宽度由
+  `config/refmem/read_catalog.yaml` 的 `schema` 决定（短补零、长截断）；
+- 行按 slot 升序，`slot = offset + 行号`，不得跳号。
+
+**行的来源（单写者）。** 每行只由该 slot 的 owner 发布：本地槽由本板 provider 在发布点写入
+（`seq`/`epoch` 来自该 key 的发布计数器）；远端槽由本地镜像的该 slot 条目读出，镜像走
+`REFMEM_DELTA`。发布面未落地前，远端槽一律 `valid=0`，**不得用本地 provider 冒充当槽值**。
+
+**实现状态（M0 基线，2026-11-09）。** 当前 `OBS?` 返回
+`key,offset,count,valid,age_ms,<schema>` 的**单板单行**，`age_ms` 对 valid 行恒 0、
+`stale` 对 valid 行恒 0；逐槽行、`seq/epoch` 与 stale 判定由 M2/M4 落地。以本节为契约目标，
+不以当前实现为准。
 
 **行语义。** `valid=0` 行表示该槽从未发布：`age_ms = 0xFFFFFFFF`、`stale = 1`、其余值字段为 0；
 `valid=1` 行 `stale = (age_ms > stale_window_us/1000)`。`age_ms` 是**读者本地视角**
@@ -1492,7 +1504,7 @@ region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/sw
 **单写者与撕裂。** 每 key 仅一个 writer；读侧用 `seq` 校验（`seq` 变化即重读一次）；跨 key 不保证
 同一时刻快照，行级 `epoch/seq` 是唯一一致性口径。
 
-**契约状态**：pending（**pilot 已实装，非全量**）；代码锚点
+**契约状态**：pending（**pilot 6/8 key；行 schema 已于 M1 定稿，逐槽实现待 M4**）；代码锚点
 `components/distributed_refmem/src/refmem_obs.c`（行编码）、
 `middleware/scpi_port/src/scpi_refmem_snapshot_commands.c`（`SYSTem:REFMEM:OBS?`）。
 
