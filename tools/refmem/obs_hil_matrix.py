@@ -1,9 +1,10 @@
-"""Four-board OBS HIL matrix for REFMEM-READ-01 (M7/M8 evidence).
+"""Four-board OBS HIL matrix for REFMEM-READ-01 (M7 evidence).
 
 Reads every catalog key from every board and checks the per-slot contract:
 
-* the page has one row per requested slot and the row ``slot`` matches;
-* the local slot row is ``valid=1`` with exactly ``schema_words`` values;
+* the page header (key/offset/count) matches the request and has one row per
+  requested slot, with ``slot == offset + index``;
+* the local slot row is ``valid=1`` and fresh (``stale=0``, age within budget);
 * peer rows are ``valid=0`` / ``age_ms=0xFFFFFFFF`` / ``stale=1`` / zero values
   (no publisher yet -- this flips once the M2 publish plane lands);
 * malformed rows fail closed.
@@ -49,22 +50,34 @@ def catalog_schema() -> dict[int, int]:
     return schema
 
 
-def check_page(key: int, schema_words: int, page: dict, local_slot: int,
-               expect_peers_stale: bool = True) -> list[str]:
+def check_page(key: int, schema_words: int, page: dict, local_slot: int, *,
+               count: int | None = None, offset: int = 0,
+               expect_peers_stale: bool = True,
+               max_local_age_ms: int = 1000) -> list[str]:
     """Return contract violations for one OBS page (empty means OK)."""
     problems: list[str] = []
+    if int(page.get("key", -1)) != key:
+        problems.append(f"key {key}: page key={page.get('key')}")
+    if int(page.get("offset", -1)) != offset:
+        problems.append(f"key {key}: page offset={page.get('offset')}")
     rows = page.get("rows") or []
-    if len(rows) != int(page.get("count", len(rows))):
-        problems.append(f"key {key}: {len(rows)} rows for count={page.get('count')}")
+    want = int(count) if count is not None else len(rows)
+    if int(page.get("count", len(rows))) != want:
+        problems.append(f"key {key}: page count={page.get('count')} != {want}")
+    if len(rows) != want:
+        problems.append(f"key {key}: {len(rows)} rows != {want}")
     for index, row in enumerate(rows):
         slot = int(row.get("slot", -1))
-        if slot != int(page.get("offset", 0)) + index:
+        if slot != offset + index:
             problems.append(f"key {key}: row {index} slot={slot}")
             continue
-        valid = int(row.get("valid", 0))
+        valid = int(row.get("valid", -1))
         age = int(row.get("age_ms", 0))
-        stale = int(row.get("stale", 0))
+        stale = int(row.get("stale", -1))
         values = row.get("value") or []
+        if valid not in (0, 1):
+            problems.append(f"key {key} slot {slot}: valid={valid}")
+            continue
         if len(values) != schema_words:
             problems.append(
                 f"key {key} slot {slot}: {len(values)} values != {schema_words}")
@@ -74,14 +87,38 @@ def check_page(key: int, schema_words: int, page: dict, local_slot: int,
                     f"key {key} slot {slot}: invalid row age={age} stale={stale}")
             if any(int(value) != 0 for value in values):
                 problems.append(f"key {key} slot {slot}: invalid row has values")
-        elif slot != local_slot and expect_peers_stale:
+        elif slot == local_slot:
+            if stale != 0:
+                problems.append(f"key {key}: local row stale={stale}")
+            if age > max_local_age_ms:
+                problems.append(f"key {key}: local age={age} > {max_local_age_ms}")
+        elif expect_peers_stale:
             problems.append(f"key {key} slot {slot}: peer row valid={valid} (no publisher)")
+    local = [row for row in rows if int(row.get("slot", -1)) == local_slot]
+    if not local:
+        problems.append(f"key {key}: local slot {local_slot} row missing")
+    elif int(local[0].get("valid", 0)) != 1:
+        problems.append(f"key {key}: local row not valid")
     return problems
+
+
+def row_evidence(page: dict, local_slot: int) -> dict:
+    """Compact per-row evidence so the JSON proves what PASS checked."""
+    local = next((row for row in page.get("rows") or []
+                  if int(row.get("slot", -1)) == local_slot), {})
+    peers = [row for row in page.get("rows") or []
+             if int(row.get("slot", -1)) != local_slot]
+    return {
+        "local": {"valid": local.get("valid"), "age_ms": local.get("age_ms"),
+                  "stale": local.get("stale")},
+        "peer_stale": sum(1 for row in peers if int(row.get("valid", 0)) == 0),
+        "peers": len(peers),
+    }
 
 
 def run(ports: list[str], keys: list[int], schema: dict[int, int],
         out_path: pathlib.Path) -> dict:
-    report: dict = {"schema": "HAOFV_REFTMEM_OBS_MATRIX_V1", "ports": ports,
+    report: dict = {"schema": "HAOFV_REFMEM_OBS_MATRIX_V1", "ports": ports,
                     "keys": keys, "boards": [], "passed": True}
     sessions = []
     try:
@@ -89,7 +126,13 @@ def run(ports: list[str], keys: list[int], schema: dict[int, int],
             session = SerialSession(port, 115200, 1.5, 0.05).open()
             sessions.append(session)
             plane = ControlPlane(session)
-            board: dict = {"slot": slot, "port": port, "keys": {}, "problems": []}
+            build = ""
+            try:
+                build = plane._execute("SYSTem:FW:BUILD?").strip().strip('"')
+            except Exception:  # noqa: BLE001 - build is evidence only
+                build = "unknown"
+            board: dict = {"slot": slot, "port": port, "build": build,
+                           "keys": {}, "problems": []}
             for key in keys:
                 words = schema.get(key)
                 if not words:
@@ -101,10 +144,10 @@ def run(ports: list[str], keys: list[int], schema: dict[int, int],
                     board["keys"][str(key)] = {"error": str(exc)}
                     board["problems"].append(f"key {key}: {exc}")
                     continue
-                problems = check_page(key, words, page, slot)
-                board["keys"][str(key)] = {"valid": page.get("valid"),
-                                           "rows": len(page.get("rows") or []),
-                                           "problems": problems}
+                problems = check_page(key, words, page, slot, count=len(ports))
+                entry = row_evidence(page, slot)
+                entry["problems"] = problems
+                board["keys"][str(key)] = entry
                 board["problems"].extend(problems)
             report["boards"].append(board)
             if board["problems"]:

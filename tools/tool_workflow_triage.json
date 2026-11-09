@@ -184,7 +184,7 @@
       "entry": "tools/refmem/obs_hil_matrix.py",
       "evidence_root": "out/refmem_read/",
       "resume": "rerun against the same ports; JSON report is overwritten",
-      "reason": "Four-board OBS contract matrix (REFTMEM-READ-01 M7/M8 evidence): reads every catalog key from every board and checks per-slot valid/stale/schema invariants."
+      "reason": "Four-board OBS contract matrix (REFMEM-READ-01 M7 evidence): reads every catalog key from every board and checks page header, per-slot valid/stale/schema invariants and local freshness."
     }
   ]
 }

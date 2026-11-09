@@ -5967,7 +5967,7 @@
       "domain": "REFMEM",
       "owner": "REFMEM read plane",
       "lifecycle": "EXPERIMENTAL",
-      "operation": "OFFLINE",
+      "operation": "DEVICE_READ",
       "entrypoints": [
         "tools/refmem/obs_hil_matrix.py"
       ],
@@ -5985,7 +5985,7 @@
       "dependency_review": "PENDING",
       "aliases": [],
       "validation": [
-        "tools/refmem/obs_hil_matrix.py"
+        "tests/python/test_refmem_obs_matrix.py"
       ],
       "handoff_evidence": null,
       "notes": "PASS requires local valid rows and peer stale rows until the M2 publish plane lands."
