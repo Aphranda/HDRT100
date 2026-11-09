@@ -54,6 +54,7 @@
 #include "tdma_runtime_owner.h"
 #include "sync_io_sequence.h"
 #include "app_refmem_domain_config.h"
+#include "calibration_manager.h"
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
 {
@@ -1391,6 +1392,16 @@ scpi_result_t scpi_cmd_refmem_obs_q(scpi_t *context)
                                 ? 2u
                                 : (have_profile ? 1u : 0u);
         }
+    } else if (key == 7u) {
+        /* cal_status: the calibration training store is the local writer. */
+        calibration_training_store_status_t store;
+        calibration_manager_get_training_store_status(&store);
+        result.valid = 1u;
+        result.age_ms = 0u;
+        result.row_words = 3u;
+        result.row[0] = store.persisted_valid;
+        result.row[1] = store.record_generation;
+        result.row[2] = store.reject_reason;
     } else if (key == 4u) {
         /* guide_plan: the planner snapshot is local; the row mirrors the
          * BOOT/PLAN progress readback so a single OBS key carries the round
