@@ -745,6 +745,7 @@ bool distributed_refmem_tdma_flight_build_compact_mailbox(
     uint8_t target_mask,
     uint32_t seq32,
     uint32_t value,
+    uint16_t field_id,
     uint8_t message_class,
     uint8_t *mailbox,
     size_t mailbox_size)
@@ -820,8 +821,7 @@ bool distributed_refmem_tdma_flight_build_compact_mailbox(
     distributed_refmem_put_le32(
         &mailbox[TDMA_PROCESS_IMAGE_REFMEM_GENERATION_OFFSET], seq32);
     distributed_refmem_put_le16(
-        &mailbox[TDMA_PROCESS_IMAGE_REFMEM_FIELD_ID_OFFSET],
-        TDMA_PROCESS_IMAGE_REFMEM_BASELINE_FIELD_ID);
+        &mailbox[TDMA_PROCESS_IMAGE_REFMEM_FIELD_ID_OFFSET], field_id);
     distributed_refmem_put_le32(
         &mailbox[TDMA_PROCESS_IMAGE_REFMEM_VALUE_OFFSET], value);
 

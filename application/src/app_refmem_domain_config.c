@@ -1,5 +1,4 @@
 #include "app_refmem_domain_config.h"
-
 #include <stdint.h>
 #include <string.h>
 

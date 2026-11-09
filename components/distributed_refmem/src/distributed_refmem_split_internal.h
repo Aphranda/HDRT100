@@ -154,7 +154,7 @@ void distributed_refmem_tdma_flight_sync_update_ring( const tdma_ring_runtime_sn
 bool distributed_refmem_vdc_flight_rx_refresh(tdma_service_service_t *owner);
 void distributed_refmem_vdc_flight_rx_accept(uint32_t slot, const uint8_t *mailbox, const tdma_flight_rx_view_t *view);
 bool distributed_refmem_tdma_prepare_vdc_command_record( const tdma_ring_runtime_snapshot_t *ring);
-bool distributed_refmem_tdma_flight_build_compact_mailbox( uint8_t source_slot, uint8_t target_mask, uint32_t seq32, uint32_t value, uint8_t message_class, uint8_t *mailbox, size_t mailbox_size);
+bool distributed_refmem_tdma_flight_build_compact_mailbox( uint8_t source_slot, uint8_t target_mask, uint32_t seq32, uint32_t value, uint16_t field_id, uint8_t message_class, uint8_t *mailbox, size_t mailbox_size);
 void distributed_refmem_tdma_flight_sync_store_mailbox( uint8_t source_slot, const uint8_t *mailbox, size_t mailbox_size);
 bool distributed_refmem_tdma_flight_expand_compact_delta( const uint8_t *mailbox, size_t mailbox_size, uint8_t *frame, size_t frame_capacity, size_t *frame_size);
 void distributed_refmem_tdma_flight_parse_vdc_fragment( const uint8_t *mailbox, size_t mailbox_size);

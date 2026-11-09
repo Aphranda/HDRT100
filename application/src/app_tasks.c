@@ -17,6 +17,9 @@
 #include "project_config.h"
 #include "tdma_runtime_owner.h"
 #include "ui_manager.h"
+#include "distributed_refmem.h"
+#include "refmem_sync.h"
+#include "scpi_refmem_obs_source.h"
 
 #define APP_PROGRESS(task, phase) (((uint32_t)(task) << 8u) | (uint32_t)(phase))
 #define APP_WATCHDOG_TASK_STACK_WORDS 256u
@@ -112,6 +115,8 @@ static void task_scpi(void *context)
     }
 }
 
+static uint32_t s_obs_sample_div;
+
 static void task_refmem_sync(void *context)
 {
     (void)context;
@@ -124,6 +129,15 @@ static void task_refmem_sync(void *context)
 
         drv_watchdog_mark_progress(0u, APP_PROGRESS(4u, 1u));
         app_refmem_service();
+        if (++s_obs_sample_div >= 50u) {
+            s_obs_sample_div = 0u;
+            uint32_t values[REFMEM_OBS_FIELD_COUNT];
+            uint32_t mask = 0u;
+            if (scpi_refmem_obs_sample_local(values, &mask,
+                                             REFMEM_OBS_FIELD_COUNT)) {
+                distributed_refmem_obs_publish_words(values, mask);
+            }
+        }
         tdma_runtime_owner_core0_prepare_service();
         drv_watchdog_mark_progress(0u, APP_PROGRESS(4u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_REFMEM_SYNC);

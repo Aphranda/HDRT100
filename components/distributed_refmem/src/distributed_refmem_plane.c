@@ -23,6 +23,48 @@
 #include "refmem_cmd_frame.h"
 #include "refmem_cmd_reply.h"
 #include "tdma_maintenance_runtime.h"
+#include "tdma_process_image_layout.h"
+#include "refmem_sync.h"
+
+/* M2b OBS publisher: a core0 task samples the local read providers and hands
+ * the 32-word cache to this path; the publish path itself never calls a
+ * provider (no locks/heavy work on the realtime build).  One word rotates per
+ * frame; the baseline (field 0, service count) stays when no word is cached,
+ * so the diagnostic never disappears. */
+static uint32_t s_obs_values[REFMEM_OBS_FIELD_COUNT];
+static uint32_t s_obs_mask;
+static uint32_t s_obs_cursor;
+
+void distributed_refmem_obs_publish_words(const uint32_t *values,
+                                          uint32_t mask)
+{
+    if (values == NULL) {
+        return;
+    }
+    for (uint32_t i = 0u; i < REFMEM_OBS_FIELD_COUNT; i++) {
+        s_obs_values[i] = values[i];
+    }
+    s_obs_mask = mask;
+}
+
+static void distributed_refmem_obs_next(uint16_t *field_id, uint32_t *value,
+                                        uint32_t fallback)
+{
+    *field_id = TDMA_PROCESS_IMAGE_REFMEM_BASELINE_FIELD_ID;
+    *value = fallback;
+    if (s_obs_mask == 0u) {
+        return;
+    }
+    for (uint32_t i = 0u; i < REFMEM_OBS_FIELD_COUNT; i++) {
+        const uint32_t index = (s_obs_cursor + i) % REFMEM_OBS_FIELD_COUNT;
+        if ((s_obs_mask & (1u << index)) != 0u) {
+            *field_id = (uint16_t)(REFMEM_OBS_FIELD_BASE + index);
+            *value = s_obs_values[index];
+            s_obs_cursor = (index + 1u) % REFMEM_OBS_FIELD_COUNT;
+            return;
+        }
+    }
+}
 #include "refmem_node_load_sync.h"
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
@@ -372,6 +414,7 @@ void distributed_refmem_tdma_flight_sync_publish(
                 (uint8_t)target_mask,
                 s_tdma_flight_sync.position_tx_sequence,
                 s_service_count,
+                TDMA_PROCESS_IMAGE_REFMEM_BASELINE_FIELD_ID,
                 message_class,
                 position_frame,
                 sizeof(position_frame))) {
@@ -415,11 +458,15 @@ void distributed_refmem_tdma_flight_sync_publish(
         }
         return;
     }
+    uint16_t obs_field = TDMA_PROCESS_IMAGE_REFMEM_BASELINE_FIELD_ID;
+    uint32_t obs_value = s_service_count;
+    distributed_refmem_obs_next(&obs_field, &obs_value, s_service_count);
     if (!distributed_refmem_tdma_flight_build_compact_mailbox(
             (uint8_t)ring->local_slot_id,
             (uint8_t)target_mask,
             seq32,
-            s_service_count,
+            obs_value,
+            obs_field,
             message_class,
             frame,
             sizeof(frame))) {

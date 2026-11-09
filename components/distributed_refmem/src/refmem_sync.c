@@ -2,6 +2,19 @@
 
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico/time.h"
+static uint32_t refmem_sync_now_ms(void)
+{
+    return to_ms_since_boot(get_absolute_time());
+}
+#else
+static uint32_t refmem_sync_now_ms(void)
+{
+    return 0u; /* host tests: time is not part of the contract check */
+}
+#endif
+
 #define REFMEM_SYNC_VDC_COPY_ATTEMPTS 3u
 
 /* M2 OBS field mirror (REFMEM-READ-01 B''): one shared copy, not per context,
@@ -112,7 +125,7 @@ static bool refmem_sync_commit_delta(refmem_sync_mirror_snapshot_t *mirror,
         s_obs_value[header->source_slot][index] = value;
         s_obs_mask[header->source_slot] |= 1u << index;
         s_obs_seq[header->source_slot] = header->seq32;
-        s_obs_updated_ms[header->source_slot] = header->compact_time;
+        s_obs_updated_ms[header->source_slot] = refmem_sync_now_ms();
     }
     mirror->value_crc32 = header->payload_crc32;
     mirror->last_frame_seq32 = header->seq32;

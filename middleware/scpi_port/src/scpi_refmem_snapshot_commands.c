@@ -1475,6 +1475,37 @@ static bool refmem_obs_fill_local_row(uint32_t key, refmem_obs_row_t *row)
  * the local slot can be valid today: peer rows are filled by the R1-3 publish
  * plane (not implemented), so they answer valid=0/age=0xFFFFFFFF/stale=1
  * instead of borrowing the local provider value. */
+bool scpi_refmem_obs_sample_local(uint32_t *values, uint32_t *mask,
+                                  uint32_t count)
+{
+    if (values == NULL || mask == NULL || count < REFMEM_OBS_FIELD_COUNT) {
+        return false;
+    }
+    uint32_t base = 0u;
+    *mask = 0u;
+    for (uint32_t key = 1u; key <= 8u; key++) {
+        const uint32_t words = refmem_obs_schema_words((uint8_t)key);
+        if (words == 0u) {
+            continue;
+        }
+        refmem_obs_row_t row;
+        memset(&row, 0, sizeof(row));
+        row.row_words = words;
+        if (refmem_obs_fill_local_row(key, &row)) {
+            for (uint32_t w = 0u; w < words && w < REFMEM_OBS_MAX_ROW_WORDS; w++) {
+                const uint32_t index = base + w;
+                if (index >= count) {
+                    return false;
+                }
+                values[index] = row.row[w];
+                *mask |= 1u << index;
+            }
+        }
+        base += words;
+    }
+    return base == REFMEM_OBS_FIELD_COUNT;
+}
+
 scpi_result_t scpi_cmd_refmem_obs_q(scpi_t *context)
 {
     uint32_t key = 0u;

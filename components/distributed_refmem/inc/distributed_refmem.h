@@ -801,6 +801,11 @@ bool distributed_refmem_get_obs_field(uint8_t source_slot, uint16_t field_id,
                                       uint32_t *value, uint32_t *seq32,
                                       uint32_t *updated_ms);
 
+/* M2b: core0 task samples the local OBS providers and publishes the word
+ * cache; the realtime build only reads it (no provider call on that path). */
+void distributed_refmem_obs_publish_words(const uint32_t *values,
+                                          uint32_t mask);
+
 bool distributed_refmem_node_control_write(uint32_t node_id,
                                            const refmem_command_snapshot_t *snapshot,
                                            uint32_t seq);
