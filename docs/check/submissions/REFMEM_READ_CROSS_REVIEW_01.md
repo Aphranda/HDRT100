@@ -29,13 +29,13 @@ Last updated: 2026-11-09
 
 | # | 发现 | 处置 | 状态 |
 |---|---|---|---|
-| 1 | 契约写逐槽行 `slot,valid,epoch,seq,age_ms,stale,<schema>`，实现只返回本板单行 `key,offset,count,valid,age_ms,<schema>` | 契约文本已标注「当前实装为本板单行」；逐槽行列入 M1/M4 | OPEN（M1/M4） |
+| 1 | 契约写逐槽行 `slot,valid,epoch,seq,age_ms,stale,<schema>`，实现只返回本板单行 `key,offset,count,valid,age_ms,<schema>` | M4 已实装逐槽行（本地 valid、对端 stale）；真实 `seq/age` 待 R1-3 | CLOSED（M4，seq/age 待 M2） |
 | 2 | `ControlPlane.wait_terminal` 调不存在的 `SYST:REFMEM:COMMAND:STATus?` | 改读 `SYST:COMMAND:TARget? <slot>`，终态 4/5/6 | CLOSED（本轮） |
 | 3 | `control_plane_smoke.py` 仍把 5/7 key 当未实装 | 改为 PILOT={1,2,4,5,6,7}、NOT={3,8} | CLOSED（本轮） |
 | 4 | `SCPI_COMMANDS.md` 写「实现待 M2，当前返回 -200」 | 改为「pilot 6/8 已实装」并补逐槽行说明 | CLOSED（本轮） |
 | 5 | 登记表 READ-01 证据写「pilot 4 key / 待 host / 待 smoke」 | 回写 6/8 + host/smoke 已完成 + 剩余项 | CLOSED（本轮） |
 | 6 | 契约 id `REFTMEM-READ-01` 与登记 `REFMEM-READ-01` 混用 | READ-01 三处改为 `REFMEM-`；历史 `REFTMEM-LEASE/IDLE` 为既有登记，不批量改 | PARTIAL（READ-01 已一致） |
-| 7 | `OBS?` 硬编码 `4u` 而非 `DISTRIBUTED_REFMEM_NODE_COUNT` | 列入 M4 | OPEN（M4） |
+| 7 | `OBS?` 硬编码 `4u` 而非 `DISTRIBUTED_REFMEM_NODE_COUNT` | M4 改用 `DISTRIBUTED_REFMEM_NODE_COUNT` | CLOSED（M4） |
 
 ## 4. 独立复核记录（只读子代理 `b2e480b5-f191-4364-9318-66813ecff1e3`，2026-11-09）
 

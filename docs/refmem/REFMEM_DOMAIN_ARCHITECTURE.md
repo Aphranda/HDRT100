@@ -1504,10 +1504,10 @@ A 需要 TDMA 线格式/席位评审（新帧类型）；`statistics` 区复用�
 pilot 预算：4 key × 4 slot × ~48 B = 768 B ≤ 1024 B。时基：`age_ms` 用读者本地 tick 减写者
 `last_update_ms`，跨板存在时基偏差；是否改用 TDMA 共同时钟待 TDMA 评审。
 
-**实现状态（M0 基线，2026-11-09）。** 当前 `OBS?` 返回
-`key,offset,count,valid,age_ms,<schema>` 的**单板单行**，`age_ms` 对 valid 行恒 0、
-`stale` 对 valid 行恒 0；逐槽行、`seq/epoch` 与 stale 判定由 M2/M4 落地。以本节为契约目标，
-不以当前实现为准。
+**实现状态（M4 行格式，2026-11-09）。** `OBS?` 已按本节返回逐槽行：本地槽由本板 provider
+出 `valid=1`（`epoch/seq` 暂为占位 1，真实发布计数器随 R1-3）；对端槽无发布者时
+`valid=0 / age=0xFFFFFFFF / stale=1`。`stale_window_us` 判定与真实 `age_ms` 仍待 R1-3
+（发布面）落地；当前 `age_ms` 对本地行恒 0。
 
 **行语义。** `valid=0` 行表示该槽从未发布：`age_ms = 0xFFFFFFFF`、`stale = 1`、其余值字段为 0；
 `valid=1` 行 `stale = (age_ms > stale_window_us/1000)`。`age_ms` 是**读者本地视角**
@@ -1520,7 +1520,7 @@ pilot 预算：4 key × 4 slot × ~48 B = 768 B ≤ 1024 B。时基：`age_ms` �
 **单写者与撕裂。** 每 key 仅一个 writer；读侧用 `seq` 校验（`seq` 变化即重读一次）；跨 key 不保证
 同一时刻快照，行级 `epoch/seq` 是唯一一致性口径。
 
-**契约状态**：pending（**pilot 6/8 key；行 schema 已于 M1 定稿，逐槽实现待 M4**）；代码锚点
+**契约状态**：pending（**pilot 6/8 key；逐槽行已于 M4 实装，真实 seq/age 待 R1-3**）；代码锚点
 `components/distributed_refmem/src/refmem_obs.c`（行编码）、
 `middleware/scpi_port/src/scpi_refmem_snapshot_commands.c`（`SYSTem:REFMEM:OBS?`）。
 
