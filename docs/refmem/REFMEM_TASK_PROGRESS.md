@@ -59,6 +59,7 @@ Last updated: 2026-11-09
 - M2 运输补充（2026-11-09）：REFMEM 的 `field_id/value` 走 **process-image 帧**（`distributed_refmem.c:820-826` 组帧、`refmem_sync_commit_delta` 接收），10 kHz 环 up 时 up/down 计数已在增长，因此 **OBS 发布不依赖维护窗口**；只有广播命令依赖 `tdma_maintenance_select_origin_tx` 的 window/credit。M2 可在 10 kHz 环上验证，无需 10 MHz 训练或维护席。
 - M2a 接收侧（2026-11-09，`3ae06ecb`）：`refmem_sync` 按 `field_id` 存 OBS 字段（共享 1 KB：value/mask/seq/updated），`distributed_refmem_get_obs_field()` 暴露 `(slot,field)`；OBS 对端行按契约前缀和组合 32 word——齐全 `valid=1`，缺任一字段保持 stale。P3 build `20261109082220`；发送端轮转尚未接入，所以现场对端行仍 stale（预期）。
 - M2b 发送 scaffold（2026-11-09，**工作区未提交**）：compact builder 增加 `field_id` 参数；publish 路径按 `REFTMEM_OBS_FIELD_BASE` 轮转 32 word，未注册 source 时保持 baseline(0)+service count；本地采样 `scpi_refmem_obs_sample_local()` 已实现但**暂不注册**，避免实时路径内联采样。P3 三次（含注册/不含注册）均因 VDC `STARVED`（OUTPUT_STOPPED+OUTPUT_STALE）失败，未取得凭证；待上下电/VDC 恢复后重跑再提交。
+- M2b P3 重试（2026-11-09，第 4 次）：仍 `STARVED`（NO.2/NO.3 `OUTPUT_STOPPED+OUTPUT_STALE`、`EARLY_FREEZE`）；与是否注册采样无关，判为台架 VDC 状态，需上下电/载波侧恢复后再取证。发送 scaffold 留在工作区，未提交。
 - 当前 OPEN：发送端提交（R1-3/B″，待 P3）、页面迁移（M5）、广播聚合/缺板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
