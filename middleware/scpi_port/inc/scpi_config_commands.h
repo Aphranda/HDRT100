@@ -14,6 +14,7 @@ scpi_result_t scpi_config_sequence_map_q(scpi_t *context);
 scpi_result_t scpi_config_sequence_check_q(scpi_t *context);
 scpi_result_t scpi_config_sequence_active_q(scpi_t *context);
 scpi_result_t scpi_config_switch_q(scpi_t *context);
+scpi_result_t scpi_config_switch_write(scpi_t *context);
 
 #define SCPI_CONFIG_COMMANDS \
     {.pattern = "CONFigure:TRIGger", .callback = scpi_port_result_accepted}, \
@@ -32,7 +33,7 @@ scpi_result_t scpi_config_switch_q(scpi_t *context);
     {.pattern = "READ:SEQuence:CHECk?", .callback = scpi_config_sequence_check_q}, \
     {.pattern = "CONFigure:SEQuence:ACTive", .callback = scpi_port_result_accepted}, \
     {.pattern = "READ:SEQuence:ACTive?", .callback = scpi_config_sequence_active_q}, \
-    {.pattern = "CONFigure:SWITch#", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CONFigure:SWITch#", .callback = scpi_config_switch_write}, \
     {.pattern = "READ:SWITch#?", .callback = scpi_config_switch_q}
 
 #endif

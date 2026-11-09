@@ -155,6 +155,15 @@ scpi_result_t scpi_config_sequence_active_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_config_switch_write(scpi_t *context)
+{
+    /* The legacy local entry used to answer 1 without moving anything, so a
+     * caller could not tell "accepted" from "switched".  Fail closed and point
+     * at the unified plane (SYSTem:CTRL:EXECute TRIGGER_SWITCH). */
+    scpi_port_push_exec_error(context, "USE_CTRL_EXECUTE");
+    return SCPI_RES_ERR;
+}
+
 scpi_result_t scpi_config_switch_q(scpi_t *context)
 {
     int32_t numbers[1];

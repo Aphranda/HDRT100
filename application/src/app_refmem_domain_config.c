@@ -54,6 +54,14 @@ static bool reject_run_state(uint32_t *reason)
     return false;
 }
 
+static bool reject_permission(uint32_t *reason)
+{
+    if (reason != NULL) {
+        *reason = (uint32_t)REFMEM_COMMAND_REASON_PERMISSION_DENIED;
+    }
+    return false;
+}
+
 static bool dpll_role_handler(const uint32_t *params, uint32_t param_words,
                               uint32_t *reason)
 {
@@ -470,6 +478,20 @@ static bool trigger_switch_handler(const uint32_t *params,
 {
     if (params == NULL || param_words != 2u) {
         return reject(reason);
+    }
+    /* HAOFV owner boundary: the switch fact belongs to SWITCH_A/SWITCH_B.
+     * A broadcast target_mask reaches every board, so a counter/gateway board
+     * must refuse with a reason instead of silently no-oping or driving its
+     * local OUT1-OUT3 (both hide the misuse from the origin's ACK aggregate).
+     * Ownership that cannot be proven is also refused (fail closed). */
+    trigger_deployment_snapshot_t snapshot;
+    if (trigger_deployment_snapshot(&snapshot) != 0u || !snapshot.active.valid) {
+        return reject_permission(reason);
+    }
+    const uint32_t role = snapshot.active.local_role;
+    if (role != TRIGGER_DEPLOYMENT_SLOT_SWITCH_A &&
+        role != TRIGGER_DEPLOYMENT_SLOT_SWITCH_B) {
+        return reject_permission(reason);
     }
     if (!sync_io_sequence_set_switch(params[0], params[1])) {
         return reject(reason);
