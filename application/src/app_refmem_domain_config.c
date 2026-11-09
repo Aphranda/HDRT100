@@ -62,6 +62,14 @@ static bool reject_permission(uint32_t *reason)
     return false;
 }
 
+static bool reject_busy(uint32_t *reason)
+{
+    if (reason != NULL) {
+        *reason = (uint32_t)REFMEM_COMMAND_REASON_RESOURCE_BUSY;
+    }
+    return false;
+}
+
 static bool dpll_role_handler(const uint32_t *params, uint32_t param_words,
                               uint32_t *reason)
 {
@@ -487,14 +495,17 @@ static bool trigger_switch_handler(const uint32_t *params,
      * handlers; the STOP-gated snapshot() would reject SWITCH_A/B while the
      * ring is running. */
     trigger_deployment_snapshot_t snapshot;
-    if (trigger_deployment_snapshot_cached(&snapshot) != 0u ||
-        !snapshot.active.valid) {
-        return reject_permission(reason);
+    const uint32_t snap = trigger_deployment_snapshot_cached(&snapshot);
+    if (snap == (uint32_t)TRIGGER_DEPLOYMENT_SERVICE_BUSY) {
+        return reject_busy(reason); /* transient lock/core0 contention */
+    }
+    if (snap != 0u || !snapshot.active.valid) {
+        return reject(reason); /* no active deployment: config prerequisite */
     }
     const uint32_t role = snapshot.active.local_role;
     if (role != TRIGGER_DEPLOYMENT_SLOT_SWITCH_A &&
         role != TRIGGER_DEPLOYMENT_SLOT_SWITCH_B) {
-        return reject_permission(reason);
+        return reject_permission(reason); /* deployed, but not the switch owner */
     }
     if (!sync_io_sequence_set_switch(params[0], params[1])) {
         return reject(reason);
