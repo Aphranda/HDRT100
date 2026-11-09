@@ -81,6 +81,18 @@ Last updated: 2026-11-09
 | M6 receipt 复用旧 trn03 矩阵 | **残余**：证据强度打折，行为证据需另补 |
 | `required_mask`/`last_reason` 语义坑（非 required NACK 写 last_reason） | **残余**：调用方按 `required` + `ack/nack` 判读，不以 `last_reason` 单独判失败 |
 
+## 4.3 第三轮复核（只读子代理 `33b11994`，2026-11-09）
+
+| 声称 | 结论 | 处置 |
+|---|---|---|
+| cached snapshot + P3 build `20261109055830` 源绑定 | 成立（指纹可复算） | 凭证保留；但**不覆盖开关功能路径**（`unverified_scope` 含 sync I/O trigger paths） |
+| boot wait 35 s | 实现成立；**“boot_done 陈旧”归因不成立**（BOOT:RESET 清 BSS） | 已改注释与判据：`fail_step=0 && boot_done=1 && half_ring=0`，pending 非空抛 `AcceptanceError`（`1c6a16c7`） |
+| 无 deployment ⇒ 全板 reason 12 | 成立 | SWITCH_A 正向仍需 stage+activate 部署后补 |
+| “广播曾写 NO1/NO3 OUT1-OUT3” | 部分成立（机制在，历史读回无归档） | 不作为完成证据 |
+| M2 方案可照写 | **不成立** | 提案已重写：A′/B′ 待裁决；`0x100` 与“每周期通用 field/value”均证伪 |
+
+**新发现**：`BOOT:PLAN?` 字段数文档漂移（19 vs 20、0/1-based 混用）；reason 12 同时表示未配置/角色不符/锁竞争（BUSY=32 也映射 12），语义稀释；`wait_boot_replay` 每 2 s `discover()` 会重扫所有串口。均已记录；reason 映射细化留待下次固件批次。
+
 ## 5. C11 待复核项
 
 1. 行 schema 取舍：采用逐槽行（契约文本）还是把契约改为「单板单行」并明确不做跨板读；

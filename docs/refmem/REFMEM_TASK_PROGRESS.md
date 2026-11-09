@@ -45,7 +45,8 @@ Last updated: 2026-11-09
 - TRN-03B workaround（`30f5f7c3`）：reset 后 `wait_boot_replay()` 强制 35 s 窗口再启动 staging；已向 calibration 会话申明 `workflow_steps.py` 变更；不触碰 `app.c`/`profile_level`/`SET_FLIGHT_MODE`/boot profile 语义。
 - 跨会话对齐（2026-11-09）：calibration 会话交付载波分离设计与证据方法学（C/T/Q/S=10 kHz、R=10 MHz、T3 后 latch；P3 间歇失败机制为 R 段 trial 起点锚定 + 10 kHz 维护面延迟）；本域不重复其推导，后续 P3/载波相关判据引用其提交 `d946b9ca`/`fb28dff5`/`5c160d70`/`a1151ff8`。
 - M2 扩展提案（`REFMEM_READ_MODEL_DESIGN_01`，2026-11-09）：DataLink 14 条标量已满、DELTA 仅 width≤4/单 mirror；对比 A 扩表（14→46，版本/包升级）、B 加宽度（schema 变更）、C `RefMemSlotContract` 静态视图（不动模型 version/CRC/package）；推荐 C，待 C11/TDMA 确认 process-image field/value 每周期通路。
-- 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、M6 的 SWITCH_A 正向证据、四板 HIL（M7）；契约仍 pending。
+- 第三轮交叉复核（`33b11994`）：cached/P3 源绑定成立（不覆盖开关功能）；boot wait 归因被证伪（BSS 清零，非 boot_done 陈旧），已改判据为 `fail_step=0 && boot_done=1 && half_ring=0` 且 pending 失败（`1c6a16c7`）；M2 提案的 `0x100` 与“每周期通用 field/value”前提均被证伪，提案已重写为 A′/B′ 待裁决；reason 12 语义稀释（未配置/角色不符/BUSY 都映射 12）记为残余。
+- 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2，A′/B′ 待 C11/TDMA）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、M6 的 SWITCH_A 正向证据、四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 

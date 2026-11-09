@@ -1498,26 +1498,25 @@ region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/sw
   约 5 chunk，单次变更需数秒；若做 4 key × 4 板连续刷新约 768 B/s，远超该通道约 4 B/s，
   **不可行**（只适合极低频单条命令，不适合读模型）。
 - **C 命令面 request/response**：违反 CP4/D0-A，**不采用**。
-- **B（HAOFV 冻结）复用既有 `DataLinkTable` + `REFMEM_DELTA`**：读 key 作为 DataLink 条目登记
-  （`region_path/writer_instance/type/update_period_us/stale_window_us`），发布器按
-  `update_period_us` 采样并令 `field_id = data_link_id`；接收端镜像按
-  `(source_slot, data_link_id)` 存值，`stale` 直接用条目的 `stale_window_us`。
-  **不新增帧类型/席位/私有 field 命名空间**——这是上一版 `0x100+key*16+word` 的错误：
-  它绕开了已冻结的 DataLink 契约，属于重复造轮子。
+- **A′ 扩 DataLink 表**：14→46（每 word 一条）、`REFTMEM_APP_MODEL_VERSION` 1→2，
+  wire size/table CRC/package CRC 与 host packer/golden 同步；DataLink 无 offset 字段，
+  仍需为 32 word 指定 region/offset 归宿。
+- **B′ 真实 `RefMemSlotContract` 静态表**：`field_slot_id/offset/width/writer/type/
+  update_period_us/stale_window_us`，mirror 按 `(slot, field_slot_id)`；**不改** model
+  version/CRC/package，但需在 10 B 片增加 field 选择器并与 position-ack/first-class fact 仲裁。
 
-当前缺口不是“缺一条 OBS 通道”，而是 **DataLinkTable 只有解析/校验、没有运行时发布器/监控器**：
-`update_period_us/stale_window_us` 在 `refmem_application_model.c:770-771` 只被读入，
-全仓无消费者。M2 要补的是这个 **DataLink runtime**（发布器 + 按 `data_link_id` 的镜像），
-OBS 只是它的第一个读者；后续 `quality/fault/trigger` 等 key 复用同一条通道。
+**运输事实（2026-11-09 复核，修正上一版）。** 现树 10 B 片的实际写入点是
+`distributed_refmem.c:820-826`：`field_id` 恒为 `TDMA_PROCESS_IMAGE_REFMEM_BASELINE_FIELD_ID`(0)、
+value 是 `s_service_count`；`action_patch_mailbox()`（`:889-897`）是 probe/position-ack 仲裁，
+**不是通用每周期 field/value 通道**。因此 A′/B′ 都必须先解决“选择器 + 仲裁”，属 TDMA 级决策。
 
-B 的约定：写者按 `update_period_us` 采样自己的 DataLink 条目（单写者）；读侧用
-`(slot, data_link_id)` 的最新 `seq`/值；`stale` 用条目的 `stale_window_us`，不用“值未变多久”。
-时基用读者本地 tick；跨板 `age_ms` 近似，`stale` 只用同一读者的时基。
+**方案状态（待 C11/TDMA 裁决）。** A′ 与 B′ 二选一：A′ 改动集中在模型/包/打包器；
+B′ 改动集中在契约表/镜像/TDMA 选择器。**`0x100+key*16+word` 不得作为裸魔数使用**；
+若 B′ 采用该范围，必须由真实契约表分配 `field_slot_id`，并同步修订本节此前的冻结表述。
 
 **落地前置（2026-11-09 复核）。** DataLink 是标量表且 **14/14 已满**；`REFMEM_DELTA` 接收端拒绝
-`field_width > 4`，且每个源槽只有一个 mirror。8 个读 key 共 32 个 schema word，因此必须
-**扩模型**（`REFMEM_APP_MODEL_VERSION`、wire size、table CRC、package CRC，可能还要扩
-`writer_instance` 表）或按 word 拆成多条 DataLink；这是模型级改动，不是“只补 runtime”。
+`field_width > 4`，且每个源槽只有一个 mirror。8 个读 key 共 32 个 schema word，因此“只补
+runtime”不够，必须扩模型（A′）或新建契约表/镜像/选择器（B′）。
 
 **实现状态（M4 行格式，2026-11-09）。** `OBS?` 已按本节返回逐槽行：本地槽由本板 provider
 出 `valid=1`（`epoch/seq` 暂为占位 1，真实发布计数器随 R1-3）；对端槽无发布者时
