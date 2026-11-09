@@ -793,6 +793,14 @@ bool distributed_refmem_cmd_reply_status(refmem_cmd_reply_status_t *status);
 bool distributed_refmem_get_node_status(uint32_t node_id,
                                         refmem_node_status_t *status);
 
+/* M2 OBS field mirror: value/seq/updated for one (source_slot, field_id) as
+ * received on the compact process-image plane.  False until the field has been
+ * published by that peer.  field_id is allocated by the read contract
+ * (REFTMEM_OBS_FIELD_BASE..+COUNT). */
+bool distributed_refmem_get_obs_field(uint8_t source_slot, uint16_t field_id,
+                                      uint32_t *value, uint32_t *seq32,
+                                      uint32_t *updated_ms);
+
 bool distributed_refmem_node_control_write(uint32_t node_id,
                                            const refmem_command_snapshot_t *snapshot,
                                            uint32_t seq);

@@ -1566,6 +1566,15 @@ uint32_t distributed_refmem_local_slot(void)
                : (uint32_t)DISTRIBUTED_REFMEM_NODE_COUNT - 1u;
 }
 
+bool distributed_refmem_get_obs_field(uint8_t source_slot, uint16_t field_id,
+                                      uint32_t *value, uint32_t *seq32,
+                                      uint32_t *updated_ms)
+{
+    return refmem_sync_delta_get_obs_field(
+        &distributed_refmem_tdma_flight_sync()->context, source_slot, field_id,
+        value, seq32, updated_ms);
+}
+
 bool distributed_refmem_param_pool_access(uint8_t **region, size_t *size)
 {
     if (region == NULL || size == NULL) {

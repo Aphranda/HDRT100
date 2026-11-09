@@ -52,6 +52,12 @@ typedef struct {
     uint32_t drop_count;
 } refmem_sync_quality_counters_t;
 
+/* M2 field multiplexing (REFMEM-READ-01 B''): the compact frame already
+ * carries one (field_id, value) per cycle; ids in this range are per-word OBS
+ * fields allocated by the read contract (not a private raw namespace). */
+#define REFMEM_OBS_FIELD_BASE 0x0100u
+#define REFMEM_OBS_FIELD_COUNT 32u
+
 typedef struct {
     uint32_t visible;
     uint32_t source_slot;
@@ -275,6 +281,10 @@ const refmem_sync_peer_state_t *refmem_sync_delta_get_peer(
 const refmem_sync_mirror_snapshot_t *refmem_sync_delta_get_mirror(
     const refmem_sync_delta_context_t *context,
     uint8_t source_slot);
+bool refmem_sync_delta_get_obs_field(
+    const refmem_sync_delta_context_t *context,
+    uint8_t source_slot, uint16_t field_id,
+    uint32_t *value, uint32_t *seq32, uint32_t *updated_ms);
 void refmem_sync_delta_get_quality(const refmem_sync_delta_context_t *context,
                                    refmem_sync_quality_counters_t *quality);
 /* Cold initialization only, before any concurrent reader can access context. */

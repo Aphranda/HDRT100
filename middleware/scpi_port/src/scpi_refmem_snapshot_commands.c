@@ -1322,6 +1322,47 @@ scpi_result_t scpi_cmd_ctrl_function_catalog_q(scpi_t *context)
  * key has no provider on this board (the caller then publishes a stale row).
  * `epoch/seq` are placeholders until the R1-3 publish plane supplies the real
  * publisher counters; `age_ms` is 0 because the snapshot is taken now. */
+static bool refmem_obs_fill_peer_row(uint32_t key, uint32_t slot,
+                                     refmem_obs_row_t *row)
+{
+    const uint32_t words = refmem_obs_schema_words((uint8_t)key);
+    if (words == 0u || words > REFMEM_OBS_MAX_ROW_WORDS) {
+        return false;
+    }
+    uint32_t base = 0u;
+    for (uint32_t k = 1u; k < key; k++) {
+        base += refmem_obs_schema_words((uint8_t)k);
+    }
+    uint32_t min_seq = UINT32_MAX;
+    uint32_t max_age = 0u;
+    for (uint32_t w = 0u; w < words; w++) {
+        uint32_t value = 0u, seq = 0u, updated = 0u;
+        if (!distributed_refmem_get_obs_field(
+                (uint8_t)slot,
+                (uint16_t)(REFMEM_OBS_FIELD_BASE + base + w),
+                &value, &seq, &updated)) {
+            return false;
+        }
+        row->row[w] = value;
+        if (seq < min_seq) {
+            min_seq = seq;
+        }
+        if (updated != 0u) {
+            const uint32_t now = to_ms_since_boot(get_absolute_time());
+            const uint32_t age = now >= updated ? now - updated : 0u;
+            if (age > max_age) {
+                max_age = age;
+            }
+        }
+    }
+    row->valid = 1u;
+    row->epoch = 1u; /* publish generation placeholder until epoch lands */
+    row->seq = min_seq == UINT32_MAX ? 0u : min_seq;
+    row->age_ms = max_age;
+    row->stale = 0u;
+    return true;
+}
+
 static bool refmem_obs_fill_local_row(uint32_t key, refmem_obs_row_t *row)
 {
     if (row == NULL) {
@@ -1473,6 +1514,11 @@ scpi_result_t scpi_cmd_refmem_obs_q(scpi_t *context)
         row->row_words = refmem_obs_schema_words((uint8_t)key);
         if (row->row_words > REFMEM_OBS_MAX_ROW_WORDS) {
             row->row_words = REFMEM_OBS_MAX_ROW_WORDS;
+        }
+        if (offset + i != local_slot) {
+            if (refmem_obs_fill_peer_row(key, offset + i, row)) {
+                continue;
+            }
         }
         if (offset + i != local_slot ||
             !refmem_obs_fill_local_row(key, row)) {

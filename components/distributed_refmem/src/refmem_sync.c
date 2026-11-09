@@ -4,6 +4,15 @@
 
 #define REFMEM_SYNC_VDC_COPY_ATTEMPTS 3u
 
+/* M2 OBS field mirror (REFMEM-READ-01 B''): one shared copy, not per context,
+ * so the RAM cost is 8 slots x 32 words x 4 B + metadata.  Presence is a
+ * bitmap; a peer that stops publishing stops refreshing seq/updated, which is
+ * what the reader turns into stale. */
+static uint32_t s_obs_value[REFMEM_SYNC_NODE_COUNT][REFMEM_OBS_FIELD_COUNT];
+static uint32_t s_obs_mask[REFMEM_SYNC_NODE_COUNT];
+static uint32_t s_obs_seq[REFMEM_SYNC_NODE_COUNT];
+static uint32_t s_obs_updated_ms[REFMEM_SYNC_NODE_COUNT];
+
 static uint32_t refmem_sync_vdc_begin_write(
     refmem_sync_vdc_context_t *context)
 {
@@ -93,7 +102,18 @@ static bool refmem_sync_commit_delta(refmem_sync_mirror_snapshot_t *mirror,
     mirror->field_offset = delta.field_offset;
     mirror->field_width = delta.field_width;
     mirror->dirty_mask = delta.dirty_mask;
-    mirror->value_u32 = refmem_sync_read_le_u32(&payload[sizeof(delta)], delta.field_width);
+    const uint32_t value =
+        refmem_sync_read_le_u32(&payload[sizeof(delta)], delta.field_width);
+    mirror->value_u32 = value;
+    if (delta.field_id >= REFMEM_OBS_FIELD_BASE &&
+        delta.field_id < REFMEM_OBS_FIELD_BASE + REFMEM_OBS_FIELD_COUNT &&
+        delta.field_width == 4u) {
+        const uint32_t index = delta.field_id - REFMEM_OBS_FIELD_BASE;
+        s_obs_value[header->source_slot][index] = value;
+        s_obs_mask[header->source_slot] |= 1u << index;
+        s_obs_seq[header->source_slot] = header->seq32;
+        s_obs_updated_ms[header->source_slot] = header->compact_time;
+    }
     mirror->value_crc32 = header->payload_crc32;
     mirror->last_frame_seq32 = header->seq32;
     mirror->committed_count++;
@@ -541,6 +561,10 @@ bool refmem_sync_delta_init(refmem_sync_delta_context_t *context,
         return false;
     }
     memset(context, 0, sizeof(*context));
+    memset(s_obs_value, 0, sizeof(s_obs_value));
+    memset(s_obs_mask, 0, sizeof(s_obs_mask));
+    memset(s_obs_seq, 0, sizeof(s_obs_seq));
+    memset(s_obs_updated_ms, 0, sizeof(s_obs_updated_ms));
     context->local_slot = local_slot;
     context->active_epoch_id = active_epoch_id;
     context->active_run_id = active_run_id;
@@ -586,6 +610,27 @@ const refmem_sync_mirror_snapshot_t *refmem_sync_delta_get_mirror(
         return NULL;
     }
     return &context->mirror[source_slot];
+}
+
+bool refmem_sync_delta_get_obs_field(
+    const refmem_sync_delta_context_t *context,
+    uint8_t source_slot, uint16_t field_id,
+    uint32_t *value, uint32_t *seq32, uint32_t *updated_ms)
+{
+    if (context == NULL || value == NULL || seq32 == NULL ||
+        updated_ms == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT ||
+        field_id < REFMEM_OBS_FIELD_BASE ||
+        field_id >= REFMEM_OBS_FIELD_BASE + REFMEM_OBS_FIELD_COUNT) {
+        return false;
+    }
+    const uint32_t index = field_id - REFMEM_OBS_FIELD_BASE;
+    if ((s_obs_mask[source_slot] & (1u << index)) == 0u) {
+        return false;
+    }
+    *value = s_obs_value[source_slot][index];
+    *seq32 = s_obs_seq[source_slot];
+    *updated_ms = s_obs_updated_ms[source_slot];
+    return true;
 }
 
 void refmem_sync_delta_get_quality(const refmem_sync_delta_context_t *context,
