@@ -483,9 +483,12 @@ static bool trigger_switch_handler(const uint32_t *params,
      * A broadcast target_mask reaches every board, so a counter/gateway board
      * must refuse with a reason instead of silently no-oping or driving its
      * local OUT1-OUT3 (both hide the misuse from the origin's ACK aggregate).
-     * Ownership that cannot be proven is also refused (fail closed). */
+     * The cached snapshot is the RUN-safe read used by the other unified T2
+     * handlers; the STOP-gated snapshot() would reject SWITCH_A/B while the
+     * ring is running. */
     trigger_deployment_snapshot_t snapshot;
-    if (trigger_deployment_snapshot(&snapshot) != 0u || !snapshot.active.valid) {
+    if (trigger_deployment_snapshot_cached(&snapshot) != 0u ||
+        !snapshot.active.valid) {
         return reject_permission(reason);
     }
     const uint32_t role = snapshot.active.local_role;
