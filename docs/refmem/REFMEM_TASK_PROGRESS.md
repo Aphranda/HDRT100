@@ -29,6 +29,7 @@ Last updated: 2026-11-09
 - M0 文档（`fc0a1de0`）：SCPI 文档去掉「-200/待 M2」；READ-01 id 统一 `REFMEM-`；登记表 catalog 36→38（快照，以 `refmem_command_catalog_count` 为准）；READ-01 证据回写 6/8、host/smoke 已完成、C11 记录待补；新增 `submissions/REFMEM_READ_CROSS_REVIEW_01.md`（补位提交，明确待复核、不冒充通过）。
 - M1（`31e4f15f`）：行 schema 定稿——应答 `key,offset,count` 头 + N 条 `slot,valid,epoch,seq,age_ms,stale,<schema>`；`offset/count` 为槽位区间；每行仅由该 slot 的 owner 发布，远端槽读本地镜像，未发布 `valid=0`，不得用本地 provider 冒充当槽。
 - 验证：`pytest tests/python/test_refmem_control_plane.py` 8 passed；host acceptance 85 passed；`docs_check` 280 files；`doc_regression` 63 contracts。
+- 交叉复核（只读子代理 `b2e480b5`，2026-11-09）：5 组声称全部成立；N1 已修（新增 `wait_aggregate()` 读 `CTRL:STATus?`，`wait_terminal` 容忍无记录并仅限本地）、N2/N3/N6/N7/N8 已修；N4 随 M2 固件批次（需 P3），N5/N9 记 OPEN。
 - 当前 OPEN：逐槽行/`stale`（M4）、发布面 R1-3（M2）、pilot region R1-2a（M2）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、开关语义与广播误伤（M6）、四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态

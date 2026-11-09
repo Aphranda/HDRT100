@@ -37,13 +37,41 @@ Last updated: 2026-11-09
 | 6 | 契约 id `REFTMEM-READ-01` 与登记 `REFMEM-READ-01` 混用 | READ-01 三处改为 `REFMEM-`；历史 `REFTMEM-LEASE/IDLE` 为既有登记，不批量改 | PARTIAL（READ-01 已一致） |
 | 7 | `OBS?` 硬编码 `4u` 而非 `DISTRIBUTED_REFMEM_NODE_COUNT` | 列入 M4 | OPEN（M4） |
 
-## 4. C11 待复核项
+## 4. 独立复核记录（只读子代理 `b2e480b5-f191-4364-9318-66813ecff1e3`，2026-11-09）
+
+基线：评审期间 HEAD `7c2ed8e4` → `fc0a1de0` → `31e4f15f` → `9d0763a0`；未改文件、未跑硬件。
+5 组声称全部「成立」，另提 9 项新发现。
+
+| # | 声称 | 结论 | 差异 |
+|---|---|---|---|
+| 1 | `ControlPlane.write/wait_terminal` 接真实入口 | 成立 | 参数序、`QUEUED,<seq>`、字段索引、4/5/6 终态均对；仅语义差别：write 只发数字 id、params 必须匹配 `param_words`、`targets=1` 且 `required` 默认 0xF 会被掩码拒绝 |
+| 2 | 8 用例 + host 门禁 | 成立 | `DEFAULT_PATHS` 与 committed receipt 均含该文件；但 simulator 只命令名一致、报文形状不一致（N2/N3） |
+| 3 | 文档口径与 catalog 38 | 成立 | 自数 yaml/C 表均 38 行；`-200/待 M2` 已删 |
+| 4 | C11 补位提交单 | 成立 | 存在、明写待复核、README 已索引；旧「有结论无记录」债仍在 |
+| 5 | OPEN 项描述 | 成立 | 单板单行、age 恒 0、无发布面/region、3/8 无分支、页面无 ControlPlane 引用；措辞瑕疵：wire 上无 `stale` 字段，"stale 恒 0" 是宿主派生 |
+
+**新发现与处置**
+
+| # | 发现 | 处置 |
+|---|---|---|
+| N1 | `wait_terminal` 无法等待「记录尚未产生」（空记录无应答→TransportError），且远端 slot 在 origin 取不到记录 | 已改：新增 `wait_aggregate()` 轮询 `CTRL:STATus?`（origin 聚合，覆盖 required）；`wait_terminal` 容忍无记录并标注仅本地 |
+| N2 | simulator OBS 形状与固件不符；用例用未实装 key 3 断言 `valid=1` | 已改：schema/implemented 表；新增 key 3 stale 用例 |
+| N3 | `write` 允许缺 params，实板会 `BAD_ARGUMENT` | 已改文档；用例改用 id 42（3 words） |
+| N4 | `read_catalog.yaml` 与 `refmem_obs.h` 行格式双真源 | OPEN（M2 随固件批次；工作区已标 target/current，提交需 P3） |
+| N5 | `refmem_cmd_reply_hil.py` 空记录注释过期 | OPEN（工具注释，M5 顺带） |
+| N6 | `run_refmem_obs_tests.py` 仍写 `REFTMEM-READ-01` | 已改 `REFMEM-` |
+| N7 | 迁移清单把 R1-2a（region/存储）与 R1-3（发布面）混写为「逐槽行」 | 已改：两线分开列 |
+| N8 | 登记表声称 `build 20261109001932` 的 smoke，产物不可复跑 | 已改为「作者记录、产物未入库、不可复跑」 |
+| N9 | demo `device.py` 目录仅 36 行、按名字查表，无法承接数字 id | OPEN（M5 页面迁移一并修） |
+
+## 5. C11 待复核项
 
 1. 行 schema 取舍：采用逐槽行（契约文本）还是把契约改为「单板单行」并明确不做跨板读；
 2. 发布面是否必须「唯一 writer + core0 发布 + dirty-key 增量」，以及 pilot region 的语义登记；
 3. 读面不带 `target/required_mask`、不返回 NACK 的边界是否成立；
-4. `valid=0 → age=0xFFFFFFFF/stale=1` 与 `stale_window_us` 的复用是否足够。
+4. `valid=0 → age=0xFFFFFFFF/stale=1` 与 `stale_window_us` 的复用是否足够；
+5. `wait_aggregate` 作为远端命令唯一等待语义，是否需要在契约里显式写出。
 
-## 5. 结论
+## 6. 结论
 
-**待独立 C11 复核。** 本文件不冒充已通过；登记表此前记 `APPROVE_WITH_NOTES（2026-11-09）` 但 `docs/check/submissions/` 无对应记录，本文件为补位提交，复核结论落盘后再回写登记表。
+**待独立 C11 复核。** 本文件不冒充已通过；登记表此前记 `APPROVE_WITH_NOTES（2026-11-09）` 但无独立记录，本文件为补位提交，复核结论落盘后再回写登记表。
