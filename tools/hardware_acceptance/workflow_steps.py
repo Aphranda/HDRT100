@@ -1709,6 +1709,22 @@ def _run_with_heartbeat(command: list[str], root: Path, environment: dict[str, s
                                        stdout=log_path.read_bytes())
 
 
+def _fresh_factory_uf2(build_dir: Path) -> Path:
+    """Return the factory UF2 the current build produced.
+
+    Same v1/v2 naming split as the update package; a reused build directory can
+    keep a stale ``DHRT100_FACTORY.uf2`` next to the fresh
+    ``DHRT100_V2_CANDIDATE_FACTORY.uf2``.  Pick the newer file, never by mere
+    existence.
+    """
+    legacy = build_dir / "DHRT100_FACTORY.uf2"
+    v2 = build_dir / "DHRT100_V2_CANDIDATE_FACTORY.uf2"
+    if v2.is_file() and (not legacy.is_file()
+                         or v2.stat().st_mtime > legacy.stat().st_mtime):
+        return v2
+    return legacy
+
+
 def _read_package_build_id(path: Path) -> str:
     data = path.read_bytes()[:512]
     if len(data) < 512 or int.from_bytes(data[0:4], "little") != 0x474B5054:
@@ -4996,7 +5012,7 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
             print("DPLL-60 acceptance: flashing 4 boards with picotool",
                   flush=True)
             flash_with_picotool(root, out_dir, board_ids,
-                                build_dir / "DHRT100_FACTORY.uf2")
+                                _fresh_factory_uf2(build_dir))
             print("DPLL-60 acceptance: picotool flash complete; continuing with "
                   "TDMA short-frame and DPLL 60 s", flush=True)
             # Evidence substitution only: the OTA step below is skipped, so the
