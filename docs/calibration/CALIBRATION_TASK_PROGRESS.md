@@ -12,6 +12,14 @@ Last updated: 2026-11-09
 
 ## 当前 checkpoint
 
+## CAL-TASK-20261109-014 - P3 验收阻塞链修复与 FULL 凭证
+
+- **FULL 凭证**：`config/hardware_acceptance/p3_acceptance_receipt.json`（V4，build `20261109100351`，指纹 `b1ef2ccc…`，1004 源文件，scope FULL，passed=true）。运行目录 `out/HardwareAcceptance/20261109/hawf-180333`（24–36 续跑）。
+- **修复 1（记录器 FROZEN 死锁，`7f381ef2`）**：采集结束后板端记录停在 FROZEN(5)，staging 先推进 `ring_config_seq` 使下一轮 SAVE 被拒；CANCEL 在 FROZEN 无效、ARM 拒绝，只能 `BOOT:RESET`。改为 STOP 后、staging 前 SAVE 旧记录。
+- **修复 2（反馈间隙判据，`d7c78154`→`77767752`）**：原点 TX 领先 RX 属相位抖动（8 次运行 20 区间净漂移 0、`rx_bad=0`）；判据改为逐区间 ≤2、窗口净漂移 ≤2，瞬时深度 ≤3 仅诊断。
+- **修复 3（预算记账，`77767752`）**：step 33 原按 run 目录全部 invocation 累计，续跑必超 100 s；改为只计当前调用。
+- **残余**：followers refmem 相位 WCET 尾部越限（29k 对 31.7–37.6k）历史多次触发，本轮 34 为 INFO 42/ERROR 0；FROZEN 无 CANCEL 逃生仍属固件侧，需另立 C11 评审。
+
 最新条目在最上面；轮转把最旧的一段搬到 `docs/legacy/calibration/`，索引见文末。
 
 ## CAL-TASK-20261109-013 - 口径冻结与纠正计划：10K 引导 / 10M 测量 / T3 后 10M 常驻
