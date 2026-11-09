@@ -1952,6 +1952,66 @@ def read_online_builds(board_ids: list[str], timing: dict[str, float]) -> dict[s
     return {board_id: board.build for board_id, board in boards.items()}
 
 
+def wait_boot_replay(board_ids: list[str], timing: dict[str, float],
+                     timeout_s: float = 40.0,
+                     poll_s: float = 2.0) -> dict[str, Any]:
+    """Wait for the boot-profile replay window (app.c 3-33 s) to close.
+
+    ``reset_acceptance_boards`` returns as soon as the USB set re-enumerates
+    (~4 s), but the firmware's own boot replay runs from t=3 s to t=33 s and
+    writes the ARM/TDMA state.  Driving TRN-03B inside that window produced
+    ``TDMA_OPMODE_APPLY_STOP_REQUIRED`` on NO.2/NO.3 (2026-11-09).  Poll
+    ``BOOT:PLAN?``: done when ``boot_done``(17) is 1, or when no profile is
+    loaded (``profile_source``(19) == 0, so there is no replay).
+    """
+    sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
+    from tdma_start_ring import (  # type: ignore
+        board_command, close_persistent_connections, discover)
+
+    args = argparse.Namespace(
+        board_ids=board_ids,
+        baud=115200,
+        timeout=timing["serial_timeout_s"],
+        action_timeout=timing["action_timeout_s"],
+        settle=timing["input_settle_s"],
+        read_timeout=timing["serial_read_timeout_s"],
+        keep_open=False,
+        short_open=True,
+    )
+    started = time.monotonic()
+    # The replay window is 3-33 s.  `boot_done` can still read 1 from the
+    # previous boot at t<3 s, so an early poll is not evidence; enforce the
+    # window (35 s) before trusting it.
+    min_wait_s = 35.0
+    while time.monotonic() < started + min_wait_s:
+        time.sleep(1.0)
+    deadline = started + max(timeout_s, min_wait_s + 10.0)
+    pending = set(board_ids)
+    last: dict[str, list[int]] = {}
+    while pending and time.monotonic() < deadline:
+        close_persistent_connections()
+        boards = discover(args)
+        for board_id in list(pending):
+            board = boards.get(board_id)
+            if board is None:
+                continue
+            raw = board_command(board, "SYST:TDMA:BOOT:PLAN?", args)
+            values = [int(v) for v in raw.replace('"', '').split(',')
+                      if v.strip().lstrip('-').isdigit()]
+            if len(values) < 20:
+                continue
+            last[board_id] = values
+            if values[19] == 0 or values[17] == 1:
+                pending.discard(board_id)
+        if pending:
+            time.sleep(poll_s)
+    return {
+        "waited_s": round(time.monotonic() - started, 3),
+        "pending": sorted(pending),
+        "last": last,
+    }
+
+
 def reset_acceptance_boards(board_ids: list[str], build_id: str,
                             timing: dict[str, float]) -> dict[str, Any]:
     """Software-reset one exact UID set and verify clean re-enumeration."""
@@ -5048,6 +5108,15 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
     reset_path.write_text(
         json.dumps(reset_evidence, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")
+
+    # The firmware boot replay runs for ~30 s after the reset and mutates the
+    # same ARM/TDMA state TRN-03B stages; wait for it before driving staging.
+    boot_wait = wait_boot_replay(board_ids, timing)
+    (out_dir / "boot-replay-wait.json").write_text(
+        json.dumps(boot_wait, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    print(f"DPLL-60 acceptance: boot replay waited {boot_wait['waited_s']}s "
+          f"pending={boot_wait['pending']}", flush=True)
 
     tdma_dir = out_dir / "tdma-process-image"
     tdma_command = [sys.executable,
