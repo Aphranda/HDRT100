@@ -75,7 +75,8 @@ Last updated: 2026-11-09
 - dispatch 诊断（2026-11-09，`63817965`，build `20261109121613`）：新增 `SYST:REFMEM:CMD:DISPatch?`（service_calls/read_params_fail/broadcast_wait/last_skip）。10 MHz 环上实测：四板计数 ~29 万次调用、~28 万次 read_params 失败，但**绝大多数是空闲轮询无记录**，不能区分广播记录；SWITCH 仍 state 1、origin TIMEOUT 11。下一步需“仅在新 seq 上计数”或对比远端载荷同步。
 - take/状态更新诊断（2026-11-09，`2a196a58`，build `20261109124923`）：新增 `distributed_refmem_node_control_sequence()`，只统计 live 新记录的 `read_params` 失败；10 MHz 环广播后四板 `read_params_fail=0`、`last_skip=2`（记录已被消费），但 COM4/6 仍 `state 1` → 问题在**执行后 node-control 状态更新未生效**，不在读取/传输。take 被拒路径已改为镜像 NACK（防御性，防止静默消费）。
 - 广播执行闭环（2026-11-09，`e8609fe7`，build `20261109133700`）：ACK 分支补 node-control 状态镜像；10 MHz 环广播后 COM4/6 `state 4 ACKED` 且 `READ:SWITch1?` 5、COM3 `state 5 / reason 12` 且回读 1。**目标执行与逐板读回已一致**；origin 仍 `state 6 / reason 11`（ack=0xA/nack=0x4 完整、timeout_flags=0），聚合状态簿记未修。
-- 当前 OPEN：origin 聚合状态（应为 NACKED 5 而非 TIMEOUT 6）、单板缺板 NACK；契约仍 pending。
+- 契约转 active（2026-11-09，`c1f5dfe7`，build `20261109135258`）：广播聚合 HIL（SWITCH_A/B state 4 且回读 5、COUNTER/GATEWAY NACK 12、origin state 5/ack=0xA/nack=0x5）与缺板 fail-closed（origin state 6/timeout=0xE）齐；`REFMEM-READ-01` **pending→active**。残余：缺板表现为 TIMEOUT 而非 NACKED；seq/age 仍为发布面占位。
+- 当前 OPEN：缺板 NACKED 化（可选）、seq/age 真实化、页面其余项。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 

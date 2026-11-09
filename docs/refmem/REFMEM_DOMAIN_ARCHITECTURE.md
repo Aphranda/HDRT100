@@ -1541,7 +1541,7 @@ runtime”不够，必须扩模型（A′）或新建契约表/镜像/选择器�
 **单写者与撕裂。** 每 key 仅一个 writer；读侧用 `seq` 校验（`seq` 变化即重读一次）；跨 key 不保证
 同一时刻快照，行级 `epoch/seq` 是唯一一致性口径。
 
-**契约状态**：pending（**8/8 key 本地；逐槽行已于 M4 实装，真实 seq/age 待 R1-3**）；代码锚点
+**契约状态**：**active（2026-11-09）**——8/8 key 本地、逐槽 OBS、跨板写读 HIL、广播聚合与缺板 fail-closed 证据齐（`out/refmem_read/swfix_20261109.txt`、`missing_board_20261109.txt`）；残余：缺板为 TIMEOUT 而非 NACKED，seq/age 仍为发布面占位。代码锚点
 `components/distributed_refmem/src/refmem_obs.c`（行编码）、
 `middleware/scpi_port/src/scpi_refmem_snapshot_commands.c`（`SYSTem:REFMEM:OBS?`）。
 
