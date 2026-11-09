@@ -1958,11 +1958,14 @@ def wait_boot_replay(board_ids: list[str], timing: dict[str, float],
     """Wait for the boot-profile replay window (app.c 3-33 s) to close.
 
     ``reset_acceptance_boards`` returns as soon as the USB set re-enumerates
-    (~4 s), but the firmware's own boot replay runs from t=3 s to t=33 s and
-    writes the ARM/TDMA state.  Driving TRN-03B inside that window produced
-    ``TDMA_OPMODE_APPLY_STOP_REQUIRED`` on NO.2/NO.3 (2026-11-09).  Poll
-    ``BOOT:PLAN?``: done when ``boot_done``(17) is 1, or when no profile is
-    loaded (``profile_source``(19) == 0, so there is no replay).
+    (~4 s), but the firmware's own boot replay is a bounded 3-33 s activity and
+    a failed replay restarts from STOP; a host STOP issued inside that window
+    can therefore be undone by the next replay ARM/START.  That is why the
+    host must not drive TRN-03B before the window closes (the earlier
+    ``TDMA_OPMODE_APPLY_STOP_REQUIRED`` failures).  The gate is the full
+    documented triple: ``boot_done=1`` **and** ``fail_step=0`` **and**
+    ``half_ring=0``; a missing board or an incomplete gate is an error, not a
+    warning.
     """
     sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
     from tdma_start_ring import (  # type: ignore
@@ -1979,18 +1982,19 @@ def wait_boot_replay(board_ids: list[str], timing: dict[str, float],
         short_open=True,
     )
     started = time.monotonic()
-    # The replay window is 3-33 s.  `boot_done` can still read 1 from the
-    # previous boot at t<3 s, so an early poll is not evidence; enforce the
-    # window (35 s) before trusting it.
+    # The replay window is 3-33 s; enforce it instead of trusting an early
+    # BOOT:PLAN? sample.
     min_wait_s = 35.0
     while time.monotonic() < started + min_wait_s:
         time.sleep(1.0)
     deadline = started + max(timeout_s, min_wait_s + 10.0)
     pending = set(board_ids)
     last: dict[str, list[int]] = {}
+    boards = discover(args)
     while pending and time.monotonic() < deadline:
-        close_persistent_connections()
-        boards = discover(args)
+        if set(boards) != set(board_ids):
+            close_persistent_connections()
+            boards = discover(args)
         for board_id in list(pending):
             board = boards.get(board_id)
             if board is None:
@@ -2001,10 +2005,21 @@ def wait_boot_replay(board_ids: list[str], timing: dict[str, float],
             if len(values) < 20:
                 continue
             last[board_id] = values
-            if values[19] == 0 or values[17] == 1:
+            # fail_step=3, half_ring=16, boot_done=17.
+            if values[3] == 0 and values[16] == 0 and values[17] == 1:
                 pending.discard(board_id)
         if pending:
             time.sleep(poll_s)
+    result = {
+        "waited_s": round(time.monotonic() - started, 3),
+        "pending": sorted(pending),
+        "last": last,
+    }
+    if pending:
+        raise AcceptanceError(
+            f"boot replay not complete after {result['waited_s']}s: "
+            f"pending={result['pending']} last={last}")
+    return result
     return {
         "waited_s": round(time.monotonic() - started, 3),
         "pending": sorted(pending),
