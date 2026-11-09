@@ -143,10 +143,10 @@ ACK/NACK 语义分离。若后续确需 B（同步 `CTRL:READ?`），先单独�
 
 | 项 | 状态 | 证据 |
 |---|---|---|
-| 读契约 `REFTMEM-READ-01` | **pending**（8 key 表 + OBS 语义 + registry 已登记；固件未实现） | `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:1440-1496`、`DOCS_REGISTRY.md` |
-| read catalog 生成器 + host 用例 | 已入库 | `2d628593`、`tools/refmem/refmem_read_catalog_gen.py` |
-| `SYST:REFMEM:OBS?` / pilot 存储 | **未实现** | — |
-| M3 控制面（read/write/wait_terminal + 模拟器） | 首批已入库 | `tools/refmem/control_plane.py`、84 host tests |
+| 读契约 `REFTMEM-READ-01` | **pending（pilot 已实装）**：wire/分页/stale/错误码 + 4 个 pilot key 在实板可用；其余 4 key 与 R1-2a 未做 | `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:1440-1516`、`DOCS_REGISTRY.md` |
+| read catalog 生成器 + host 用例 | 已入库（含 drift 检查与逐 key schema 断言） | `2d628593`、`3b9d3250`、`tools/refmem/refmem_read_catalog_gen.py` |
+| `SYST:REFMEM:OBS?` / pilot provider | **已实装（4 key）**：switch1/2、guide_plan、ring_status 从本地快照取值，其余 stale | `836dae7a`、`tools/refmem/control_plane_smoke.py`、build `20261108235251` |
+| M3 控制面（read/write/wait_terminal + 模拟器） | 首批已入库 + `read()` 实板 smoke 通过 | `7db8b04c`、`5c031aa8` |
 | 阶梯 P1@7（level 7） | 四板 PASS（严格 verdict） | `evidence/20261109-055753-verify-1`（build `20261108214336`） |
 | 阶梯 P2 | 四板 COMPLETE | `docs/calibration/CALIBRATION_TASK_PROGRESS.md` CAL-TASK-20261109-010 |
 | 阶梯 P3 | 2/4 板 12/12；NO.1/NO.2 link0 TIMEOUT **OPEN** | `CAL-TASK-20261109-011` |
