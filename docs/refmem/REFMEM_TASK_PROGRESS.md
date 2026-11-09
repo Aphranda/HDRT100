@@ -57,7 +57,8 @@ Last updated: 2026-11-09
 - M2 通道复核（2026-11-09）：`refmem_sync_commit_delta()` 已接受任意 `field_id/width<=4` 并保存值，发送端每周期已带 `field_id/value`（现写 baseline 0 + `s_service_count`）；因此 M2 选 **B″（REFMEM 本地字段复用）**——发送轮转 + `[slot][field]` mirror + OBS 组合，不改 wire/模型 version/CRC/package，也不需要 TDMA 选择器。待 C11 复核 id 范围/隔帧 baseline/RAM 后实现。
 - 广播命令席复测（2026-11-09）：三种假设均失败——10 kHz + `LOAD:MASK 27` → QUEUED；再加 `--process-image` → 仍 QUEUED；10 MHz 训练环 → NO.2 `TDMA_RING_TRAIN` 失败。代码定位 `tdma_maintenance_select_origin_tx()` 需 `maintenance_pending && window_open && credit >= max_frame_size`；10 kHz bringup profile 无维护窗口，10 MHz 训练又失败。广播留 TDMA/校准域，已 STOP/CLEar。
 - M2 运输补充（2026-11-09）：REFMEM 的 `field_id/value` 走 **process-image 帧**（`distributed_refmem.c:820-826` 组帧、`refmem_sync_commit_delta` 接收），10 kHz 环 up 时 up/down 计数已在增长，因此 **OBS 发布不依赖维护窗口**；只有广播命令依赖 `tdma_maintenance_select_origin_tx` 的 window/credit。M2 可在 10 kHz 环上验证，无需 10 MHz 训练或维护席。
-- 当前 OPEN：发布面实现（R1-3/B″）、页面迁移（M5）、广播聚合/缺板 HIL（M7，命令需维护窗口）；契约仍 pending。
+- M2a 接收侧（2026-11-09，`3ae06ecb`）：`refmem_sync` 按 `field_id` 存 OBS 字段（共享 1 KB：value/mask/seq/updated），`distributed_refmem_get_obs_field()` 暴露 `(slot,field)`；OBS 对端行按契约前缀和组合 32 word——齐全 `valid=1`，缺任一字段保持 stale。P3 build `20261109082220`；发送端轮转尚未接入，所以现场对端行仍 stale（预期）。
+- 当前 OPEN：发送端轮转接入（R1-3/B″）、页面迁移（M5）、广播聚合/缺板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
