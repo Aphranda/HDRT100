@@ -1496,18 +1496,19 @@ region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/sw
 `components/distributed_refmem/src/refmem_obs.c`（行编码）、
 `middleware/scpi_port/src/scpi_refmem_snapshot_commands.c`（`SYSTem:REFMEM:OBS?`）。
 
-已实装（2026-11-09 实板证据，build `20261108235251`）：
+已实装（2026-11-09 实板证据，build `20261109001932`）：
 - 行编码：定宽（按 key 的 `schema_words`，短补零/长截断）、`valid=0` → `age_ms=0xFFFFFFFF`、
   未知 key / `offset≥4` / `count` 越界各自 fail-closed；
 - 查询：`SYSTem:REFMEM:OBS? <key>,<offset>,<count>`，`count` 缺省/越界按 `4-offset` 裁剪；
-- pilot 四个 key 取自**本地快照**（无跨板读）：`switch1/switch2`（sync_io 配置值与 desired）、
-  `guide_plan`（planner 的 action/gen/status/trials/passed/failed/abort_site）、
-  `ring_status`（ring runtime 的 enabled/up/down/adapter/nodes/local_slot）；
-- host 证据：`tools/refmem/control_plane_smoke.py`（4 key valid、未实装 key stale）、
-  `tests/unit/test_refmem_obs.c`。
+- **6/8 key 取自本地快照**（无跨板读）：`switch1/2`（sync_io 配置值与 desired）、
+  `guide_plan`（action/gen/status/trials/passed/failed/abort_site）、`boot_plan`（action/fail_step/
+  boot_done/half_ring/profile_source）、`ring_status`（enabled/up/down/adapter/nodes/local_slot）、
+  `cal_status`（persisted_valid/generation/reject_reason）；
+- host 证据：`tools/refmem/control_plane_smoke.py`、`tests/unit/test_refmem_obs.c`。
 
-未实装：`trigger_state`/`boot_plan`/`cal_status`/`node_health`（返回 stale）；R1-2a 的专用 pilot
-区与 `seq/crc` 发布语义未做。转 active 仍需：其余 4 key + 四板 OBS HIL。
+未实装：`trigger_state`（无触发现有的本地状态访问器）、`node_health`（缺 `stale_count` 的本地计数源，
+需 R1-6 补）；R1-2a 的专用 pilot 区与 `seq/crc` 发布语义未做。转 active 仍需：其余 2 key +
+四板 OBS HIL。
 
 
 ### 角色与协调者
