@@ -1132,6 +1132,7 @@ def verify(action: int, epoch: int, gen: int = 0, repeats: int = 3,
     boards = open_boards()
     ok = True
     lines: list[str] = []
+    carriers: dict[str, dict] = {}
     if not ring_is_four_nodes(boards):
         print(f"{now()} verify=FAIL: expected NO.1..NO.4, got "
               f"{[b.no for b in boards]}")
@@ -1192,12 +1193,21 @@ def verify(action: int, epoch: int, gen: int = 0, repeats: int = 3,
                 counted and passed_ok and no_fail and no_abort and reconciled
                 and rate_ok)
         ok = ok and good
+        # Bind the carrier to the verdict: the level split (guide 10 kHz vs
+        # measurement 10 MHz) is only auditable when every verdict records the
+        # ring baud/period and the plan's target level.
+        ring = b.ring()
+        baud = ring[47] if len(ring) > 47 else -1
+        period = ring[48] if len(ring) > 48 else -1
+        carriers[f"NO.{b.no}"] = {'baud_hz': baud, 'cycle_period_ns': period,
+                                  'plan_level': v[4] if len(v) > 4 else -1}
         line = (f"NO.{b.no} {'PASS' if good else 'FAIL'} "
               f"fresh={fresh}(epoch={v[8]}/{epoch} gen={v[3]}/{gen}) "
               f"action={v[1]}/{action} idle={idle} pvalid={prog_valid} "
               f"status={v[11]} rec={v[15]} trials={v[12]}/{want_trials} "
               f"passed=0x{v[22]:X}/0x{want_mask:X} failed=0x{v[23]:X} "
-              f"abort_site={v[24]} rate_ok={rate_ok}")
+              f"abort_site={v[24]} rate_ok={rate_ok} "
+              f"level={v[4] if len(v) > 4 else -1} baud={baud} period={period}")
         lines.append(line)
     for b in boards:
         b.close()
@@ -1213,7 +1223,8 @@ def verify(action: int, epoch: int, gen: int = 0, repeats: int = 3,
         with open(os.path.join(root, 'verdict.json'), 'w',
                   encoding='utf-8') as fh:
             _json.dump({'action': action, 'epoch': epoch, 'gen': gen,
-                        'repeats': repeats, 'pass': ok, 'lines': lines},
+                        'repeats': repeats, 'pass': ok, 'lines': lines,
+                        'carriers': carriers},
                        fh, ensure_ascii=False, indent=2)
         print(f"{now()} verdict -> {root}")
     return ok

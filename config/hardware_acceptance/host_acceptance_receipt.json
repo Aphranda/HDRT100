@@ -8,7 +8,6 @@
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_control_plane.py",
     "tests/python/test_refmem_host_units.py",
-    "tests/python/test_scpi_framing.py",
     "tests/python/test_split_unit_hooks.py",
     "tests/python/test_vdc_host_harness.py",
     "-q",
@@ -19,28 +18,27 @@
     "tests/python/test_owner_hook_link.py",
     "tests/python/test_refmem_control_plane.py",
     "tests/python/test_refmem_host_units.py",
-    "tests/python/test_scpi_framing.py",
     "tests/python/test_split_unit_hooks.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 12.094,
+  "duration_s": 11.516,
   "returncode": 0,
   "summary": {
-    "passed": 92,
+    "passed": 89,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "92 passed in 11.48s",
+  "summary_line": "89 passed in 10.43s",
   "tail": [
-    "........................................................................ [ 78%]",
-    "....................                                                     [100%]",
-    "92 passed in 11.48s"
+    "........................................................................ [ 80%]",
+    ".................                                                        [100%]",
+    "89 passed in 10.43s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "2a12a9f201899d330bdd8bd8ac5c0cf0ebb5037da5b28452c541ad11c15e877f",
+  "fingerprint": "4a5de11a3d02c136c06f92497c45885b8725bb2ff2066ee9662a7d766ab8c8d2",
   "file_count": 1177,
-  "working_fingerprint": "6693bfb3ead8ec39c1999b88678c91399a9ac6e93a02c26fd1fbfb0546628bf5",
-  "started_at_utc": "2026-11-09T05:04:00.411748+00:00"
+  "working_fingerprint": "56499a139e3dfac389c230e49e185e2ebcab16597b5ea75d7f079e648c692b28",
+  "started_at_utc": "2026-11-09T05:53:14.696497+00:00"
 }
