@@ -68,7 +68,8 @@ Last updated: 2026-11-09
 - 广播第 3 假设（2026-11-09）：按 TDMA 文档设 `SEAT:ROTation 1,3,1`（f=3、s=1）后，`45,15,15` 仍 30 s QUEUED、仅本板记录。`LOAD:MASK`/process-image/seat 三假设均失败，广播留 TDMA 域。
 - 另一会话停止：其 demo 在途改动作为继承提交 `7d3f2ef6`（calibration 页/工作流，tests 31 passed），M5 在其上继续。
 - M5 完成（2026-11-09，`f7e9b898`/`53ba8004`）：demo transport 统一包装——`SYSTem:REFMEM:*?` 经 `ControlPlane.query`、`SYSTem:CTRL:EXECute` 经 `ControlPlane.write`、开关读经 `ControlPlane.read`；readback/ack/诊断页不再直连 REFMEM 路径。`test_trigger_debug_obs` 5 用例；host 94 passed。
-- 当前 OPEN：广播聚合（M7）、单板缺板 NACK；契约仍 pending（广播/缺板未证）。
+- 广播复核（2026-11-09，build `20261109113327`，seat `1,3,1`）：`45,15,15` **已送达四板**——COM5/COM4/COM3/COM6 均有 `seq=93566` 记录；COM3（GATEWAY）NACK 12，COM4/COM6 仍 state 1（未 dispatch），origin 聚合 state 1。**运输成立**，卡在目标 dispatch/ACK 聚合；环运行时 `DEPloyment?` 返回 33（STOP-gated），无法确认缓存部署。
+- 当前 OPEN：广播目标 dispatch/ACK（M7）、单板缺板 NACK；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
