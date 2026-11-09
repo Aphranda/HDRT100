@@ -46,6 +46,14 @@ class ControlPlaneTransport:
         stripped = command.strip()
         if stripped.startswith("SYSTem:REFMEM:") and stripped.endswith("?"):
             return _control_plane(self._raw).query(stripped)
+        if stripped.startswith("SYSTem:CTRL:EXECute"):
+            fields = stripped.split(None, 1)
+            if len(fields) == 2:
+                values = [int(piece) for piece in fields[1].split(",")
+                          if piece.strip()]
+                plane = _control_plane(self._raw)
+                seq = plane.write(values[0], values[3:], values[1], values[2])
+                return f"QUEUED,{seq}"
         return self._raw.execute(command)
 
     def __getattr__(self, name):

@@ -23,24 +23,24 @@
     "tests/python/test_trigger_debug_obs.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 10.5,
+  "duration_s": 9.765,
   "returncode": 0,
   "summary": {
-    "passed": 93,
+    "passed": 94,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "93 passed in 9.65s",
+  "summary_line": "94 passed in 9.06s",
   "tail": [
-    "........................................................................ [ 77%]",
-    ".....................                                                    [100%]",
-    "93 passed in 9.65s"
+    "........................................................................ [ 76%]",
+    "......................                                                   [100%]",
+    "94 passed in 9.06s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "122cb6f1c765816dcadb03cc75f093b92959f266d833d5bf77848a206835efcc",
+  "fingerprint": "e918b7c0ae91f8c761c5c5891c91450f8197da62cb3c2315b6255fa5be4d42a0",
   "file_count": 1183,
-  "working_fingerprint": "122cb6f1c765816dcadb03cc75f093b92959f266d833d5bf77848a206835efcc",
-  "started_at_utc": "2026-11-09T11:56:36.972324+00:00"
+  "working_fingerprint": "e918b7c0ae91f8c761c5c5891c91450f8197da62cb3c2315b6255fa5be4d42a0",
+  "started_at_utc": "2026-11-09T11:57:25.521522+00:00"
 }

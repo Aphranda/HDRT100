@@ -42,3 +42,9 @@ def test_transport_routes_refmem_queries_through_control_plane():
 def test_transport_passes_non_refmem_commands():
     raw = FakeTransport("OK")
     assert ControlPlaneTransport(raw).execute("*IDN?") == "OK"
+
+
+def test_transport_routes_ctrl_execute_through_write():
+    raw = FakeTransport("QUEUED,7")
+    wrapped = ControlPlaneTransport(raw)
+    assert wrapped.execute("SYSTem:CTRL:EXECute 45,15,15,1,5") == "QUEUED,7"
