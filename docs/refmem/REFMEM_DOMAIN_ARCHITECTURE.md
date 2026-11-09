@@ -1492,17 +1492,21 @@ region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/sw
 `s_distributed_refmem_table` 只初始化/心跳本板 slot（`distributed_refmem_link.c:777-789,1105-1112`），
 `NODES?` 对远端恒 `last_update_ms=0 / stale=1`；TDMA process-image 的 REFMEM 片只有 10 B
 （`tdma_process_image_layout.h:72-73`），装不下多字 key；`REFMEM_SYNC_FRAME_DELTA` 每帧只带 1 个 u32。
-因此 R1-3 必须新增发布通道，候选：
+因此 R1-3 必须选发布通道。按维护流预算排除两个候选：
 
-- **A（推荐）** 新增 `REFMEM_SYNC_FRAME_OBS` 帧，载荷 `key_id,slot,seq,epoch,last_update_ms,words[8]`
-  （≤ `REFMEM_SYNC_FRAME_PAYLOAD_MAX` 256 B），变更时发 + 周期刷新；接收端写入
-  `statistics` 区（1024 B，生产零消费）的 per-slot mirror；
-- B 复用 `DELTA` 每字一帧：多字 key 需 2–7 帧，只适合标量 key；
-- C 命令面 request/response：违反 CP4/D0-A，不采用。
+- **A 新 OBS 帧走维护/二等席**：维护流有效载荷 10 B/chunk、约 1 chunk/环周期；一个 48 B 记录
+  约 5 chunk，单次变更需数秒；若做 4 key × 4 板连续刷新约 768 B/s，远超该通道约 4 B/s，
+  **不可行**（只适合极低频单条命令，不适合读模型）。
+- **C 命令面 request/response**：违反 CP4/D0-A，**不采用**。
+- **B（冻结）复用 process-image 的 REFMEM 10 B 片 + `REFMEM_DELTA`**：每周期携带一个 u32
+  value 与 `field_id`；接收端按 `(source_slot, field_id)` 存镜像。多字 key 按 word 轮转
+  （≤7 周完成一行），4 板 × 8 key × 8 word 镜像约 2 KB SRAM。**不新增总线/帧类型/席位**，
+  TDMA 只需确认 field_id 空间与每周期一个字段的预算。
 
-A 需要 TDMA 线格式/席位评审（新帧类型）；`statistics` 区复用不改变 `table_size/layout_version`。
-pilot 预算：4 key × 4 slot × ~48 B = 768 B ≤ 1024 B。时基：`age_ms` 用读者本地 tick 减写者
-`last_update_ms`，跨板存在时基偏差；是否改用 TDMA 共同时钟待 TDMA 评审。
+B 的约定：`field_id = 0x100 + key*16 + word`，避开既有 contract 字段；写者每周期只发**一个**
+`(key,word)`；读侧用该 key 的发布 `seq` 判断整行是否完整刷新；`stale` 用“该 key 一轮 word 是否
+在预算内轮完”的心跳判定，而不是“值未变多久”。时基用读者本地 tick；跨板 `age_ms` 近似，
+`stale` 只用同一读者的时基。
 
 **实现状态（M4 行格式，2026-11-09）。** `OBS?` 已按本节返回逐槽行：本地槽由本板 provider
 出 `valid=1`（`epoch/seq` 暂为占位 1，真实发布计数器随 R1-3）；对端槽无发布者时
