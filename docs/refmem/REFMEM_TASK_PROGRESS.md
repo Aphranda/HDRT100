@@ -4,13 +4,14 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-10-29
+Last updated: 2026-11-09
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261029-040`。**361 全 PASS**：SWITCH_A/B 5776(16×361)、GATEWAY 722(2×361)，late/no_plan/backend 0；工具 `78cca54f`；N11 gateway 例外已撤销。
+- 最新条目：`REFTMEM-TASK-20261109-001`（REFMEM-READ-01 M0/M1：读写一致目标立项、host 入口对齐、逐槽行 schema 定稿；详见下）。
+- 上一阶段：`REFTMEM-TASK-20261029-040`。**361 全 PASS**：SWITCH_A/B 5776(16×361)、GATEWAY 722(2×361)，late/no_plan/backend 0；工具 `78cca54f`；N11 gateway 例外已撤销。
 - C11：`REFMEM-CTRL-01` = PASS_WITH_CHANGES（pending 保持）；新增 `REFMEM-ENTRY-01`（pending，待 C11-02）；A 的 host 拆分待 P3 提交。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -20,6 +21,15 @@ Last updated: 2026-10-29
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N8.0 基线冻结与台架探测** → N8.1 快照回正 → N8.2 契约/N5.5 冻结 → N8.3 IF-013 后端 → N8.4 N5.7 只读聚合 → N8.5 T2 running-safe → N8.6 四板 HIL → N8.7 收口；细化见 TODO N8 节。
+
+### REFMEM-TASK-20261109-001 — REFMEM-READ-01 M0/M1：读写一致目标立项与行 schema 定稿
+
+- 长期目标：`goal-59a82c72`（40 轮），把 `REFMEM-READ-01` 从 pending 推进到 active；逐槽行、发布面、host/page 单一入口、四板 HIL；OTA/烧录/板号/整片擦除为非目标。
+- M0 代码（`7c2ed8e4`）：`ControlPlane.write` 改 `SYST:CTRL:EXECute` 并解析 `QUEUED,<seq>`；`wait_terminal` 改 `SYST:COMMAND:TARget?`（终态 4/5/6，超时带 state/reason）；smoke 改 6/8 key；control plane 用例进 `host_acceptance.DEFAULT_PATHS`。
+- M0 文档（`fc0a1de0`）：SCPI 文档去掉「-200/待 M2」；READ-01 id 统一 `REFMEM-`；登记表 catalog 36→38（快照，以 `refmem_command_catalog_count` 为准）；READ-01 证据回写 6/8、host/smoke 已完成、C11 记录待补；新增 `submissions/REFMEM_READ_CROSS_REVIEW_01.md`（补位提交，明确待复核、不冒充通过）。
+- M1（`31e4f15f`）：行 schema 定稿——应答 `key,offset,count` 头 + N 条 `slot,valid,epoch,seq,age_ms,stale,<schema>`；`offset/count` 为槽位区间；每行仅由该 slot 的 owner 发布，远端槽读本地镜像，未发布 `valid=0`，不得用本地 provider 冒充当槽。
+- 验证：`pytest tests/python/test_refmem_control_plane.py` 8 passed；host acceptance 85 passed；`docs_check` 280 files；`doc_regression` 63 contracts。
+- 当前 OPEN：逐槽行/`stale`（M4）、发布面 R1-3（M2）、pilot region R1-2a（M2）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、开关语义与广播误伤（M6）、四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
