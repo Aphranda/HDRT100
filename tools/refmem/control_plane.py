@@ -86,31 +86,51 @@ class ControlPlane:
     def read(self, key: int, offset: int = 0, count: int = 0) -> dict:
         """Page one read key.
 
-        Returns ``{'key', 'offset', 'count', 'valid', 'age_ms', 'rows'}`` where
-        ``rows`` is the flat list of the single board row's schema words (the
-        firmware currently answers one row per query; the contract's per-slot
-        rows land in M4).  ``valid == 0`` means the local mirror has no
-        snapshot yet: ``age_ms`` is then ``0xFFFFFFFF`` and ``stale`` is ``1``.
+        Returns ``{'key','offset','count','valid','age_ms','stale','rows'}``
+        where ``rows`` is a list of per-slot dicts
+        ``{'slot','valid','epoch','seq','age_ms','stale','value'}`` (contract
+        REFMEM-READ-01).  ``valid``/``age_ms``/``stale`` at the top level are a
+        convenience summary: valid if any row is valid; otherwise the first
+        row's invalid age and stale=1.
         """
         response = self._execute(
             f'SYSTem:REFMEM:OBS? {int(key)},{int(offset)},{int(count)}')
         tokens = _fields(response)
         if self._is_error(response):
             raise RejectedError('read rejected', response)
-        if len(tokens) < 6:
+        if len(tokens) < 3:
             raise TransportError(f'short OBS response {response!r}')
         key_out, offset_out, count_out = (int(tokens[0], 0), int(tokens[1], 0),
                                           int(tokens[2], 0))
-        valid, age_ms = int(tokens[3], 0), int(tokens[4], 0)
-        rows_flat = [int(t, 0) for t in tokens[5:]]
+        rest = [int(t, 0) for t in tokens[3:]]
+        if count_out <= 0 or len(rest) % count_out != 0:
+            raise TransportError(f'bad OBS row count {response!r}')
+        width = len(rest) // count_out
+        if width < 6:
+            raise TransportError(f'short OBS row {response!r}')
+        schema_words = width - 6
+        rows = []
+        for i in range(count_out):
+            base = i * width
+            slot, valid, epoch, seq, age, stale = rest[base:base + 6]
+            rows.append({
+                'slot': slot,
+                'valid': valid,
+                'epoch': epoch,
+                'seq': seq,
+                'age_ms': age,
+                'stale': stale,
+                'value': rest[base + 6:base + 6 + schema_words],
+            })
+        valid_rows = [r for r in rows if r['valid']]
         return {
             'key': key_out,
             'offset': offset_out,
             'count': count_out,
-            'valid': valid,
-            'age_ms': age_ms,
-            'stale': 1 if valid == 0 else 0,
-            'rows': rows_flat,
+            'valid': 1 if valid_rows else 0,
+            'age_ms': valid_rows[0]['age_ms'] if valid_rows else 0xFFFFFFFF,
+            'stale': 0 if any(r['stale'] == 0 for r in valid_rows) else 1,
+            'rows': rows,
         }
 
     # -- wait ------------------------------------------------------------
@@ -249,10 +269,13 @@ class SimulatedTransport:
             words = self.OBS_SCHEMA.get(key)
             if words is None:
                 return '-200,"OBS_KEY"'
-            if key in self.OBS_IMPLEMENTED:
-                valid, age, row = 1, 0, [key] * words
-            else:
-                valid, age, row = 0, 0xFFFFFFFF, [0] * words
-            return (f'{key},{offset},{count},{valid},{age},'
-                    + ','.join(str(v) for v in row))
+            if count <= 0:
+                count = 1
+            cells: list[int] = []
+            for slot in range(offset, offset + count):
+                if slot == 0 and key in self.OBS_IMPLEMENTED:
+                    cells += [slot, 1, 1, 1, 0, 0] + [key] * words
+                else:
+                    cells += [slot, 0, 0, 0, 0xFFFFFFFF, 1] + [0] * words
+            return f'{key},{offset},{count},' + ','.join(map(str, cells))
         return '-200,"UNKNOWN"'

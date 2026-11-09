@@ -1717,6 +1717,23 @@ def _read_package_build_id(path: Path) -> str:
         "ascii", errors="ignore").strip()
 
 
+def _fresh_update_package(build_dir: Path) -> Path:
+    """Return the package the current build produced.
+
+    A v2 factory-candidate build writes ``DHRT100_V2_CANDIDATE_UPDATE.pkg``
+    while a reused build directory may still contain a stale
+    ``DHRT100_UPDATE.pkg`` (measured 2026-11-09: a Nov-5 package made all four
+    boards reject the OTA).  Copy the v2 package over the standard name when it
+    is newer so downstream evidence keeps the layout-agnostic path.
+    """
+    legacy = build_dir / "DHRT100_UPDATE.pkg"
+    v2 = build_dir / "DHRT100_V2_CANDIDATE_UPDATE.pkg"
+    if v2.is_file() and (not legacy.is_file()
+                         or v2.stat().st_mtime > legacy.stat().st_mtime):
+        shutil.copyfile(v2, legacy)
+    return legacy
+
+
 def parse_schedule(raw: str) -> dict[str, int]:
     try:
         values = [int(value.strip().strip('"'), 0)
@@ -3188,14 +3205,7 @@ def phase_build(run: AcceptanceRun) -> None:
         build_command.extend(["--preset", str(args.preset)])
     _run_step(build_command, root, out_dir / "build.log")
     run.put(build_dir=build_dir)
-    package = build_dir / "DHRT100_UPDATE.pkg"
-    if not package.is_file():
-        # A V2 factory-candidate build names its package explicitly; the
-        # acceptance flow keeps the standard path so downstream evidence and
-        # receipts stay layout-agnostic.
-        v2_package = build_dir / "DHRT100_V2_CANDIDATE_UPDATE.pkg"
-        if v2_package.is_file():
-            shutil.copyfile(v2_package, package)
+    package = _fresh_update_package(build_dir)
     if package.is_file():
         # Record which source produced this package so --reuse-flashed can
         # prove that the boards' build is the current tree's build.
@@ -3280,7 +3290,7 @@ def phase_package(run: AcceptanceRun) -> None:
         if not package.is_file():
             raise AcceptanceError(f"reused firmware package missing: {package}")
     else:
-        package = run.get("build_dir") / "DHRT100_UPDATE.pkg"
+        package = _fresh_update_package(run.get("build_dir"))
         if not package.is_file():
             raise AcceptanceError(f"firmware package missing: {package}")
     build_id = _read_package_build_id(package)
@@ -4974,7 +4984,7 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
                    str(root / "tools/cmake_build_auto/cmake_build_auto.py"),
                    "--root", str(root), "--build-dir", str(build_dir)],
                   root, out_dir / "build.log")
-        package = build_dir / "DHRT100_UPDATE.pkg"
+        package = _fresh_update_package(build_dir)
         if not package.is_file():
             raise AcceptanceError(f"firmware package missing: {package}")
         build_id = _read_package_build_id(package)

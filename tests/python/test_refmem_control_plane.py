@@ -31,19 +31,25 @@ def test_write_rejects_execution_error():
         raise AssertionError('expected RejectedError')
 
 
-def test_read_returns_single_firmware_row():
+def test_read_returns_per_slot_rows():
     plane = ControlPlane(SimulatedTransport())
-    page = plane.read(6, offset=0, count=1)
-    assert page['key'] == 6 and page['offset'] == 0 and page['count'] == 1
-    assert page['valid'] == 1 and page['stale'] == 0
-    assert page['rows'] == [6] * 6  # ring_status schema has six words
+    page = plane.read(6, offset=0, count=2)
+    assert page['key'] == 6 and page['offset'] == 0 and page['count'] == 2
+    assert page['rows'][0] == {
+        'slot': 0, 'valid': 1, 'epoch': 1, 'seq': 1,
+        'age_ms': 0, 'stale': 0, 'value': [6] * 6}
+    assert page['rows'][1]['slot'] == 1
+    assert page['rows'][1]['valid'] == 0
+    assert page['rows'][1]['age_ms'] == 0xFFFFFFFF
+    assert page['rows'][1]['stale'] == 1
 
 
 def test_read_unimplemented_key_is_stale():
     page = ControlPlane(SimulatedTransport()).read(3)
     assert page['valid'] == 0 and page['stale'] == 1
     assert page['age_ms'] == 0xFFFFFFFF
-    assert page['rows'] == [0, 0, 0]  # trigger_state schema is three words
+    assert page['rows'][0]['valid'] == 0
+    assert page['rows'][0]['value'] == [0, 0, 0]  # trigger_state schema: 3 words
 
 
 def test_read_bad_key():

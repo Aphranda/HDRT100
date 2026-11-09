@@ -21,13 +21,13 @@ def main(port: str = 'COM5') -> int:
     plane = ControlPlane(session)
     failures = 0
     for key, name in PILOT.items():
-        page = plane.read(key, 0, 1)
+        page = plane.read(key, 0, 4)
         print(f'{key} {name}: {page}')
-        if page['valid'] != 1:
-            print(f'  FAIL: {name} is a live pilot key but valid=0')
+        if not any(row['valid'] for row in page['rows']):
+            print(f'  FAIL: {name} is a live pilot key but every row is invalid')
             failures += 1
     for key, name in NOT_IMPLEMENTED.items():
-        page = plane.read(key, 0, 1)
+        page = plane.read(key, 0, 4)
         ok = page['valid'] == 0 and page['age_ms'] == 0xFFFFFFFF
         print(f'{key} {name}: valid={page["valid"]} age={page["age_ms"]} '
               f'{"OK" if ok else "FAIL (expected stale)"}')
