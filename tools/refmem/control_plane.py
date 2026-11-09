@@ -56,7 +56,9 @@ class ControlPlane:
         """Submit one catalog command; returns the sequence number.
 
         ``command_type`` is the catalog id (``config/refmem/command_catalog.yaml``),
-        ``targets``/``required`` are slot masks.  The device answers
+        ``targets``/``required`` are slot masks.  ``params`` must carry exactly
+        the catalog row's ``param_words`` words -- the firmware reads that many
+        and answers ``BAD_ARGUMENT`` on a mismatch.  The device answers
         ``QUEUED,<command_seq>`` (``SYSTem:CTRL:EXECute``); an execution error
         (``-200``/``ERR``) raises ``RejectedError``.
         """
@@ -85,9 +87,10 @@ class ControlPlane:
         """Page one read key.
 
         Returns ``{'key', 'offset', 'count', 'valid', 'age_ms', 'rows'}`` where
-        ``rows`` is a list of int tuples (schema per key, contract
-        REFMEM-READ-01). ``valid == 0`` means the local mirror has no snapshot
-        yet: ``age_ms`` is then ``0xFFFFFFFF`` and ``stale`` is ``1``.
+        ``rows`` is the flat list of the single board row's schema words (the
+        firmware currently answers one row per query; the contract's per-slot
+        rows land in M4).  ``valid == 0`` means the local mirror has no
+        snapshot yet: ``age_ms`` is then ``0xFFFFFFFF`` and ``stale`` is ``1``.
         """
         response = self._execute(
             f'SYSTem:REFMEM:OBS? {int(key)},{int(offset)},{int(count)}')
@@ -113,22 +116,52 @@ class ControlPlane:
     # -- wait ------------------------------------------------------------
     TERMINAL_STATES = (4, 5, 6)  # ACKED / NACKED / TIMED_OUT
 
+    def wait_aggregate(self, required: int, timeout_s: float = 60.0,
+                       poll_s: float = 0.2) -> dict:
+        """Wait for the origin's aggregated record to cover ``required``.
+
+        ``SYSTem:CTRL:STATus?`` is the origin's single command record; the
+        reply fold writes every target's terminal ACK/NACK into it.  This is
+        the only wait that works for remote targets: a target keeps its own
+        record locally and the origin has no ``COMMAND:TARget?`` row for it.
+        Returns ``{'state','ack','nack','reason'}``.
+        """
+        deadline = self._clock() + timeout_s
+        last = None
+        while self._clock() < deadline:
+            tokens = _fields(self._execute('SYSTem:CTRL:STATus?'))
+            if len(tokens) >= 13:
+                state, ack = int(tokens[2], 0), int(tokens[6], 0)
+                nack, reason = int(tokens[7], 0), int(tokens[10], 0)
+                last = {'state': state, 'ack': ack, 'nack': nack,
+                        'reason': reason}
+                if (state in self.TERMINAL_STATES
+                        and ((ack | nack) & required) == required):
+                    return last
+            time.sleep(poll_s)
+        raise TimeoutError(
+            f'aggregate not terminal/complete for required=0x{required:X} '
+            f'(last={last})')
+
     def wait_terminal(self, slots: list[int], timeout_s: float = 60.0,
                       poll_s: float = 0.2) -> dict[int, int]:
-        """Poll every slot until its command record is terminal.
+        """Poll **local** command records until terminal.
 
-        Reads ``SYSTem:COMMAND:TARget? <slot>`` (the per-slot REFMEM record,
-        not the origin-only ``CTRL:STATus?``).  Returns ``{slot: state}``;
-        states follow ``refmem_command_state_t`` and terminal means
-        ACKED(4)/NACKED(5)/TIMED_OUT(6).  A slot that never settles raises
-        ``TimeoutError`` with the last ``(state, reason)`` per pending slot.
+        ``SYSTem:COMMAND:TARget? <slot>`` answers only for a record that lives
+        on this board (the origin's own record; a target's record lives on the
+        target).  A slot with no record yet is treated as *pending*, not as a
+        transport failure -- the firmware answers an empty record with no
+        response at all.  For a remote command use :meth:`wait_aggregate`.
         """
         deadline = self._clock() + timeout_s
         pending = sorted(set(int(s) for s in slots))
         last: dict[int, tuple[int, int]] = {}
         while self._clock() < deadline:
             for slot in list(pending):
-                state, reason = self._slot_state(slot)
+                seen = self._try_slot_state(slot)
+                if seen is None:
+                    continue
+                state, reason = seen
                 last[slot] = (state, reason)
                 if state in self.TERMINAL_STATES:
                     pending.remove(slot)
@@ -137,6 +170,13 @@ class ControlPlane:
             time.sleep(poll_s)
         raise TimeoutError(
             f'terminal state not reached for slots {pending} (last={last})')
+
+    def _try_slot_state(self, slot: int) -> tuple[int, int] | None:
+        """Return ``(state, reason)`` or ``None`` when no record exists yet."""
+        try:
+            return self._slot_state(slot)
+        except TransportError:
+            return None
 
     def _slot_state(self, slot: int) -> tuple[int, int]:
         response = self._execute(f'SYSTem:COMMAND:TARget? {int(slot)}')
@@ -164,13 +204,22 @@ class ControlPlane:
 
 
 class SimulatedTransport:
-    """Deterministic REFMEM transport for host tests (no hardware)."""
+    """Deterministic REFMEM transport for host tests (no hardware).
+
+    The OBS answer mirrors the **current firmware** shape: a single board row
+    ``key,offset,count,valid,age_ms,<schema words>``.  Keys 3/8 have no
+    provider yet and answer ``valid=0`` with ``age=0xFFFFFFFF``.
+    """
+
+    OBS_SCHEMA = {1: 2, 2: 2, 3: 3, 4: 7, 5: 5, 6: 6, 7: 3, 8: 4}
+    OBS_IMPLEMENTED = frozenset({1, 2, 4, 5, 6, 7})
 
     def __init__(self, slots=(1, 2, 3, 4), terminal_after: int = 2) -> None:
         self.slots = list(slots)
         self.terminal_after = terminal_after
         self.commands: list[str] = []
         self._polls: dict[int, int] = {}
+        self._agg_polls = 0
         self._seq = 0
         self.running = True
 
@@ -180,7 +229,15 @@ class SimulatedTransport:
         if command.startswith('SYSTem:CTRL:EXECute'):
             self._seq += 1
             self._polls = {s: 0 for s in self.slots}
+            self._agg_polls = 0
             return f'QUEUED,{self._seq}'
+        if command.startswith('SYSTem:CTRL:STATus?'):
+            count = self._agg_polls
+            self._agg_polls += 1
+            state = 4 if count >= self.terminal_after else 3
+            ack = 0xF if state == 4 else 0
+            return (f'0,0,{state},{self._seq},15,15,{ack},0,0,0,0,0,'
+                    f'{self._seq if state == 4 else 0}')
         if command.startswith('SYSTem:COMMAND:TARget?'):
             slot = int(nums[0], 0)
             count = self._polls.get(slot, 0)
@@ -189,8 +246,13 @@ class SimulatedTransport:
             return f'{slot},{self._seq},{state},45,15,15,0,0,0'
         if command.startswith('SYSTem:REFMEM:OBS?'):
             key, offset, count = (int(t, 0) for t in nums)
-            if key <= 0 or key > 8:
+            words = self.OBS_SCHEMA.get(key)
+            if words is None:
                 return '-200,"OBS_KEY"'
-            rows = ','.join(str((offset + i) & 0xFF) for i in range(count))
-            return f'{key},{offset},{count},1,17' + (',' + rows if rows else '')
+            if key in self.OBS_IMPLEMENTED:
+                valid, age, row = 1, 0, [key] * words
+            else:
+                valid, age, row = 0, 0xFFFFFFFF, [0] * words
+            return (f'{key},{offset},{count},{valid},{age},'
+                    + ','.join(str(v) for v in row))
         return '-200,"UNKNOWN"'

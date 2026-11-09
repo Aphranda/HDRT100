@@ -13,8 +13,9 @@ from tools.refmem.control_plane import (  # noqa: E402
 def test_write_returns_sequence():
     t = SimulatedTransport()
     plane = ControlPlane(t)
-    assert plane.write(50, [1, 2, 3]) == 1
-    assert t.commands[-1].startswith('SYSTem:CTRL:EXECute 50,15,15,1,2,3')
+    # id 42 (TRIGGER_ANGLE_SWEEP) has exactly three parameter words.
+    assert plane.write(42, [1, 2, 3]) == 1
+    assert t.commands[-1].startswith('SYSTem:CTRL:EXECute 42,15,15,1,2,3')
 
 
 def test_write_rejects_execution_error():
@@ -23,19 +24,26 @@ def test_write_rejects_execution_error():
             return '-200,"NOPE"'
 
     try:
-        ControlPlane(Bad()).write(50)
+        ControlPlane(Bad()).write(42, [1, 2, 3])
     except RejectedError as exc:
         assert 'NOPE' in exc.response
     else:
         raise AssertionError('expected RejectedError')
 
 
-def test_read_pages_and_stale_flag():
+def test_read_returns_single_firmware_row():
     plane = ControlPlane(SimulatedTransport())
-    page = plane.read(3, offset=2, count=2)
-    assert page['key'] == 3 and page['offset'] == 2 and page['count'] == 2
+    page = plane.read(6, offset=0, count=1)
+    assert page['key'] == 6 and page['offset'] == 0 and page['count'] == 1
     assert page['valid'] == 1 and page['stale'] == 0
-    assert page['rows'] == [2, 3]
+    assert page['rows'] == [6] * 6  # ring_status schema has six words
+
+
+def test_read_unimplemented_key_is_stale():
+    page = ControlPlane(SimulatedTransport()).read(3)
+    assert page['valid'] == 0 and page['stale'] == 1
+    assert page['age_ms'] == 0xFFFFFFFF
+    assert page['rows'] == [0, 0, 0]  # trigger_state schema is three words
 
 
 def test_read_bad_key():
@@ -51,11 +59,36 @@ def test_read_bad_key():
 def test_wait_terminal_returns_per_slot():
     t = SimulatedTransport(terminal_after=2)
     plane = ControlPlane(t)
-    plane.write(50)
+    plane.write(42, [1, 2, 3])
     result = plane.wait_terminal([1, 2, 3, 4], timeout_s=1.0, poll_s=0.0)
     assert result == {1: 4, 2: 4, 3: 4, 4: 4}
     assert all(cmd.startswith('SYSTem:COMMAND:TARget?')
                for cmd in t.commands if 'COMMAND:TARget' in cmd)
+
+
+def test_wait_aggregate_returns_masks():
+    t = SimulatedTransport(terminal_after=2)
+    plane = ControlPlane(t)
+    plane.write(42, [1, 2, 3])
+    result = plane.wait_aggregate(0xF, timeout_s=1.0, poll_s=0.0)
+    assert result['state'] == 4
+    assert result['ack'] == 0xF and result['nack'] == 0
+
+
+def test_wait_terminal_tolerates_missing_record():
+    class NoRecord(SimulatedTransport):
+        def execute(self, command):
+            if command.startswith('SYSTem:COMMAND:TARget?'):
+                raise TimeoutError('no response')
+            return super().execute(command)
+
+    plane = ControlPlane(NoRecord())
+    try:
+        plane.wait_terminal([1], timeout_s=0.01, poll_s=0.0)
+    except TimeoutError as exc:
+        assert '1' in str(exc)
+    else:
+        raise AssertionError('expected TimeoutError, not TransportError')
 
 
 def test_wait_terminal_treats_nack_terminal():
@@ -91,7 +124,7 @@ def test_transport_error_is_wrapped():
             raise OSError('port closed')
 
     try:
-        ControlPlane(Closed()).write(50)
+        ControlPlane(Closed()).write(42, [1, 2, 3])
     except TransportError as exc:
         assert 'port closed' in str(exc)
     else:

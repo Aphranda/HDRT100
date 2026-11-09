@@ -1,4 +1,4 @@
-"""Host test for the REFMEM observation encoder (REFTMEM-READ-01 / R1-4)."""
+"""Host test for the REFMEM observation encoder (REFMEM-READ-01 / R1-4)."""
 import json
 import sys
 from pathlib import Path
