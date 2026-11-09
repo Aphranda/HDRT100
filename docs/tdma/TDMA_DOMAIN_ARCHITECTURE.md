@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-11-08
+Last updated: 2026-11-09
 
 ## 文档接口与范围
 
@@ -541,8 +541,9 @@ boot 序列在 STOP 之后设置 resident process image（`tdma_runtime_owner_se
 STOP-only），同一命令随即排空并四板生效（`ack_ok` 增长、`frag_done=1`、四板 `PLAN?` gen 同步）。
 因此"开机自组环"必须带这一步，否则 `BOOT:PROFile` 虽然成功、环也 up，但单口 C/T 不可用。
 
-**单口读回与重跑屏障。** `SYSTem:TDMA:BOOT:PLAN?` 现为 **19** 字段（原 17 字段后追加 `boot_done`、
-`boot_next_step`）。判据：四板 `boot_done=1`、`fail_step=0`，slot 0 `action=START_REF`、其余 `LISTEN`、
+**单口读回与重跑屏障。** `SYSTem:TDMA:BOOT:PLAN?` 现为 **20** 字段（0-based：`fail_step=3`、
+`half_ring=16`、`boot_done=17`、`boot_next_step=18`、`profile_source=19`；原 17 字段后追加
+`boot_done`、`boot_next_step`）。判据：四板 `boot_done=1`、`fail_step=0`，slot 0 `action=START_REF`、其余 `LISTEN`、
 `half_ring=0`；`RING:STATus?` `enabled=1,node_count=4,up_running=1,down_running=1,adapter_started=1` 且
 `total_up_tx/total_down_rx` 单调增长。**重跑验收**：boot 服务是 3–33 s 有界重试，ARM 失败还会从 STOP
 重放；主机在它飞行期间发 `RING:STOP` 会被下一次 ARM/START 撤销。因此 P0T 之前的屏障是

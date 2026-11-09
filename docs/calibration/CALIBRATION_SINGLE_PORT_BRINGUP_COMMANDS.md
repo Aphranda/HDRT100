@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_SINGLE_PORT_BRINGUP_COMMANDS.md`
 Related: `docs/calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md`, `docs/calibration/CALIBRATION_HANDOVER_PLAN.md`, `docs/calibration/CALIBRATION_REFMEM_CONTROL_PLANE_MIGRATION_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-11-08
+Last updated: 2026-11-09
 
 本指南给**其它会话**直接照做：如何在这套四板台架上用"唯一 P3 镜像"完成严格单口启环与单口 C/T，
 以及哪些现象不是硬件问题、哪些流程会与 boot profile 冲突。判据全部来自实板归档，不含推测。
@@ -48,8 +48,8 @@ SYST:TDMA:BOOT:PROFile?
 ## 2. 启环（零口，不需要任何起环 SCPI）
 
 1. 四板复位：**从板先、协调板最后**（NO.4→NO.3→NO.2→NO.1），`SYSTem:BOOT:RESET` 或重新上电。
-2. 等待：boot 服务在 3 s 后启动、最长 30 s；**轮询 `BOOT:PLAN?` 直到第 18 字段 `boot_done=1`
-   且第 4 字段 `fail_step=0`**（或固定等 ≥33 s）。
+2. 等待：boot 服务在 3 s 后启动、最长 30 s；**轮询 `BOOT:PLAN?` 直到第 18 个字段（0-based 索引 17）`boot_done=1`
+   且第 4 个字段（索引 3）`fail_step=0`**（或固定等 ≥33 s）。
 3. 四板判据：
 
 | 查询 | 判据 |
@@ -74,7 +74,7 @@ python tools/calibration/guide_cmdplane_probe.py boot <tag>
 |---|---|---|---|---|
 | 0 | 前置核对 | COM5 | `*IDN?`、`SYST:FW:BUILD?` | `NO.1,DHRT100,...`；四板同 build（读回见下） |
 | 1 | 复位 | 每板 | `SYSTem:BOOT:RESET`（NO.4→3→2→1） | 端口短暂掉线后重新枚举 |
-| 2 | 等 boot 定局 | **COM5** | `SYST:TDMA:BOOT:PLAN?` 轮询 | 第 18 字段 `boot_done=1` 且第 4 字段 `fail_step=0`（≤33 s） |
+| 2 | 等 boot 定局 | **COM5** | `SYST:TDMA:BOOT:PLAN?` 轮询 | 第 18 个字段（索引 17）`boot_done=1` 且第 4 个字段（索引 3）`fail_step=0`（≤33 s） |
 | 3 | 判环 | 四板读回 | `SYST:TDMA:BOOT:PLAN?`、`SYST:TDMA:RING:STATus?` | `action` 1/2、`steps=8`、`enabled/up/down/adapter=1`、`half_ring=0`、第 20 字段 `profile_source`∈{1,2} |
 | 4 | 帧活性 | 四板读回 | 间隔 ≥2 s 两次 `RING:STATus?` | 第 49/50 字段 `total_up_tx/total_down_rx` 单调增长 |
 | 5 | 单口 C/T 配置 | **COM5** | `SYST:TDMA:GUIDE:CONFig 1,305398722,962,23,4000,4,3,0,4,16,1,64` | `OK` |
@@ -88,7 +88,7 @@ python tools/calibration/guide_cmdplane_probe.py boot <tag>
 （`scpi_cmd_system_tdma_guide_config`，候选段可选）。第 7 步 `TRIGger <action_id>,<epoch>`。
 
 **失败分支**：
-- 第 2 步超时仍 `boot_done=0`：抓 `BOOT:PLAN?` 的 3/17/18 字段，按 §6 定位失败步；
+- 第 2 步超时仍 `boot_done=0`：抓 `BOOT:PLAN?` 的 3/16/17/18 字段（0-based：`fail_step`/`half_ring`/`boot_done`/`boot_next_step`），按 §6 定位失败步；
 - 第 6 步四板 `gen` 不一致：查 `SYSTem:REFMEM:CMD:STATus?` 的 `frag_done/ack_ok`，确认命令只从 COM5 进；
 - 第 8 步 `abort_site≠0`：按 §4.1（26/27 = restore/rebuild）与 §6 处理。
 

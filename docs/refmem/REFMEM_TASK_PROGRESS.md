@@ -51,6 +51,7 @@ Last updated: 2026-11-09
 - M6 正向（2026-11-09，build `20261109072222`）：用台架序列号作 `board_uid` 构造最小部署（COUNTER/SWITCH_A/GATEWAY/SWITCH_B）并逐板 stage/activate 后，SWITCH_A/B 本地开关命令 **ACKED**（state 4，`READ:SWITch1?` 值跟随 5→4/3→4），COUNTER/GATEWAY **NACK reason 12** 且本地状态不变；证据 `out/refmem_read/switch_role_hil_20261109.txt`。广播 `0xF` 聚合因环未运行（`NOT_ONLINE_SAFE`）未证，留 M7。
 - M7 广播聚合尝试（2026-11-09）：10 kHz bring-up（`--level 23 --skip-train`，含/不含 `--bringup`）两次均在 NO.2 `ARM timeout`（`ring_node_count=0`、`ring_config_seq=24`、`ring_adapter_started=0`），广播未发出；已 `RING:STOP` + `DEPloyment:CLEar` 清理。另：清部署后重复 stage 同一 generation 被拒（`GENERATION=6`），需换 generation。广播聚合仍 OPEN，待 TDMA/载波侧修复 NO.2 ARM。
 - M7 stale 语义（2026-11-09，`dc319ab9`）：四板 8 key OBS 矩阵 PASS（`out/refmem_read/obs_hil_matrix_20261109.json`）——每板本地行 `valid=1`、对端行 `valid=0/age=0xFFFFFFFF/stale=1`；工具 `tools/refmem/obs_hil_matrix.py` + `check_page` 5 单测。缺板与广播聚合仍 OPEN（环未起）。
+- BOOT:PLAN? 口径统一（2026-11-09）：TDMA/calibration 文档统一为 **20 字段、0-based** 索引（`fail_step=3`、`half_ring=16`、`boot_done=17`、`boot_next_step=18`、`profile_source=19`），修正“19 字段/第 18 字段”混用。
 - 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2，A′/B′ 待 C11/TDMA）、页面迁移（M5）、广播聚合/缺板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
