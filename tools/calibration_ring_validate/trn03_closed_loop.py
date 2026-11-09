@@ -376,6 +376,10 @@ def parse_args() -> argparse.Namespace:
               "loop gate and a final runtime readback pass; diagnostic mode "
               "records handoff failures without stopping the ring"))
     parser.add_argument(
+        "--leave-on-failure", action="store_true",
+        help=("diagnostic: leave the ring running even when the closed-loop "
+              "gate fails (REFTMEM broadcast HIL on a lab bench)"))
+    parser.add_argument(
         "--origin-trial", action="store_true",
         help=("drive the TDMA origin trial entry inside the leave-running "
               "window (TDMA-FLIGHT-002B1): burst 0, trial on the reference "
@@ -3103,6 +3107,11 @@ def main() -> int:
             args.leave_running and
             (closed_loop_passed or
              (args.diagnostic_continue and bool(soak_timeline))))
+        if getattr(args, "leave_on_failure", False) and args.leave_running \
+                and not closed_loop_passed:
+            # Diagnostic bench handoff: the ring is still the only 10 MHz
+            # maintenance carrier available for the REFMEM broadcast HIL.
+            leave_running = True
         if leave_running:
             for node_index, board in enumerate(ordered):
                 try:
@@ -3123,8 +3132,10 @@ def main() -> int:
                 item["passed"] for item in running_handoff.values())
             leave_running = running_handoff_allows_leave_running(
                 running_handoff,
-                diagnostic_continue=args.diagnostic_continue)
-            if not strict_handoff_passed and not args.diagnostic_continue:
+                diagnostic_continue=(args.diagnostic_continue or
+                                     getattr(args, "leave_on_failure", False)))
+            if not strict_handoff_passed and not args.diagnostic_continue \
+                    and not getattr(args, "leave_on_failure", False):
                 error = merge_error(
                     error, "leave-running final runtime readback failed")
         # The origin entry (TDMA-FLIGHT-002B1) may only be licensed while the
