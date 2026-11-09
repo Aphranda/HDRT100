@@ -96,6 +96,7 @@ docs/
 | CONSOLE/WORKFLOW | `console/CONSOLE_WORKFLOW_ARCHITECTURE.md` | **Workflow 唯一定义**：WorkflowSpec、步骤模型、能力范围/矩阵、成熟度、运行语义、证据与版本、必须工作流化的流程与禁止（从主域架构 §7 摘出）。 |
 | CONSOLE/TODO | `console/CONSOLE_DOMAIN_TODO.md` | CONSOLE 任务表（P0/P1/P2）、阻塞与验收口径。 |
 | CONSOLE/PROGRESS | `console/CONSOLE_TASK_PROGRESS.md` | CONSOLE 真实执行、证据、失败与下一 gate。 |
+| CONSOLE/HANDOVER | `console/CONSOLE_HANDOVER_REVIEW.md` | CONSOLE 会话交接：台架状态、页面、证据、阻塞与下一步。 |
 | ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
 | ARCH/FLASH | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 16 MiB 板载 Flash、Boot/Direct A/B、NVS/blob/FCB、统一 OTA stream 和 TDMA OTA 跨域 canonical。 |
 | ARCH/T2 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | 已弃用（2026-10-11）：T2 预约与分布式时钟分发的历史跨域输入；冲突处以 `trigger/t2/TRIGGER_T2_ARCHITECTURE.md` 的 T2-SEMANTICS 为准。 |
@@ -317,6 +318,7 @@ docs/
 | `legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM 进展归档：`REFMEM-TASK-20260815-006`..`REFMEM-TASK-20260814-050`，10 条。 |
 | `legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_05.md` | REFMEM 进展归档：`REFMEM-TASK-20260815-016`..`REFMEM-TASK-20260815-007`，10 条。 |
 | `legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_06.md` | REFMEM 进展归档：`REFMEM-TASK-20260815-036`..`REFMEM-TASK-20260815-017`，20 条。 |
+| `legacy/calibration/LEGACY_CALIBRATION_TASK_PROGRESS_01.md` | CALIBRATION 进展归档：`CAL-TASK-20260821-005`..`CAL-TASK-20260820-000`，8 条。 |
 | `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_04.md` | TDMA 进展归档：`TDMA-PROGRESS-20260914-008`..`TDMA-TASK-20260817-001`，10 条。 |
 | `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_05.md` | TDMA 进展归档：`TDMA-PROGRESS-20260917-001`..`TDMA-PROGRESS-20260914-009`，7 条。 |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_03.md` | None：`VDC-PROGRESS-20260917-011`..`VDC-PROGRESS-20260917-011`，1 条。 |

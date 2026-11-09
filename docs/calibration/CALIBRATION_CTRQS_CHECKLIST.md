@@ -745,8 +745,13 @@ barrier，而且完全不动 flight process image（无需版本升级、无需�
 - 判据说明（诚实口径）：12 个 trial 里每块板有 6 个是 **no-op pass**（该板既非 source 也非
   destination，`app.c:2591-2596` 明确"不提供硬件证据"）；4 条链路各 3 次重复由链路两端两块板
   真实执行，两端的真实 trial **全部通过**（`failed_mask=0`），故"全部链路×重复通过"成立。
-- 目标档位口径：P2/P3 的测量段都切到 `profile_level=7`（10 MHz），成环与窗口仍在引导档 23 上；
-  这是 M6.3 引入的分离规则在 P3 上的复用。
+- 目标档位口径（2026-11-09 限定）：`profile_level=7` 是**测量段**的目标档；P2 在 `P2_STOP`、P3 在
+  `P3_PREP` 会把环**临时**切到 7（P3 的测量本身按请求里的 `baud_hz` 自算分频，见
+  `tdma_pio_spi_phys_p3.c:74-80`，那次 apply 对测量并非必需）。**“成环与窗口仍在引导档 23 上”
+  只描述了意图，不是当时的实测**：11-07 归档里 P2 收尾后环实际停在 10 MHz（`ring_samples` 的
+  `baud_hz=10000000`），P3 就是在 10 MHz 环上开的窗口——那是 REBUILD 继承了 active 档的副作用，
+  与“10K 引导”口径冲突。当前代码在窗口关闭后由 boot replay 回到 23，收尾档仍由
+  “replay vs REBUILD”竞态决定（见 `CALIBRATION_TASK_PROGRESS.md` 的 CAL-TASK-20261109-013）。
 - M6.4 ✅ 完成；阶梯已推进到 `ladder_idx=3`，下一动作是 T0。
 
 **2026-11-07 09:0x M6.5 T0 起始（build `20261107003733`）**：

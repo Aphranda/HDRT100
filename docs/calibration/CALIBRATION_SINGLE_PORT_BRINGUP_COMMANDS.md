@@ -205,10 +205,12 @@ P2–T3 的 trial body，不要据此判定"未接线"。
 先看 `failed_mask`：`failed_mask≠0` 说明**trial 本身判失败**（例如 P2 的 coded 测量被拒），不是复环问题；
 `failed_mask=0` 而 `status=3` 才是 restore 路径。再看 `abort_site`（26/27=restore/rebuild，100+stage=T3）。
 
-**10 MHz 动作的 level 门槛**：P2/P3/T0–T3 的规范载荷用 `level=7`（10 MHz），而 P1 的 10 kHz 模板用
-`level=23`。P2 的 coded 测量在 10 MHz 上需要先有时钟 bracket；若 P1 只在 10 kHz 跑过，P2 在 10 MHz
-可能被拒（`NOT_ONLINE_SAFE` 类）。按 M6.8 的口径：**先 `OPMode:STAGe 7` + `APPLy`，再用 level 7 跑
-P1**，然后才跑 P2/P3；不要用 23 档的 P1 直接接 7 档的 P2。
+**10 MHz 动作的 level 门槛（2026-11-09 更正）**：`plan.profile_level` 只对 **R（测量）段**有意义——
+P2 在 `P2_STOP`、P3 在 `P3_PREP` 用它把环临时切到测量档，P1 分支**完全不读该字段**
+（`application/src/app.c:2300-2333`；全文件只有 P2/P3/T3 读它）。所以“先用 level 7 跑 P1”这条旧口径
+**作废**：P1 的档位字段是惰性的，P1 归档时环仍是引导档（10 kHz）。若 P2 在 10 MHz 上被拒
+（`NOT_ONLINE_SAFE` 类），真正的修法是 `d3334244` 的“无持久 stage 时不 abort”，不是去改 P1 的 level。
+架构目标口径：**C/T/Q/S 走 10 kHz 引导，只有 R 段用 10 MHz 测量，T3 之后 10 MHz TDMA 才常驻**。
    恢复手法见 §6 最后一条。
 
 

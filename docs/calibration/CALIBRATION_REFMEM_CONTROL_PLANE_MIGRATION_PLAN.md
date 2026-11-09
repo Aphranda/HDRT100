@@ -149,7 +149,8 @@ ACK/NACK 语义分离。若后续确需 B（同步 `CTRL:READ?`），先单独�
 | M3 控制面（read/write/wait_terminal + 模拟器） | 首批已入库 + `read()` 实板 smoke 通过 | `7db8b04c`、`5c031aa8` |
 | 阶梯 P1@7（level 7） | 四板 PASS（严格 verdict） | `evidence/20261109-055753-verify-1`（build `20261108214336`） |
 | 阶梯 P2 | 四板 COMPLETE | `docs/calibration/CALIBRATION_TASK_PROGRESS.md` CAL-TASK-20261109-010 |
-| 阶梯 P3 | 2/4 板 12/12；NO.1/NO.2 link0 TIMEOUT **OPEN** | `CAL-TASK-20261109-011` |
+| 阶梯 P3 | **间歇**：既有 2/4（`20261109-062107-verify-3`），也有多轮四板 12/12（`064400-action3-gen11103`、`112336-action3-gen12303`、`114612-action3-gen12403`）；机制见 `CAL-TASK-20261109-013`（R 段起点不共享） | `CAL-TASK-20261109-011/013` |
+| 阶梯 T0–T3 | **11-07 已达成过**（`20261107-211534-action7-gen2410`：四板 `ladder=6/2(DONE)`、T3 后 `baud=10000000`）；11-09 夜间未重跑 | `CALIBRATION_HANDOVER_PLAN.md` §2、该证据 |
 | T0–T3 | **未跑** | — |
 
 **关键口径（勿再犯）**：
