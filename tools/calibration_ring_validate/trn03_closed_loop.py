@@ -1601,6 +1601,40 @@ def host_soak(ordered: list[Board], args: argparse.Namespace, progress,
     return result
 
 
+def save_previous_record(board, args, actions):
+    """Finish a record the previous run left FROZEN (state 5).
+
+    The host exports the RAM lease of every run without spending a storage job,
+    so the next ARM is refused until that frozen record is SAVE'd.  A SAVE is
+    only accepted while the ring is stopped *and* ``config_seq`` still equals
+    ``applied_config_seq``; once profile/matrix staging advances the config
+    generation the board refuses the SAVE and a FROZEN record has no CANCEL
+    path, which wedged every second consecutive run until a BOOT:RESet.
+    """
+    status = record_status(board_command(
+        board, "SYSTem:TDMA:RECord:STATus?", args))
+    if status is None or status["state"] in (0, 8, 9):
+        return status
+    if status["state"] != 5:
+        raise RuntimeError(f"{board.address}: recorder is not reusable: {status}")
+    response = board_command(board, "SYSTem:TDMA:RECord:SAVE", args)
+    actions.append(dict(node=board.address, action="SAVE_PREVIOUS_RECORD",
+                        epoch=status["epoch"], response=response))
+    if response.strip().strip('"') != "OK":
+        raise RuntimeError(f"{board.address}: previous recorder SAVE rejected")
+    deadline = time.monotonic() + args.arm_wait
+    while time.monotonic() < deadline:
+        status = record_status(board_command(
+            board, "SYSTem:TDMA:RECord:STATus?", args))
+        if status is not None and status["state"] in (8, 9):
+            break
+        time.sleep(0.05)
+    if status is None or status["state"] not in (8, 9):
+        raise RuntimeError(
+            f"{board.address}: previous recorder SAVE did not complete: {status}")
+    return status
+
+
 def acquire_board_records(ordered, start_order, args, actions, progress, out_dir):
     """Trigger once; make no SCPI data queries until the board window has ended."""
     epoch = int(time.time()) & 0xFFFFFFFF
@@ -2645,6 +2679,11 @@ def main() -> int:
             "applied_config_seq": snapshot["ring_applied_config_seq"],
         } for address, snapshot in stop_ack.items())
         time.sleep(args.settle)
+        # Clear the previous run's frozen record while the ring is still stopped
+        # on its applied generation; staging below advances ring_config_seq and
+        # the board would then refuse the SAVE, leaving FROZEN un-clearable.
+        for board in ordered:
+            save_previous_record(board, args, actions)
         capture_load_masks = {
             board.address: read_tdma_load_mask(
                 board, args, args.capture_latch_retries)

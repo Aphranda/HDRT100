@@ -2693,3 +2693,53 @@ def test_origin_page_maps_tagged_fields() -> None:
         '"ORIGINTRIAL",3,14,1,9101,4,1791433733').split(","))
     assert trial["epoch"] == "14"
     assert trial["config_seq"] == "4"
+
+
+class _Board:
+    address = "0010071E65B5CB38"
+
+
+def test_save_previous_record_finishes_frozen(monkeypatch):
+    """A frozen record left by the previous run is SAVE'd before staging."""
+    statuses = iter([{"state": 5, "epoch": 7}, {"state": 8, "epoch": 7}])
+    commands = []
+    monkeypatch.setattr(trn03, "record_status", lambda raw: next(statuses))
+    monkeypatch.setattr(
+        trn03, "board_command",
+        lambda board, text, args: commands.append(text) or "OK")
+    actions = []
+    status = trn03.save_previous_record(
+        _Board(), SimpleNamespace(arm_wait=1.0), actions)
+    assert status["state"] == 8
+    assert commands == [
+        "SYSTem:TDMA:RECord:STATus?",
+        "SYSTem:TDMA:RECord:SAVE",
+        "SYSTem:TDMA:RECord:STATus?",
+    ]
+    assert actions == [dict(node="0010071E65B5CB38",
+                            action="SAVE_PREVIOUS_RECORD", epoch=7,
+                            response="OK")]
+
+
+@pytest.mark.parametrize("state", [0, 8, 9])
+def test_save_previous_record_skips_reusable_states(monkeypatch, state):
+    commands = []
+    monkeypatch.setattr(trn03, "record_status",
+                        lambda raw: {"state": state, "epoch": 3})
+    monkeypatch.setattr(
+        trn03, "board_command",
+        lambda board, text, args: commands.append(text) or "OK")
+    actions = []
+    trn03.save_previous_record(_Board(), SimpleNamespace(arm_wait=1.0), actions)
+    assert commands == ["SYSTem:TDMA:RECord:STATus?"]
+    assert actions == []
+
+
+def test_save_previous_record_reports_incomplete_save(monkeypatch):
+    monkeypatch.setattr(trn03, "record_status",
+                        lambda raw: {"state": 5, "epoch": 3})
+    monkeypatch.setattr(trn03, "board_command",
+                        lambda board, text, args: "OK")
+    with pytest.raises(RuntimeError, match="SAVE did not complete"):
+        trn03.save_previous_record(
+            _Board(), SimpleNamespace(arm_wait=0.01), [])
