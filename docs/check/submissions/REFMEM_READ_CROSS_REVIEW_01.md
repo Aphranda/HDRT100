@@ -118,6 +118,17 @@ Last updated: 2026-11-09
 | 广播聚合无归档 | 已归档 `-200,"NOT_ONLINE_SAFE"`；聚合留 M7 |
 | 进度日志历史行仍写“未配置→12” | 已加注“历史口径，后由 9aeb173d 改 13” |
 
+## 4.6 第六轮复核（只读子代理 `455f2a76`，2026-11-09）
+
+| 发现 | 处置 |
+|---|---|
+| `check_page` 未校验本地 `valid=1`、page 头/count、valid∈{0,1}、本地 fresh | 已修：本地必须 valid=1/stale=0/age≤预算；page key/offset/count 与请求一致；新增 9 单测 |
+| JSON 未落行级证据，PASS 不能证明“本地 valid=1” | 已落 `local{valid,age_ms,stale}`、`peer_stale`、`build` |
+| registry `operation=OFFLINE`、validation 自指入口 | 已改 `DEVICE_READ`、指向 `tests/python/test_refmem_obs_matrix.py` |
+| `REFTMEM-READ-01` 拼写、`M7/M8` 中 M8 未定义 | 已改 `REFMEM-READ-01`、只写 M7 |
+| 登记表证据列未回填矩阵 | 已回填四板 8-key 矩阵与 build |
+| pending P3 receipt `passed=true` 但 `tdma_stage_passed=false`、引用未跟踪 bench 配置 | **残余**：不作为 FULL PASS 提交；需重跑或明确降级 |
+
 ## 5. C11 待复核项
 
 1. 行 schema 取舍：采用逐槽行（契约文本）还是把契约改为「单板单行」并明确不做跨板读；
