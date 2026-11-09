@@ -44,6 +44,7 @@ Last updated: 2026-11-09
 - P3 通过（2026-11-09 14:05，`a79b10b7`）：build `20261109055830`、`DPLL60_JOINT`、sources=1002；开关 owner 判定改用 `trigger_deployment_snapshot_cached()`（RUN-safe）。**注意**：该 P3 仍在 10 MHz 窗口下；按 calibration 会话的载波分离设计（C/T/Q/S 走 10 kHz、仅 R 段 10 MHz），底层 level 协议问题仍归其侧，本提交不声称解决 P3 间歇性。
 - TRN-03B workaround（`30f5f7c3`）：reset 后 `wait_boot_replay()` 强制 35 s 窗口再启动 staging；已向 calibration 会话申明 `workflow_steps.py` 变更；不触碰 `app.c`/`profile_level`/`SET_FLIGHT_MODE`/boot profile 语义。
 - 跨会话对齐（2026-11-09）：calibration 会话交付载波分离设计与证据方法学（C/T/Q/S=10 kHz、R=10 MHz、T3 后 latch；P3 间歇失败机制为 R 段 trial 起点锚定 + 10 kHz 维护面延迟）；本域不重复其推导，后续 P3/载波相关判据引用其提交 `d946b9ca`/`fb28dff5`/`5c160d70`/`a1151ff8`。
+- M2 扩展提案（`REFMEM_READ_MODEL_DESIGN_01`，2026-11-09）：DataLink 14 条标量已满、DELTA 仅 width≤4/单 mirror；对比 A 扩表（14→46，版本/包升级）、B 加宽度（schema 变更）、C `RefMemSlotContract` 静态视图（不动模型 version/CRC/package）；推荐 C，待 C11/TDMA 确认 process-image field/value 每周期通路。
 - 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、M6 的 SWITCH_A 正向证据、四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
