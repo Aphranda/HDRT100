@@ -353,6 +353,24 @@ static void refmem_cmd_load_service_timeout(void)
         }
         s_frag_submit_fail++;
     }
+    /* Replies already cover every required target: the reply fold owns the
+     * terminal state (ACKED/NACKED).  A late TX deadline must not overwrite
+     * that with TIMED_OUT.  Use a fresh record read: the snapshot captured at
+     * submit can predate the replies. */
+    {
+        refmem_command_snapshot_t fresh;
+        uint32_t fresh_params[REFMEM_NODE_CONTROL_PARAM_WORDS];
+        if (distributed_refmem_node_control_read_params(
+                local_slot, &fresh, fresh_params, NULL, NULL) &&
+            fresh.required_mask != 0u &&
+            ((fresh.ack_flags | fresh.nack_flags) & fresh.required_mask) ==
+                fresh.required_mask) {
+            s_cmd_pending_seq = 0u;
+            s_pending_active = 0u;
+            s_pending_retries = 0u;
+            return;
+        }
+    }
     (void)distributed_refmem_node_control_update_status(
         local_slot, (uint32_t)REFMEM_COMMAND_STATE_TIMED_OUT,
         snapshot.ack_flags, snapshot.nack_flags, 0u,

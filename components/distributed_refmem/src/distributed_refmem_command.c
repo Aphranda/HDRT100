@@ -278,6 +278,21 @@ void distributed_refmem_node_control_service(void)
         distributed_refmem_post_command_replacing_complete(&request,
                                                            osal_tick_ms());
     if (!posted) {
+        /* The local command slot could not replace its previous entry (still
+         * POSTED/BUSY/TAKEN).  Do not consume the intent silently: mirror a
+         * terminal NACK with the busy reason so the origin aggregate finishes
+         * and the cause is observable. */
+        s_node_control_last_command_seq = snapshot.command_seq;
+        s_dispatch_last_skip = 7u;
+        (void)distributed_refmem_node_control_update_status(
+            local_slot, (uint32_t)REFMEM_COMMAND_STATE_NACKED, 0u,
+            (1u << local_slot), 0u, 0u,
+            (uint32_t)REFMEM_COMMAND_REASON_RESOURCE_BUSY, local_slot, 0u,
+            snapshot.command_seq);
+        distributed_refmem_cmd_reply_arm(
+            snapshot.command_seq, snapshot.source_node,
+            (uint32_t)REFMEM_COMMAND_STATE_NACKED,
+            (uint32_t)REFMEM_COMMAND_REASON_RESOURCE_BUSY);
         return;
     }
     const refmem_command_take_result_t take =
@@ -319,6 +334,13 @@ void distributed_refmem_node_control_service(void)
             (void)distributed_refmem_command_ack(local_slot, 0u);
             (void)distributed_refmem_node_control_ack(local_slot, local_slot,
                                                       0u);
+            /* Mirror the terminal ACK into the node-control record exactly like
+             * the NACK path: ack() alone leaves the observable record POSTED. */
+            (void)distributed_refmem_node_control_update_status(
+                local_slot, (uint32_t)REFMEM_COMMAND_STATE_ACKED,
+                (1u << local_slot), 0u, 0u, 0u,
+                (uint32_t)REFMEM_COMMAND_REASON_NONE, local_slot, 0u,
+                snapshot.command_seq);
             distributed_refmem_cmd_reply_arm(
                 snapshot.command_seq, snapshot.source_node,
                 (uint32_t)REFMEM_COMMAND_STATE_ACKED,
