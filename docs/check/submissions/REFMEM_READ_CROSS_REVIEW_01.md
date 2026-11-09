@@ -107,6 +107,17 @@ Last updated: 2026-11-09
 | `wait_boot_replay` 每 2 s `discover()` 副作用 | 已改为 discover 一次、集合不匹配才刷新（`1c6a16c7`）；残余为每 2 s 轮询 |
 | BUSY→6 / 角色→12 无 host 用例 | **OPEN**：需 host 侧 reason 映射用例 |
 
+## 4.5 第五轮复核（只读子代理 `d5131cfa`，2026-11-09）
+
+| 发现 | 处置 |
+|---|---|
+| HIL 归档缺 stage/activate 与 `DEPloyment?` 读回 | 已补采：四板 `DEPloyment?` 均 `active=1/gen=1800000001/crc=1450950601` 且 role/slot 正确；见 `REFMEM_SWITCH_HIL_ANALYSIS_01` |
+| 测试部署可能残留 | 已逐板 `DEPloyment:CLEar`，`active=0` |
+| `output_mask` 只做形状校验，SWITCH_B 行 output=1 与 3 位 SIO 驱动不一致 | 记为部署/资源命名空间待澄清项，不阻塞 owner 判定 |
+| build `20261109072222` 无 receipt 绑定 | 记残余；其固件源指纹与 `20261109063728` 一致 |
+| 广播聚合无归档 | 已归档 `-200,"NOT_ONLINE_SAFE"`；聚合留 M7 |
+| 进度日志历史行仍写“未配置→12” | 已加注“历史口径，后由 9aeb173d 改 13” |
+
 ## 5. C11 待复核项
 
 1. 行 schema 取舍：采用逐槽行（契约文本）还是把契约改为「单板单行」并明确不做跨板读；
