@@ -1322,6 +1322,8 @@ scpi_result_t scpi_cmd_ctrl_function_catalog_q(scpi_t *context)
  * key has no provider on this board (the caller then publishes a stale row).
  * `epoch/seq` are placeholders until the R1-3 publish plane supplies the real
  * publisher counters; `age_ms` is 0 because the snapshot is taken now. */
+#define REFMEM_OBS_STALE_WINDOW_MS 10000u
+
 static bool refmem_obs_fill_peer_row(uint32_t key, uint32_t slot,
                                      refmem_obs_row_t *row)
 {
@@ -1359,7 +1361,7 @@ static bool refmem_obs_fill_peer_row(uint32_t key, uint32_t slot,
     row->epoch = 1u; /* publish generation placeholder until epoch lands */
     row->seq = min_seq == UINT32_MAX ? 0u : min_seq;
     row->age_ms = max_age;
-    row->stale = 0u;
+    row->stale = max_age > REFMEM_OBS_STALE_WINDOW_MS ? 1u : 0u;
     return true;
 }
 
