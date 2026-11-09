@@ -243,7 +243,15 @@ void distributed_refmem_node_control_service(void)
     if (snapshot.source_node == local_slot) {
         const uint32_t remote_required =
             snapshot.required_mask & ~(1u << local_slot);
-        if (remote_required != 0u && !refmem_cmd_load_broadcast_landed()) {
+        /* The broadcast-landed wait exists to align training/plan windows;
+         * a switch write has no window to align and must execute locally even
+         * if the frame-ACK drain is still in flight, otherwise its own bit
+         * times out and the whole aggregate reports TIMEOUT. */
+        const bool window_command =
+            snapshot.command_type !=
+                (uint32_t)REFMEM_COMMAND_TYPE_TRIGGER_SWITCH;
+        if (window_command && remote_required != 0u &&
+            !refmem_cmd_load_broadcast_landed()) {
             s_dispatch_broadcast_wait++;
             s_dispatch_last_skip = 4u;
             return; /* the wire copy is still being delivered */

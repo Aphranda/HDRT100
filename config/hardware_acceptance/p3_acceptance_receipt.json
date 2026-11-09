@@ -4,42 +4,42 @@
   "acceptance_profile": "FULL",
   "dpll_observation": "FOUR_BOARD_SHORT_60S",
   "passed": true,
-  "generated_at_utc": "2026-11-09T13:48:18.627946+00:00",
-  "source_tree_sha256": "7eabfae1e337f4dd6121b4e736471e86cab1591777547644ed4bcd4d1fe2cf03",
+  "generated_at_utc": "2026-11-09T14:04:10.106008+00:00",
+  "source_tree_sha256": "60ce081d069174b3d1d5c1a931cf1521480a331c2efbcd9a1d5637a1ddd2efaf",
   "source_file_count": 1005,
   "bench_config_path": "config/hardware_acceptance/p3_bench_calibrated.json",
   "bench_config_sha256": "b14c956042481137be3d7113a98c763776c8b26c081d8643c22b30a8ce6c4fab",
-  "build_id": "20261109133700",
+  "build_id": "20261109135258",
   "firmware_package": {
     "path": "out/build/dpll60-latest/DHRT100_UPDATE.pkg",
-    "sha256": "ad9894e56232578caf6f0ce2dbdf293f0c647eb8c9df977ee51860c0e1f0d61f"
+    "sha256": "688d0a55c2bbd0e42cb37dde52c3694a92a8c1282f926e3fa065276be89312f6"
   },
   "ota_summary": {
-    "path": "out/HardwareAcceptance/20261109/dpll60-133637/ota-four-board/summary.json",
-    "sha256": "4abd9e2fcf9e8b139f803a79c64a8290eecd10c7481c8c859dbadfe695c033d6"
+    "path": "out/HardwareAcceptance/20261109/dpll60-135238/ota-four-board/summary.json",
+    "sha256": "07ae59ad165375e49820c8151bf358ea0ae0edb0a2474b6f5a873d446a2a79e7"
   },
   "initialization_reset": {
-    "path": "out/HardwareAcceptance/20261109/dpll60-133637/initialization-reset.json",
-    "sha256": "d8924eae182cb96a3113dd4d4dcb212580eed72e04358e4f9fec7dd70efda632"
+    "path": "out/HardwareAcceptance/20261109/dpll60-135238/initialization-reset.json",
+    "sha256": "143520157e19c991a944462cfbccebd86b4465529211d1a672487be5376eba71"
   },
   "trn03_matrix": {
     "path": "out/HardwareAcceptance/20261109/p3-obs-cal/trn03-matrix.json",
     "sha256": "92a5bf4cacdc43e0d554b60c832b6dacc528dfaa242895c27dc5c90ea49fb8cc"
   },
   "tdma_summary": {
-    "path": "out/HardwareAcceptance/20261109/dpll60-133637/tdma-process-image/summary.json",
-    "sha256": "86a6619589c4f5d0520e1cbec9af617ee64d935b0a95074478286df3d1158193"
+    "path": "out/HardwareAcceptance/20261109/dpll60-135238/tdma-process-image/summary.json",
+    "sha256": "3f9b70146449bfe2f7cdb5883c2ddf0f90df697ac8fa400ff9794b199603b119"
   },
   "tdma_stopped_handoff": {
-    "path": "out/HardwareAcceptance/20261109/dpll60-133637/tdma-stopped-handoff.json",
-    "sha256": "217fd2b6789c179aeb1e763350f26cf7354f9e1d65f1e44edc7792a14652f252"
+    "path": "out/HardwareAcceptance/20261109/dpll60-135238/tdma-stopped-handoff.json",
+    "sha256": "bd5a561d45685b368eacbc14a1fadb0a3c64bb28ca72ec5d9a2099861aeefe64"
   },
   "dpll_summary": {
-    "path": "out/HardwareAcceptance/20261109/dpll60-133637/dpll-short-summary.json",
-    "sha256": "87440de803f8c23191a5b5f07686cd3f0d7ad3749c7d7b8b02b4423755250b84"
+    "path": "out/HardwareAcceptance/20261109/dpll60-135238/dpll-short-summary.json",
+    "sha256": "1ad6d0833fa7e10e7a836bdf571ba0d9a6dbdf6c66f21c2cdd048e1f44edd341"
   },
   "dpll_scope_discovery": {
-    "path": "out/HardwareAcceptance/20261109/dpll60-133637/dpll-scope-discovery.json",
+    "path": "out/HardwareAcceptance/20261109/dpll60-135238/dpll-scope-discovery.json",
     "sha256": "a6a69aee938defbc963c99526ef4264b28051bdcdb0fdfb79f3f14908e18ee5f"
   },
   "ota_board_ids": [
