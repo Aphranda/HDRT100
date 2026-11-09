@@ -25,15 +25,20 @@ Last updated: 2026-11-09
   （`distributed_refmem_plane.c:368-377,418-424`）；
 - 10 B 片布局固定为 generation(4)+field_id(2)+value(4)，且与 position-ack/diagnostic 共享。
 
-结论：**当前没有可用的“通用每周期 field/value”通路**；任何方案都必须先决定“选择器 + 仲裁”，
-这是 TDMA 级变更，不能只补一个 runtime。
+结论：**通道形状已存在，缺的是生产者与多字段镜像，不是新通道**。`refmem_sync_commit_delta()`
+（`refmem_sync.c:69-101`）已接受任意 `field_id`/`field_width<=4` 并保存 `value_u32`，只是每个源槽
+只有一个 mirror、后到的 field 覆盖前一个；发送端 `distributed_refmem.c:820-826` 每周期写
+`field_id=baseline(0)` + `s_service_count`。因此 M2 可做成 **REFMEM 本地字段复用（B″）**：
+发送端轮转一个 OBS field、接收端按 `field_id` 存数组、OBS 读对端时组合；**不改 wire、不改模型
+version/CRC/package、不需要 TDMA 选择器/仲裁**。唯一需要的是确认 baseline 诊断值被轮转占用后
+是否有消费者（若有，保留隔帧 baseline）。
 
 ## 3. 方案对比（修正版）
 
 | 方案 | 做法 | 影响 | 判定 |
 |---|---|---|---|
 | A | DataLink 14→46（每 word 一条），version 1→2 | wire size/table CRC/package CRC 全变；host packer 硬编码 14 与 LAYOUT_VERSION=2（`tools/refmem/refmem_table_image.py:28-38`）与 golden 同步；DataLink 无 offset 字段，仍需为 32 word 指定 region/offset 归宿 | 可行，升级面大 |
-| **B（推荐，条件）** | 实现真实 `RefMemSlotContract` 静态表（`field_slot_id/offset/width/writer/type/update_period_us/stale_window_us`），mirror 改 `(slot, field_slot_id)`，发布器采样；在 10 B 片加**选择器 + 仲裁** | 不改 model version/CRC/package；需新表 + TDMA 选择器/仲裁 + region/offset 分配 | 最小模型改动，但依赖 TDMA 同意 |
+| **B″（选定）** | 复用现有每周期 `field_id/value` 片：发送端轮转 OBS field（id 由契约表分配），接收端 mirror 改 `[slot][field]` 数组，OBS 读对端时组合 | 不改 wire/模型 version/CRC/package；改 REFMEM 发送选择 + mirror + OBS 组合；RAM 约 2–4 KB | 改动最小且不越 TDMA 边界 |
 | C | 维护/二等席新帧 | 维护流约 4 B/s，32 word 一轮约 32 s | 不能作为读模型 |
 
 **关于 `0x100+key*16+word`**：不得再作为“推荐公式”。若 B 使用该范围，必须
@@ -65,9 +70,13 @@ Last updated: 2026-11-09
 
 ## 7. 结论
 
-**待独立 C11/TDMA 复核。** 推荐 B（条件：TDMA 同意选择器/仲裁），否则退回 A 并接受
-version/CRC/package 升级成本。上一版的“0x100 公式 + 每周期通用 field/value”均已被证伪，
-不得作为实现依据。
+**选定 B″（REFMEM 本地字段复用）。** 依据：接收端已按 `field_id/width` 提交（`refmem_sync.c:69-101`），
+发送端每周期已带 `field_id/value`（`distributed_refmem.c:820-826`），因此不需要 A′ 的模型升级、
+也不需要 TDMA 选择器；剩余工作是 REFMEM 内的发送轮转、mirror 数组与 OBS 组合。
+
+仍需 C11 复核：契约表分配 `field_slot_id` 范围、baseline 诊断值是否保留隔帧、mirror RAM 预算、
+以及“本地 valid=1/对端 stale”在发布器上线后的判定翻转。上一版的“0x100 裸魔数”不得直接使用，
+必须由契约表分配。
 
 ## 8. 复核记录（只读子代理 `33b11994`，2026-11-09）
 

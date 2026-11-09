@@ -54,7 +54,8 @@ Last updated: 2026-11-09
 - BOOT:PLAN? 口径统一（2026-11-09）：TDMA/calibration 文档统一为 **20 字段、0-based** 索引（`fail_step=3`、`half_ring=16`、`boot_done=17`、`boot_next_step=18`、`profile_source=19`），修正“19 字段/第 18 字段”混用。
 - 四板矩阵复跑（2026-11-09，重写后）：`obs_hil_matrix.py` 增加本地 `valid=1`、page 头/count、本地 fresh 校验并落行级证据；四板 8 key **PASS**（build `20261109072222`，`out/refmem_read/obs_hil_matrix_20261109.json`）；`check_page` 9 单测。
 - 上下电后广播复测（2026-11-09）：10 kHz 环启动成功（NO.2 ARM 恢复），但广播 `45,15,15` 仍停在 `CTRL:STATus?` state 1（QUEUED），仅本板 slot0 有 NACK 记录、远端槽无记录；加 `LOAD:MASK 27` 无效。判为简易起环未配置维护/二等席命令窗口，需 P3/TRN-03 级 setup；已 STOP/CLEar。广播聚合仍 OPEN。
-- 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2，A′/B′ 待 C11/TDMA）、页面迁移（M5）、广播聚合/缺板 HIL（M7）；契约仍 pending。
+- M2 通道复核（2026-11-09）：`refmem_sync_commit_delta()` 已接受任意 `field_id/width<=4` 并保存值，发送端每周期已带 `field_id/value`（现写 baseline 0 + `s_service_count`）；因此 M2 选 **B″（REFMEM 本地字段复用）**——发送轮转 + `[slot][field]` mirror + OBS 组合，不改 wire/模型 version/CRC/package，也不需要 TDMA 选择器。待 C11 复核 id 范围/隔帧 baseline/RAM 后实现。
+- 当前 OPEN：发布面实现（R1-3/B″）、页面迁移（M5）、广播聚合/缺板 HIL（M7，命令需维护窗口）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
