@@ -37,7 +37,7 @@ Last updated: 2026-11-09
 - APPLY 取证（`efd7aa04`）：NO.2 `OPMode?` active=`23,10000,150000000,...`（level 23 / 10 kHz / 150 ms）vs staged=`7,10000000,1000000,...`（level 7 / 10 MHz / 1 ms）；`reject_count=5`、`last_result=1(BAD_ARGUMENT)`。NO.1 对照 active==staged、`reject_count=2`、`last_result=0`。判为 board-local stopped-mutation 状态（boot replay 3–33 s 与 TRN-03B 并发、`RING:STATus?` 不发布该状态），非矩阵/CRC/幂等；`BOOT:RESET` 无效，**用 picotool 重刷同 build（BOOTSEL 硬复位）清除**：active==staged、reject 归零。
 - P3 通过（2026-11-09 13:09）：`dpll60` reuse build `20261109043236`，`DPLL60_JOINT`、sources=1002、receipt 已绑 staged；M4 固件提交 `142d70ff`。
 - 失败结果写命令的原文回传（`bca42cdc`）：`APPLY/LINK/BEGIN` 被拒时 matcher 接受 `-200` 行，`checked_action` 用原文报错；不再退化为 `<timeout>`。`test_scpi_framing`；trn03 用例 172 passed。
-- M2 运输冻结（2026-11-09）：维护流有效载荷约 4 B/s，排除“新 OBS 帧走维护/二等席连续刷新”；改为**复用 process-image REFMEM 10 B 片 + `REFMEM_DELTA`**（`field_id=0x100+key*16+word`，每周期一个 u32，镜像按 `(slot,field_id)`，不新增帧类型/席位）。待 TDMA 确认 field_id 空间与每周期一个字段的预算；`stale` 用“一轮 word 是否轮完”的心跳判定。
+- M2 运输（2026-11-09，HAOFV 复核后修正）：上一版 `field_id=0x100+key*16+word` **绕开了既有 `DataLinkTable`**（14 条字段契约，含 `update_period_us/stale_window_us`），属重复造轮子；改为**复用 DataLinkTable + `REFMEM_DELTA`**——`field_id=data_link_id`、镜像按 `(slot,data_link_id)`、`stale` 用条目的 `stale_window_us`，不新增帧型/席位/私有命名空间。真正缺口是 DataLinkTable **只有解析/校验、没有运行时发布器/监控器**（`refmem_application_model.c:770-771` 读入后全仓无消费者）；M2 补该 runtime，OBS 是第一个读者。
 - 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、开关语义与广播误伤（M6）、四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态

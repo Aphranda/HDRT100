@@ -1498,15 +1498,21 @@ region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/sw
   约 5 chunk，单次变更需数秒；若做 4 key × 4 板连续刷新约 768 B/s，远超该通道约 4 B/s，
   **不可行**（只适合极低频单条命令，不适合读模型）。
 - **C 命令面 request/response**：违反 CP4/D0-A，**不采用**。
-- **B（冻结）复用 process-image 的 REFMEM 10 B 片 + `REFMEM_DELTA`**：每周期携带一个 u32
-  value 与 `field_id`；接收端按 `(source_slot, field_id)` 存镜像。多字 key 按 word 轮转
-  （≤7 周完成一行），4 板 × 8 key × 8 word 镜像约 2 KB SRAM。**不新增总线/帧类型/席位**，
-  TDMA 只需确认 field_id 空间与每周期一个字段的预算。
+- **B（HAOFV 冻结）复用既有 `DataLinkTable` + `REFMEM_DELTA`**：读 key 作为 DataLink 条目登记
+  （`region_path/writer_instance/type/update_period_us/stale_window_us`），发布器按
+  `update_period_us` 采样并令 `field_id = data_link_id`；接收端镜像按
+  `(source_slot, data_link_id)` 存值，`stale` 直接用条目的 `stale_window_us`。
+  **不新增帧类型/席位/私有 field 命名空间**——这是上一版 `0x100+key*16+word` 的错误：
+  它绕开了已冻结的 DataLink 契约，属于重复造轮子。
 
-B 的约定：`field_id = 0x100 + key*16 + word`，避开既有 contract 字段；写者每周期只发**一个**
-`(key,word)`；读侧用该 key 的发布 `seq` 判断整行是否完整刷新；`stale` 用“该 key 一轮 word 是否
-在预算内轮完”的心跳判定，而不是“值未变多久”。时基用读者本地 tick；跨板 `age_ms` 近似，
-`stale` 只用同一读者的时基。
+当前缺口不是“缺一条 OBS 通道”，而是 **DataLinkTable 只有解析/校验、没有运行时发布器/监控器**：
+`update_period_us/stale_window_us` 在 `refmem_application_model.c:770-771` 只被读入，
+全仓无消费者。M2 要补的是这个 **DataLink runtime**（发布器 + 按 `data_link_id` 的镜像），
+OBS 只是它的第一个读者；后续 `quality/fault/trigger` 等 key 复用同一条通道。
+
+B 的约定：写者按 `update_period_us` 采样自己的 DataLink 条目（单写者）；读侧用
+`(slot, data_link_id)` 的最新 `seq`/值；`stale` 用条目的 `stale_window_us`，不用“值未变多久”。
+时基用读者本地 tick；跨板 `age_ms` 近似，`stale` 只用同一读者的时基。
 
 **实现状态（M4 行格式，2026-11-09）。** `OBS?` 已按本节返回逐槽行：本地槽由本板 provider
 出 `valid=1`（`epoch/seq` 暂为占位 1，真实发布计数器随 R1-3）；对端槽无发布者时
@@ -1520,6 +1526,15 @@ B 的约定：`field_id = 0x100 + key*16 + word`，避开既有 contract 字段�
 **读面与命令面的边界。** OBS 是**只读投影**，不携带 `target_mask/required_mask`，不产生命令事实，
 也不返回 NACK；"required 缺位 → NACK" 只属于命令面语义（`REFMEM_COMMAND_REASON_NODE_STALE` 等），
 读面不得把该语义借来当查询失败。stale 行只能用于诊断，不得当作 current fact 参与校准/判据。
+
+**决策记录（HAOFV，2026-11-09）。**
+
+| 决策 | HAOFV 依据 | 后果 |
+|---|---|---|
+| M2 发布面复用 process-image REFMEM 片 + `REFMEM_DELTA`（`field_id=0x100+key*16+word`），不新增帧类型/席位 | ① 不新增总线/payload class；③ 单写者；⑥ 预算可核算 | 维护流 ~4 B/s 的“新 OBS 帧”方案被排除 |
+| 开关命令在非 `SWITCH_A/SWITCH_B` owner 上返回 reason 12（PERMISSION_DENIED），不静默 no-op | ② 执行必在目标 owner；④ fail-closed + reason 可观测 | 广播 `target_mask=0xF` 会 NACK，调用方必须显式指向开关槽 |
+| 旧 `CONFigure:SWITch#` 返回 `USE_CTRL_EXECUTE` | ③ 单一入口；④ 不静默接受 | 旧 SCPI 不再假装成功，必须走 `CTRL:EXECute` |
+| 读 key 的 `stale` 用“一轮 word 心跳是否轮完”，不用“值未变多久” | ② 读不改变控制事实；④ 新鲜度可判 | 稳定值不会因未变而误判 stale |
 
 **单写者与撕裂。** 每 key 仅一个 writer；读侧用 `seq` 校验（`seq` 变化即重读一次）；跨 key 不保证
 同一时刻快照，行级 `epoch/seq` 是唯一一致性口径。
