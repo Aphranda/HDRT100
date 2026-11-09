@@ -29,3 +29,24 @@ def read_switch_obs(transport, key: int, offset: int = 0, count: int = 4) -> str
         text += (f"; slot={row['slot']} valid={row['valid']}"
                  f" age={row['age_ms']} stale={row['stale']} value={values}")
     return text
+
+
+class ControlPlaneTransport:
+    """Wrap the demo transport so REFMEM read queries share ControlPlane.
+
+    Writes and non-REFTMEM commands pass through unchanged; every
+    ``SYSTem:REFMEM:...?`` read goes through ``ControlPlane.query`` so the
+    pages, CLI and tests use one host read path (M5).
+    """
+
+    def __init__(self, raw) -> None:
+        self._raw = raw
+
+    def execute(self, command: str) -> str:
+        stripped = command.strip()
+        if stripped.startswith("SYSTem:REFMEM:") and stripped.endswith("?"):
+            return _control_plane(self._raw).query(stripped)
+        return self._raw.execute(command)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)

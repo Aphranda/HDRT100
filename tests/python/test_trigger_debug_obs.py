@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "domains" / "trigger" / "trigger_debug_demo"))
 
-from obs_read import read_switch_obs  # noqa: E402
+from obs_read import ControlPlaneTransport, read_switch_obs  # noqa: E402
 
 
 class FakeTransport:
@@ -31,3 +31,14 @@ def test_read_switch_obs_formats_per_slot_rows():
 def test_read_switch_obs_rejects_bad_key():
     with pytest.raises(Exception):
         read_switch_obs(FakeTransport('-200,"OBS_KEY"'), 1)
+
+
+def test_transport_routes_refmem_queries_through_control_plane():
+    raw = FakeTransport("1,0,1,0,1,1,1,0,0,1,1")
+    wrapped = ControlPlaneTransport(raw)
+    assert wrapped.execute("SYSTem:REFMEM:OBS? 1,0,1").startswith("1,0,1")
+
+
+def test_transport_passes_non_refmem_commands():
+    raw = FakeTransport("OK")
+    assert ControlPlaneTransport(raw).execute("*IDN?") == "OK"

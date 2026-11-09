@@ -179,6 +179,17 @@ class ControlPlane:
             f'aggregate not terminal/complete for required=0x{required:X} '
             f'(last={last})')
 
+    def query(self, command: str) -> str:
+        """One raw read-only query through this plane's transport.
+
+        Pages must not open their own REFMEM path; they call this (M5).  An
+        execution error (``-200``/``ERR``) raises ``RejectedError``.
+        """
+        response = self._execute(command)
+        if self._is_error(response):
+            raise RejectedError('query rejected', response)
+        return response
+
     def wait_terminal(self, slots: list[int], timeout_s: float = 60.0,
                       poll_s: float = 0.2) -> dict[int, int]:
         """Poll **local** command records until terminal.

@@ -1996,7 +1996,12 @@ class DemoApp(tk.Tk):
             self.dialogs.error("连接失败", str(exc))
             return
         self.transport = transport
-        self.dispatcher = device.Dispatcher(transport, self._on_result)
+        try:
+            from .obs_read import ControlPlaneTransport
+        except ImportError:
+            from obs_read import ControlPlaneTransport  # type: ignore
+        self.transport = ControlPlaneTransport(transport)
+        self.dispatcher = device.Dispatcher(self.transport, self._on_result)
         self.dispatcher.start()
         self.connected = True
         self.connect_button.configure(text="断开")
