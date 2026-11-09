@@ -52,6 +52,8 @@
 #include "refmem_obs.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_runtime_owner.h"
+#include "sync_io_sequence.h"
+#include "app_refmem_domain_config.h"
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
 {
@@ -1364,6 +1366,30 @@ scpi_result_t scpi_cmd_refmem_obs_q(scpi_t *context)
                              ring.down_configured != 0u) ? 1u : 0u;
             result.row[4] = ring.node_count;
             result.row[5] = ring.local_slot_id;
+        }
+    } else if (key == 1u || key == 2u) {
+        /* switch1/switch2: the configured switch state is local to this board. */
+        result.valid = 1u;
+        result.age_ms = 0u;
+        result.row_words = 2u;
+        result.row[0] = sync_io_sequence_get_switch(key);
+        result.row[1] = sync_io_sequence_get_switch_desired(key);
+    } else if (key == 4u) {
+        /* guide_plan: the planner snapshot is local; the row mirrors the
+         * BOOT/PLAN progress readback so a single OBS key carries the round
+         * verdict without five separate queries. */
+        app_cal_guide_snapshot_t guide;
+        if (app_cal_guide_snapshot(&guide)) {
+            result.valid = 1u;
+            result.age_ms = 0u;
+            result.row_words = 7u;
+            result.row[0] = guide.action_id;
+            result.row[1] = guide.generation;
+            result.row[2] = guide.progress_status;
+            result.row[3] = guide.trials_done;
+            result.row[4] = guide.passed_mask;
+            result.row[5] = guide.failed_mask;
+            result.row[6] = guide.abort_site;
         }
     }
     char text[128];
