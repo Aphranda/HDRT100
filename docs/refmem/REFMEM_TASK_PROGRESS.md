@@ -38,7 +38,8 @@ Last updated: 2026-11-09
 - P3 通过（2026-11-09 13:09）：`dpll60` reuse build `20261109043236`，`DPLL60_JOINT`、sources=1002、receipt 已绑 staged；M4 固件提交 `142d70ff`。
 - 失败结果写命令的原文回传（`bca42cdc`）：`APPLY/LINK/BEGIN` 被拒时 matcher 接受 `-200` 行，`checked_action` 用原文报错；不再退化为 `<timeout>`。`test_scpi_framing`；trn03 用例 172 passed。
 - M2 运输（2026-11-09，HAOFV 复核后修正）：上一版 `field_id=0x100+key*16+word` **绕开了既有 `DataLinkTable`**（14 条字段契约，含 `update_period_us/stale_window_us`），属重复造轮子；改为**复用 DataLinkTable + `REFMEM_DELTA`**——`field_id=data_link_id`、镜像按 `(slot,data_link_id)`、`stale` 用条目的 `stale_window_us`，不新增帧型/席位/私有命名空间。真正缺口是 DataLinkTable **只有解析/校验、没有运行时发布器/监控器**（`refmem_application_model.c:770-771` 读入后全仓无消费者）；M2 补该 runtime，OBS 是第一个读者。
-- 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、开关语义与广播误伤（M6）、四板 HIL（M7）；契约仍 pending。
+- M6（2026-11-09，`0c064db2`）：开关命令按 HAOFV owner fail-closed——deployment 不可解或 role 非 `SWITCH_A/B` → reason 12；旧 `CONFigure:SWITch#` → `-200,"USE_CTRL_EXECUTE"`。P3 build `20261109051835` 通过；现场 NO1 本地/广播均 NACK reason 12、legacy 返回 `-200,"USE_CTRL_EXECUTE"`；SWITCH_A ACK 待加载 T2 deployment 后补证。
+- 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、M6 的 SWITCH_A 正向证据、四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
