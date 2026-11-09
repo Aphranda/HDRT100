@@ -61,6 +61,8 @@ C 的关键：`field_slot_id` 不是“私有裸命名空间”，而是 `RefMem
 ## 6. 待 C11/TDMA 决策项
 
 1. process-image REFMEM field/value 是否可作通用发布通路（现仅 action probe 使用）；
+   代码显示该片每周期**会**被组帧发送（`distributed_refmem.c:889-897`），但同一 field/value
+   与 position-ack/diagnostic 共享并已做仲裁，OBS 发布必须排队、不得抢占 first-class fact；
 2. `field_slot_id` 范围（`0x100+`）与 `u16` 空间分配；
 3. mirror 放 `statistics` 区还是静态 SRAM；
 4. `writer_instance` 映射（现有 12 实例是否覆盖 8 key 的 writer）；
