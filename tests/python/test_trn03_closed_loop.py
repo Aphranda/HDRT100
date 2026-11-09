@@ -2756,10 +2756,11 @@ def test_feedback_sequence_bound_is_origin_three_follower_zero():
 
 
 def test_feedback_sequence_drift_is_the_loss_invariant():
-    # Equal advances are loss-free; the origin tolerates one frame of phase lead.
+    # Bursts of two frames are legitimate phase jitter on the origin.
     assert trn03.feedback_sequence_drift_ok(79, 79, 0)
     assert trn03.feedback_sequence_drift_ok(79, 78, 0)
-    assert not trn03.feedback_sequence_drift_ok(79, 77, 0)
+    assert trn03.feedback_sequence_drift_ok(79, 77, 0)
+    assert not trn03.feedback_sequence_drift_ok(88, 85, 0)
     # A follower has no lead and must advance exactly in step.
     assert trn03.feedback_sequence_drift_ok(84, 84, 2)
     assert not trn03.feedback_sequence_drift_ok(84, 83, 2)

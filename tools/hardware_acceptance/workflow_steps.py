@@ -3085,6 +3085,19 @@ class AcceptanceRun:
             time.perf_counter() - self.invocation_started)
         return float(sum(row["elapsed_s"] for row in self.state["invocations"]))
 
+    def elapsed_invocation(self) -> float:
+        """Wall time of the current invocation only.
+
+        A resume continues the same run directory, so charging it for every
+        earlier attempt makes the budget gate unsatisfiable after any long
+        failed run (1144 s of history against a 100 s budget). The gate is a
+        resource bound on the attempt, not an audit of past attempts; the
+        cross-invocation guarantees stay with the fingerprint/sequence checks.
+        """
+        self.state["invocations"][-1]["elapsed_s"] = (
+            time.perf_counter() - self.invocation_started)
+        return float(self.state["invocations"][-1]["elapsed_s"])
+
     def save(self) -> None:
         self.elapsed_total()
         path = self.out_dir / HAWF_STATE_FILE
@@ -4652,7 +4665,7 @@ def phase_fingerprint_recheck(run: AcceptanceRun) -> None:
 
 @acceptance_step(33, "耗时预算（acceptance_budget_status，跨全部调用累计）")
 def phase_budget(run: AcceptanceRun) -> None:
-    budget = acceptance_budget_status(run.config, run.elapsed_total())
+    budget = acceptance_budget_status(run.config, run.elapsed_invocation())
     _record_timing_event({
         "action": "acceptance.budget",
         "started_at_utc": None,

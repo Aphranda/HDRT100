@@ -23,7 +23,7 @@
     "tests/python/test_trn03_closed_loop.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 12.093,
+  "duration_s": 14.078,
   "returncode": 0,
   "summary": {
     "passed": 222,
@@ -32,7 +32,7 @@
     "skipped": 0,
     "xfailed": 1
   },
-  "summary_line": "222 passed, 1 xfailed in 10.97s",
+  "summary_line": "222 passed, 1 xfailed in 13.50s",
   "tail": [
     "........................................................................ [ 32%]",
     "..........................x............................................. [ 64%]",
@@ -40,11 +40,11 @@
     ".......                                                                  [100%]",
     "=========================== short test summary info ===========================",
     "XFAIL tests/python/test_trn03_closed_loop.py::test_load_mask_releases_only_newly_enabled_loads - pre-existing: app.c quarantine release now includes the foundation mask (~ (newly_enabled | APP_REALTIME_LOAD_FOUNDATION_MASK)); the assertion predates that change and needs an owner decision",
-    "222 passed, 1 xfailed in 10.97s"
+    "222 passed, 1 xfailed in 13.50s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "3b8a2729860a89baf536bf549faf7e705c4b1f3464997058ed15fcbb652d5e61",
+  "fingerprint": "79f42a772dfd20f6494d20ecada251f5cc45844f3cc8341d2099ec7d0f24d1ed",
   "file_count": 1179,
-  "working_fingerprint": "b55975390bee35fca743e80f71a66ba02ee90d9cd022110d76aecc67cd4adc1c",
-  "started_at_utc": "2026-11-09T09:36:49.708777+00:00"
+  "working_fingerprint": "7792b8ed3f016da7f6999e28081099f14e82809c9a282c62453a6a90729a63ec",
+  "started_at_utc": "2026-11-09T10:24:42.881646+00:00"
 }

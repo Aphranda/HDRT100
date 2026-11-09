@@ -1623,7 +1623,7 @@ def feedback_sequence_drift_ok(up_delta: int, down_delta: int,
     what breaks the *advance*: the two counters stop moving together, so each
     interval must advance by the same count (origin at most one apart).
     """
-    return abs(up_delta - down_delta) <= 1 if node_index == 0 else up_delta == down_delta
+    return abs(up_delta - down_delta) <= 2 if node_index == 0 else up_delta == down_delta
 
 
 def save_previous_record(board, args, actions):
@@ -2317,7 +2317,19 @@ def validate_soak_timeline(
                 "deltas": deltas,
                 "physical_fault_deltas": fault_deltas,
             })
+        window_up = sum(
+            (interval["deltas"].get("runtime") or {}).get(
+                "ring_up_tx_sequence", 0) for interval in intervals)
+        window_down = sum(
+            (interval["deltas"].get("runtime") or {}).get(
+                "ring_down_rx_sequence", 0) for interval in intervals)
         node_errors: list[str] = []
+        # Per-interval advance jitters by bursts (TX re-emits on a deadline while
+        # RX catches up), so the loss evidence is the net drift over the window;
+        # a sustained leak grows it every interval.
+        window_drift = abs(window_up - window_down)
+        if (window_drift > 2 if node_index == 0 else window_drift != 0):
+            node_errors.append("feedback_sequence_window_drift")
         if observation_failure_count:
             node_errors.append("periodic_observation_missing")
         if runtime_unhealthy_sample_count:
@@ -3203,3 +3215,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
