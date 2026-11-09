@@ -243,12 +243,12 @@ class SimulatedTransport:
     """Deterministic REFMEM transport for host tests (no hardware).
 
     The OBS answer mirrors the **current firmware** shape: a single board row
-    ``key,offset,count,valid,age_ms,<schema words>``.  Keys 3/8 have no
-    provider yet and answer ``valid=0`` with ``age=0xFFFFFFFF``.
+    ``key,offset,count,valid,age_ms,<schema words>``.  All eight keys have a
+    local provider; a peer slot still answers ``valid=0``.
     """
 
     OBS_SCHEMA = {1: 2, 2: 2, 3: 3, 4: 7, 5: 5, 6: 6, 7: 3, 8: 4}
-    OBS_IMPLEMENTED = frozenset({1, 2, 4, 5, 6, 7})
+    OBS_IMPLEMENTED = frozenset({1, 2, 3, 4, 5, 6, 7, 8})
 
     def __init__(self, slots=(1, 2, 3, 4), terminal_after: int = 2) -> None:
         self.slots = list(slots)

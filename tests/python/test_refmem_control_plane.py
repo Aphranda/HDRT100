@@ -44,12 +44,13 @@ def test_read_returns_per_slot_rows():
     assert page['rows'][1]['stale'] == 1
 
 
-def test_read_unimplemented_key_is_stale():
-    page = ControlPlane(SimulatedTransport()).read(3)
-    assert page['valid'] == 0 and page['stale'] == 1
-    assert page['age_ms'] == 0xFFFFFFFF
-    assert page['rows'][0]['valid'] == 0
-    assert page['rows'][0]['value'] == [0, 0, 0]  # trigger_state schema: 3 words
+def test_read_key3_and_key8_are_valid():
+    plane = ControlPlane(SimulatedTransport())
+    for key, words in ((3, 3), (8, 4)):
+        page = plane.read(key, offset=0, count=1)
+        assert page['rows'][0]['valid'] == 1
+        assert page['rows'][0]['stale'] == 0
+        assert len(page['rows'][0]['value']) == words
 
 
 def test_read_accepts_legacy_single_board_row():
