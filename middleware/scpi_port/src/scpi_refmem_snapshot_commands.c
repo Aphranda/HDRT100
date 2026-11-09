@@ -37,6 +37,7 @@
 #include "storage_manager.h"
 #include "system_manager.h"
 #include "sync_trigger.h"
+#include "trigger_sequence_service.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_rx_start_cut.h"
 #include "tdma_service_timing.h"
@@ -1334,6 +1335,31 @@ static bool refmem_obs_fill_local_row(uint32_t key, refmem_obs_row_t *row)
         row->row[0] = sync_io_sequence_get_switch(key);
         row->row[1] = sync_io_sequence_get_switch_desired(key);
         return true;
+    case 3u: {
+        /* trigger_state: local trigger service snapshot.  run_state is the
+         * coarse "is a run active" flag; epoch is the run id. */
+        trigger_sequence_service_status_t status;
+        trigger_sequence_service_get_status(&status);
+        row->row_words = 3u;
+        row->row[0] = (uint32_t)status.state;
+        row->row[1] = status.state == TRIGGER_SEQUENCE_SERVICE_RUNNING ? 1u : 0u;
+        row->row[2] = status.run_id;
+        return true;
+    }
+    case 8u: {
+        /* node_health: this board's own node record (state/heartbeat/stale). */
+        refmem_node_status_t status;
+        if (!distributed_refmem_get_node_status(distributed_refmem_local_slot(),
+                                                &status)) {
+            return false;
+        }
+        row->row_words = 4u;
+        row->row[0] = status.state;
+        row->row[1] = status.heartbeat;
+        row->row[2] = status.stale_count;
+        row->row[3] = status.fault_code;
+        return true;
+    }
     case 4u: {
         /* guide_plan: the planner snapshot is local; the row mirrors the
          * BOOT/PLAN progress readback so a single OBS key carries the round
