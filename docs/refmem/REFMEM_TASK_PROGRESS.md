@@ -40,7 +40,8 @@ Last updated: 2026-11-09
 - M2 运输（2026-11-09，HAOFV 复核后修正）：上一版 `field_id=0x100+key*16+word` **绕开了既有 `DataLinkTable`**（14 条字段契约，含 `update_period_us/stale_window_us`），属重复造轮子；改为**复用 DataLinkTable + `REFMEM_DELTA`**——`field_id=data_link_id`、镜像按 `(slot,data_link_id)`、`stale` 用条目的 `stale_window_us`。**并已确认这不是“只补 runtime”**：DataLink 是标量表且 14/14 已满，DELTA 只接受 width≤4、每源槽一个 mirror，8 key 共 32 word 需扩模型（version/CRC/package）或按 word 拆分，可能还要扩 instance 表。
 - M6（2026-11-09，`0c064db2`）：开关命令按 HAOFV owner fail-closed——deployment 不可解或 role 非 `SWITCH_A/B` → reason 12；旧 `CONFigure:SWITch#` → `-200,"USE_CTRL_EXECUTE"`。DPLL60_JOINT 构建凭证 build `20261109051835` 通过（trn03 矩阵复用旧件，证据强度打折）；现场 NO1 本地/广播均 NACK reason 12、legacy 返回 `-200,"USE_CTRL_EXECUTE"`；SWITCH_A ACK 待加载 T2 deployment 后补证。审核指出原用 STOP-gated snapshot，已改为 `trigger_deployment_snapshot_cached()`（待新构建凭证）。
 - 第二轮交叉复核（`a1492f4e`）：M4 逐槽行代码/源码凭证成立；发现 M4 文档旧口径、M2 文档仍冻结 `0x100`、M6 STOP 门回归、P3 口径 overreach 等，已逐项修正；残余见提交单 §4.2。
-- 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、M6 的 SWITCH_A 正向证据、四板 HIL（M7）；契约仍 pending。
+- P3 第三次失败（2026-11-09 13:45，cached 修复后）：NO.3 `SYSTem:TDMA:OPMode:APPLy` 返回 `-200,"TDMA_OPMODE_APPLY_STOP_REQUIRED"`（info 已能显示，`bca42cdc` 生效）；STOPPED readback 仍 `enabled=0/config=applied=4`。判为 boot replay 3–33 s 与 TRN-03B 并发（§7.4 已两次独立取证）；修复方向：reset 后等 `BOOT:PLAN? boot_done` 或 35 s 窗口关闭再启动 staging。
+- 当前 OPEN：真实 `stale/seq/age` 与发布面（R1-3/M2）、`trigger_state`/`node_health`（M3）、页面迁移（M5）、M6 的 SWITCH_A 正向证据与 cached 修复凭证、四板 HIL（M7）；契约仍 pending。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
