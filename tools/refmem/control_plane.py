@@ -43,6 +43,40 @@ def _fields(text: str) -> list[str]:
     return [t for t in str(text).replace('"', ' ').replace(',', ' ').split() if t]
 
 
+def _parse_obs_rows(rest: list[int], offset: int, count: int,
+                    response: str) -> list[dict]:
+    """Parse the REFMEM-READ-01 row tail.
+
+    Accepts the per-slot form (M4 firmware) and the legacy single-board form
+    ``key,offset,count,valid,age_ms,<words>`` so a host tool survives the
+    transition.  The per-slot form is recognised by ``slot == offset + i``
+    plus 0/1 valid/stale flags.
+    """
+    if count > 0 and rest and len(rest) % count == 0:
+        width = len(rest) // count
+        if width >= 6:
+            rows = []
+            ok = True
+            for i in range(count):
+                base = i * width
+                slot, valid, epoch, seq, age, stale = rest[base:base + 6]
+                if (slot != offset + i or valid not in (0, 1)
+                        or stale not in (0, 1)):
+                    ok = False
+                    break
+                rows.append({'slot': slot, 'valid': valid, 'epoch': epoch,
+                             'seq': seq, 'age_ms': age, 'stale': stale,
+                             'value': rest[base + 6:base + width]})
+            if ok:
+                return rows
+    if len(rest) >= 2 and rest[0] in (0, 1):
+        valid, age = rest[0], rest[1]
+        return [{'slot': offset, 'valid': valid, 'epoch': 0, 'seq': 0,
+                 'age_ms': age, 'stale': 0 if valid else 1,
+                 'value': rest[2:]}]
+    raise TransportError(f'bad OBS rows {response!r}')
+
+
 class ControlPlane:
     """Read/write/wait over one REFMEM transport."""
 
@@ -103,25 +137,7 @@ class ControlPlane:
         key_out, offset_out, count_out = (int(tokens[0], 0), int(tokens[1], 0),
                                           int(tokens[2], 0))
         rest = [int(t, 0) for t in tokens[3:]]
-        if count_out <= 0 or len(rest) % count_out != 0:
-            raise TransportError(f'bad OBS row count {response!r}')
-        width = len(rest) // count_out
-        if width < 6:
-            raise TransportError(f'short OBS row {response!r}')
-        schema_words = width - 6
-        rows = []
-        for i in range(count_out):
-            base = i * width
-            slot, valid, epoch, seq, age, stale = rest[base:base + 6]
-            rows.append({
-                'slot': slot,
-                'valid': valid,
-                'epoch': epoch,
-                'seq': seq,
-                'age_ms': age,
-                'stale': stale,
-                'value': rest[base + 6:base + 6 + schema_words],
-            })
+        rows = _parse_obs_rows(rest, offset_out, count_out, response)
         valid_rows = [r for r in rows if r['valid']]
         return {
             'key': key_out,

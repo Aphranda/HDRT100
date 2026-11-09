@@ -52,6 +52,20 @@ def test_read_unimplemented_key_is_stale():
     assert page['rows'][0]['value'] == [0, 0, 0]  # trigger_state schema: 3 words
 
 
+def test_read_accepts_legacy_single_board_row():
+    class Legacy(SimulatedTransport):
+        def execute(self, command):
+            if command.startswith('SYSTem:REFMEM:OBS?'):
+                # key,offset,count,valid,age_ms,<6 ring_status words>
+                return '6,0,1,1,0,1,1,1,1,4,0'
+            return super().execute(command)
+
+    page = ControlPlane(Legacy()).read(6, offset=0, count=1)
+    assert page['rows'][0]['slot'] == 0
+    assert page['rows'][0]['valid'] == 1
+    assert page['rows'][0]['value'] == [1, 1, 1, 1, 4, 0]
+
+
 def test_read_bad_key():
     plane = ControlPlane(SimulatedTransport())
     try:
