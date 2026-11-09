@@ -62,7 +62,8 @@ Last updated: 2026-11-09
 - M2b P3 重试（2026-11-09，第 4 次）：仍 `STARVED`（NO.2/NO.3 `OUTPUT_STOPPED+OUTPUT_STALE`、`EARLY_FREEZE`）；与是否注册采样无关，判为台架 VDC 状态，需上下电/载波侧恢复后再取证。发送 scaffold 留在工作区，未提交。
 - M2b 完成（2026-11-09，`7da1f9cb`）：core0 `task_refmem_sync` 每 ~50 ms 采样 8 key 32 word → publisher 缓存；compact 发送每帧轮转一个 OBS field（0x100..），无缓存回退 baseline；接收端按 field_id 存 value/mask/seq/updated，OBS 对端行按前缀和组合。P3 build `20261109110157`，`DPLL60_JOINT`、`tdma_stage_passed=true`、外部 HDO scope `PASS`（35.9 ns）、sources=1005；校准会话配置入库 `config/hardware_acceptance/p3_bench_calibrated.json`。
 - 跨板 OBS 验证（2026-11-09）：起 10 kHz 环时 NO.2/NO.3 轮换 `ARM timeout`（`ring_node_count=0`）；软件 `BOOT:RESET` 未清，待上下电后重试。
-- 当前 OPEN：跨板 OBS 对端 `valid=1/stale=0`（待环）、页面迁移（M5）、广播聚合/缺板 HIL（M7）；契约仍 pending。
+- M2 跨板 HIL（2026-11-09，build `20261109110157`，10 kHz 环）：SWITCH_A（COM4）写 `45,2,2,1,4` → ACK、`READ:SWITch1?`=`1,1,1,4,4,0`、本板 OBS slot1 `[4,4]`；COM5 `OBS? 1,0,4` 读到 slot1 `valid=1/age=183ms/stale=0/[4,4]`，slot0/2/3 仍 `[1,1]`；`OBS? 2,0,4` 全 `[0,0]`。证据 `out/refmem_read/obs_write_read_20261109.txt`。**写→跨板读一致**。
+- 当前 OPEN：页面迁移（M5）、广播聚合/缺板 HIL（M7）；契约仍 pending（缺板/广播未证）。
 
 ### REFMEM-TASK-20261029-041 — 台架复位与默认流程改动状态
 
