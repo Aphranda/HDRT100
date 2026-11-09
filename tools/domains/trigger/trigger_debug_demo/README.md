@@ -154,6 +154,7 @@ OTA 日志 SHA-256、源码版本（`source_revision`/`source_tree`/`source_dirt
 | `device.py` | 串口/VISA/模拟器、Dispatcher、TCP 服务 |
 | `ota.py` | 镜像哈希、SCPI arbitrary block、凭证签发 |
 | `ota_workflow.py` | 常规 OTA 的 WorkflowSpec：snapshot→begin→stream→end→wait→receipt |
+| `calibration_page.py` | 单口校准引导：10 MHz/10 kHz 的 GUIDE C/T/PLAN/SCAN/PAIR/RING 读回 |
 | `ui/workflow.py` | WorkflowSpec/StepSpec/WorkflowRunner：持久化 cursor/step_data、resume/cancel |
 | `ui/settings.py` | schema 白名单、原子写、损坏 `.bad` 备份 |
 | `ui/errors.py` | ErrorBoundary + Tk 回调异常限流 |

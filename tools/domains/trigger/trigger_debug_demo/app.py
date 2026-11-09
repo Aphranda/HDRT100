@@ -22,6 +22,7 @@ import zlib
 
 try:
     from . import catalog, device, ota
+    from .calibration_page import CalibrationPage
     from .ota_workflow import OtaWorkflow
     from .ui import (
         ConsoleStore,
@@ -45,6 +46,7 @@ except ImportError:  # direct script execution
     import catalog  # type: ignore
     import device  # type: ignore
     import ota  # type: ignore
+    from calibration_page import CalibrationPage  # type: ignore
     from ota_workflow import OtaWorkflow  # type: ignore
     from ui import (  # type: ignore
         ConsoleStore,
@@ -1854,6 +1856,8 @@ class DemoApp(tk.Tk):
         self.control_page.pack(fill="x")
         control_holder.render = self.control_page.render
         self.router.register_legacy("control", "统一控制面", control_holder)
+        self.calibration_page = CalibrationPage(self.notebook, self)
+        self.router.register_legacy("calibration", "校准引导", self.calibration_page)
         self.ota_page = OtaPage(self.notebook, self)
         self.router.register_legacy("ota", "OTA", self.ota_page)
         self.tcp_page = TcpPage(self.notebook, self)
@@ -2111,6 +2115,10 @@ class DemoApp(tk.Tk):
             self.tcp_page.note(kind, text)
             if kind in ("TCP>", "TCP<", "INFO"):
                 self.log(f"[TCP] {kind} {text}", "INFO")
+        elif event.kind == "calflow":
+            self.calibration_page.note(event.payload)
+        elif event.kind == "calflow-done":
+            self.calibration_page.flow_done()
         elif event.kind == "ota":
             kind, payload = event.payload
             self.ota_page.note(kind, payload)
@@ -2184,6 +2192,9 @@ class DemoApp(tk.Tk):
         if source == "control:owner":
             if not result.error:
                 self.overview_page.show("overview:owner", result.response)
+            return
+        if source.startswith("cal:"):
+            self.calibration_page.show_result(source, result.response, result.error)
             return
         if source == "diag":
             self.diagnostics_page.add(result.command, result.response if not result.error

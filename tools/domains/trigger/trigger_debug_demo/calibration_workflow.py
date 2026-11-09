@@ -13,8 +13,10 @@ import time
 from pathlib import Path
 
 try:
+    from .ui.runlog import RunLog
     from .ui.workflow import StepSpec, WorkflowContext, WorkflowRunner, WorkflowSpec
 except ImportError:  # direct script execution
+    from ui.runlog import RunLog  # type: ignore
     from ui.workflow import (  # type: ignore
         StepSpec,
         WorkflowContext,
@@ -27,18 +29,24 @@ PLAN_FIELDS = (
     "epoch", "ctrqs", "progress_valid", "progress_status", "trials_done",
     "deepest", "reason", "reconcile", "resume_trial", "commit",
     "commit_applicable", "commit_ok", "ladder_index", "ladder_step",
-    "passed_mask", "failed_mask",
+    "passed_mask", "failed_mask", "abort_site",
 )
 
 
 class GuideWorkflow:
     def __init__(self, page, level: int = 7, label: str = "10m",
-                 state_dir=None, report_root=None) -> None:
+                 state_dir=None, report_root=None, log_root=None,
+                 log_label=None, budget_level=None) -> None:
         self.page = page
         self.level = int(level)
+        self.budget_level = int(budget_level if budget_level is not None
+                                else level)
         self.label = label
         self.report_root = Path(report_root) if report_root else Path("out")
-        if self.level == 23:
+        self.log_root = (Path(log_root) if log_root
+                         else Path("out") / "calibration" / "guide-10k" / "logs")
+        self.run_log = RunLog(self.log_root, log_label or label)
+        if self.budget_level == 23:
             self.defaults = {"gen_timeout_s": 120.0, "epoch_timeout_s": 180.0,
                              "watch_timeout_s": 360.0, "request_timeout_s": 30.0}
         else:
@@ -59,6 +67,13 @@ class GuideWorkflow:
         )
         self.runner = WorkflowRunner(self.spec, state_dir)
 
+    def _log(self, text: str) -> None:
+        try:
+            self.run_log.write(text)
+        except OSError:
+            pass
+        self.page._emit(text)
+
     def start(self, inputs: dict):
         try:
             return self.runner.start(inputs)
@@ -78,12 +93,22 @@ class GuideWorkflow:
             final_plan = self._plan()
         except Exception:
             final_plan = {}
+        try:
+            ring_after = _ints(self.page._request(
+                "SYSTem:TDMA:RING:STATus?", 5.0))
+        except Exception:
+            ring_after = []
         body = {
             "schema": f"HDRT100_GUIDE_{self.label.upper()}_FLOW_V1",
             "run_id": run_id,
+            "idn": state.step_data.get("idn", ""),
+            "build": state.step_data.get("build", ""),
             "inputs": state.inputs,
             "final_plan": final_plan,
+            "ring_after": ring_after,
+            "failure_class": _failure_class(final_plan),
             "passed": False,
+            "log_path": str(self.run_log.path),
             "error": str(exc),
             "state": state.to_dict(),
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -93,7 +118,7 @@ class GuideWorkflow:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(body, ensure_ascii=False, indent=2),
                         encoding="utf-8")
-        self.page._emit(f"failure report: {path}")
+        self._log(f"failure report: {path}")
 
     def cancel(self) -> None:
         self.runner.cancel()
@@ -105,7 +130,7 @@ class GuideWorkflow:
     def _precheck(self, ctx: WorkflowContext) -> None:
         idn = self.page._request("*IDN?", 5.0)
         build = self.page._request("SYSTem:FW:BUILD?", 5.0)
-        self.page._emit(
+        self._log(
             f"precheck: {idn.strip()} build={build.strip()} level={self.level}")
         ring = []
         deadline = time.monotonic() + 30.0
@@ -132,7 +157,7 @@ class GuideWorkflow:
             inputs["threshold_high"],
         ]
         command = "SYST:TDMA:GUIDE:CONFig " + ",".join(str(item) for item in parts)
-        self.page._emit(f"CONFig: {command}")
+        self._log(f"CONFig: {command}")
         last_error = None
         for attempt in range(6):
             try:
@@ -145,12 +170,12 @@ class GuideWorkflow:
                 text = str(exc)
                 if "-200" not in text and "ONLINE" not in text.upper():
                     raise
-                self.page._emit(
+                self._log(
                     f"CONFig refused (attempt {attempt + 1}/6): {text}; retrying")
                 time.sleep(2.0)
         else:
             raise RuntimeError(f"CONFig not accepted: {last_error}")
-        self.page._emit(f"CONFig ack: {response.strip()}")
+        self._log(f"CONFig ack: {response.strip()}")
         ctx.checkpoint(config_command=command, config_response=response)
 
     def _wait_gen(self, ctx: WorkflowContext) -> None:
@@ -163,11 +188,11 @@ class GuideWorkflow:
         action = int(ctx.state.inputs["action"])
         epoch = int(ctx.state.inputs["epoch"])
         command = f"SYST:TDMA:GUIDE:TRIGger {action},{epoch}"
-        self.page._emit(f"TRIGger: {command}")
+        self._log(f"TRIGger: {command}")
         response = self.page._request(
             command, float(ctx.state.inputs.get(
                 "request_timeout_s", self.defaults["request_timeout_s"])))
-        self.page._emit(f"TRIGger ack: {response.strip()}")
+        self._log(f"TRIGger ack: {response.strip()}")
         ctx.checkpoint(trigger_command=command, trigger_response=response)
 
     def _wait_epoch(self, ctx: WorkflowContext) -> None:
@@ -186,7 +211,7 @@ class GuideWorkflow:
             values = self._plan()
             value = values.get(field, -1)
             if (values.get("gen"), values.get("epoch"), value) != last:
-                self.page._emit(f"{label}: {field}={value} (target {target})")
+                self._log(f"{label}: {field}={value} (target {target})")
                 last = (values.get("gen"), values.get("epoch"), value)
             if value == target:
                 ctx.checkpoint(**{f"{label}_value": value})
@@ -199,41 +224,70 @@ class GuideWorkflow:
             "watch_timeout_s", self.defaults["watch_timeout_s"]))
         deadline = time.monotonic() + timeout
         last = None
+        saw_active = False
+        action = int(ctx.state.inputs.get("action", 1))
         while time.monotonic() < deadline:
             if ctx.cancel_requested():
                 raise RuntimeError("用户取消")
             values = self._plan()
-            key = (values.get("ctrqs"), values.get("progress_valid"),
+            ctrqs = values.get("ctrqs", -1)
+            if ctrqs not in (0, 28, 29):
+                saw_active = True
+            key = (ctrqs, values.get("progress_valid"),
                    values.get("progress_status"), values.get("trials_done"),
-                   values.get("reason"), values.get("reconcile"))
+                   values.get("reason"), values.get("reconcile"),
+                   values.get("ladder_index"), values.get("ladder_step"))
             if key != last:
                 self.page._emit(
                     "progress: ctrqs={} valid={} status={} trials={} "
-                    "reason={} reconcile={}".format(
-                        values.get("ctrqs"), values.get("progress_valid"),
+                    "reason={} reconcile={} ladder={}/{}".format(
+                        ctrqs, values.get("progress_valid"),
                         values.get("progress_status"), values.get("trials_done"),
-                        values.get("reason"), values.get("reconcile")))
+                        values.get("reason"), values.get("reconcile"),
+                        values.get("ladder_index"), values.get("ladder_step")))
                 last = key
             if values.get("progress_valid") == 1:
-                ctx.checkpoint(final_plan=values)
-                return
+                if action == 7:
+                    fresh = (values.get("ladder_index") == 6
+                             and values.get("ladder_step") == 2)
+                else:
+                    fresh = values.get("ladder_index") == action
+                terminal_fail = values.get("progress_status") in (2, 3)
+                if (saw_active and fresh) or terminal_fail:
+                    ctx.checkpoint(final_plan=values)
+                    return
             time.sleep(1.0)
         raise RuntimeError(f"GUIDE progress not valid within {timeout:.0f}s")
 
     def _report(self, ctx: WorkflowContext) -> None:
         values = self._plan()
+        trials = max(1, int(ctx.state.inputs.get(
+            "expected_trials", ctx.state.inputs.get("trials", 1))))
+        want_mask = (1 << trials) - 1
+        # abort_site is appended by current firmware (PLAN? field 25).  On an
+        # older 24-field readback it is absent and _plan() returns -1, so the
+        # gate fails closed instead of treating an unknown abort as success.
         passed = (
             values.get("valid") == 1
             and values.get("progress_valid") == 1
             and values.get("progress_status") == 1
+            and values.get("reconcile") == 1
+            and values.get("trials_done") == trials
+            and values.get("passed_mask") == want_mask
             and values.get("failed_mask", 1) == 0
+            and values.get("abort_site", 1) == 0
         )
         body = {
             "schema": f"HDRT100_GUIDE_{self.label.upper()}_FLOW_V1",
             "run_id": ctx.state.run_id,
+            "idn": ctx.state.step_data.get("idn", ""),
+            "build": ctx.state.step_data.get("build", ""),
             "inputs": ctx.state.inputs,
             "final_plan": values,
+            "ring_after": _ints(self.page._request("SYSTem:TDMA:RING:STATus?", 5.0)),
+            "failure_class": "NONE" if passed else _failure_class(values),
             "passed": passed,
+            "log_path": str(self.run_log.path),
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
         path = (self.report_root / "calibration" / f"guide-{self.label}" /
@@ -242,7 +296,7 @@ class GuideWorkflow:
         path.write_text(json.dumps(body, ensure_ascii=False, indent=2),
                         encoding="utf-8")
         ctx.checkpoint(report_path=str(path), passed=passed)
-        self.page._emit(f"report: {path} passed={passed}")
+        self._log(f"report: {path} passed={passed}")
         if not passed:
             raise RuntimeError(f"{self.label} guide did not reach COMPLETE")
 
@@ -260,3 +314,21 @@ def _ints(text: str) -> list[int]:
         except ValueError:
             pass
     return result
+
+
+def _failure_class(plan: dict[str, int]) -> str:
+    if plan.get("progress_status") == 3 and plan.get("reason") == 14:
+        return "Q_RING_RESTORE"
+    if plan.get("progress_status") == 3:
+        return "Q_FAILED"
+    if plan.get("progress_valid") != 1:
+        return "Q_NOT_REACHED"
+    if plan.get("reconcile") != 1:
+        return "Q_NOT_RECONCILED"
+    if plan.get("failed_mask", 0) != 0:
+        return "TRIAL_FAILED"
+    if plan.get("abort_site", 1) != 0:
+        return "ABORT_SITE"
+    if plan.get("progress_status") == 1:
+        return "TRIAL_COUNT_OR_MASK_MISMATCH"
+    return "NONE"

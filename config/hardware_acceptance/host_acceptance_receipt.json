@@ -6,10 +6,11 @@
     "-m",
     "pytest",
     "tests/python/test_owner_hook_link.py",
-    "tests/python/test_p3_hardware_acceptance.py",
     "tests/python/test_refmem_control_plane.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_trigger_debug_demo.py",
+    "tests/python/test_trigger_debug_ui.py",
     "tests/python/test_vdc_host_harness.py",
     "-q",
     "-p",
@@ -17,31 +18,31 @@
   ],
   "paths": [
     "tests/python/test_owner_hook_link.py",
-    "tests/python/test_p3_hardware_acceptance.py",
     "tests/python/test_refmem_control_plane.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_trigger_debug_demo.py",
+    "tests/python/test_trigger_debug_ui.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 26.203,
+  "duration_s": 27.688,
   "returncode": 0,
   "summary": {
-    "passed": 158,
+    "passed": 118,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "158 passed in 23.11s",
+  "summary_line": "118 passed in 26.93s",
   "tail": [
-    "........................................................................ [ 45%]",
-    "........................................................................ [ 91%]",
-    "..............                                                           [100%]",
-    "158 passed in 23.11s"
+    "........................................................................ [ 61%]",
+    "..............................................                           [100%]",
+    "118 passed in 26.93s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "95d1ca5e48d97e5042ae1e29a244779c3551d93d742d1d306d9a8dab417f21f4",
-  "file_count": 1179,
+  "fingerprint": "b9c410cf3dc2715f02e9add408d9cf62fb78931310cbd466a567283b9cec547e",
+  "file_count": 1181,
   "working_fingerprint": "b9c410cf3dc2715f02e9add408d9cf62fb78931310cbd466a567283b9cec547e",
-  "started_at_utc": "2026-11-09T10:37:46.663774+00:00"
+  "started_at_utc": "2026-11-09T11:49:38.800981+00:00"
 }

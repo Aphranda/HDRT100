@@ -448,7 +448,7 @@ def test_ui_smoke(monkeypatch) -> None:
             application.update()
             time.sleep(0.01)
         assert application.connected
-        assert len(application.notebook.tabs()) == 13
+        assert len(application.notebook.tabs()) == 14
         for page_id in application.router.pages():
             widget = application.router._entries[page_id].widget
             assert callable(getattr(widget, "render", None)), page_id
@@ -456,6 +456,27 @@ def test_ui_smoke(monkeypatch) -> None:
         assert application.store.snapshot().connection.transport_mode == "single_port_refmem"
         assert str(application.ack_page.read_aggregate_button["state"]) == "normal"
         assert str(application.raw_page.send_button["state"]) == "normal"
+        calibration = application.calibration_page
+        calibration.mode.set("10 kHz")
+        assert calibration._config_command().startswith(
+            "SYST:TDMA:GUIDE:CONFig 1,305397761,1,23,")
+        calibration.generation.set("2")
+        assert calibration._config_command().startswith(
+            "SYST:TDMA:GUIDE:CONFig 1,305397762,2,23,")
+        calibration.generation.set("1")
+        calibration.mode.set("10 MHz")
+        assert calibration._config_command().startswith(
+            "SYST:TDMA:GUIDE:CONFig 1,305397761,1,7,")
+        calibration.show_result(
+            "cal:boot",
+            "1,0,8,0,0,0,1,0,4,23,1,1,1680835751,0,8,0,0,1,8,2", "")
+        assert "READY" in calibration.boot_state.get()
+        assert calibration.boot_vars["profile_source"].get() == "默认档"
+        assert len(calibration.notebook.tabs()) == 9
+        assert str(calibration.action_pages["P0"].run_button["state"]) == "disabled"
+        assert calibration.action_pages["P1"].candidates.get() == "0,4,16"
+        assert str(calibration.action_pages["P2"].run_button["state"]) == "normal"
+        assert calibration.ladder_button.cget("text").startswith("运行全阶梯")
         assert application.tcp_page.port.get()
         application.overview_page.refresh()
         for _ in range(40):

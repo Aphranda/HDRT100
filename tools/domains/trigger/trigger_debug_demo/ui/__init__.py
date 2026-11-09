@@ -18,6 +18,7 @@ from .state import (
 )
 from .theme import DEFAULT_THEME, ThemeTokens, apply_tk_scaling
 from .widgets import ErrorBanner, LogView
+from .runlog import RunLog
 from .workflow import (
     StepSpec,
     WorkflowContext,
@@ -47,6 +48,7 @@ __all__ = [
     "MaskSlice",
     "NavigationDecision",
     "Page",
+    "RunLog",
     "PageHost",
     "PageRouter",
     "PageSpec",

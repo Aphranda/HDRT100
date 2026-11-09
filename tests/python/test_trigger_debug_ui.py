@@ -332,3 +332,69 @@ def test_error_boundary_rate_limits_same_error() -> None:
     assert seen == ["page:boom", "page:boom"]
 
 
+def test_guide_failure_class_maps_q_ring_restore() -> None:
+    from tools.domains.trigger.trigger_debug_demo.calibration_workflow import (
+        _failure_class,
+    )
+
+    plan = {
+        "progress_status": 3,
+        "reason": 14,
+        "progress_valid": 1,
+        "reconcile": 3,
+        "failed_mask": 0,
+        "abort_site": 0,
+    }
+    assert _failure_class(plan) == "Q_RING_RESTORE"
+    plan.update(progress_status=1, reason=0, reconcile=1, failed_mask=0)
+    assert _failure_class(plan) == "TRIAL_COUNT_OR_MASK_MISMATCH"
+
+
+def test_guide_workflow_uses_10k_level_and_report(tmp_path) -> None:
+    from tools.domains.trigger.trigger_debug_demo.calibration_workflow import (
+        GuideWorkflow,
+    )
+
+    plan = "1,1,305397760,1,23,4000,4,0,1,1,1,1,4,3,0,1,0,1,1,1,1,0,15,0,0"
+
+    class FakePage:
+        def __init__(self) -> None:
+            self.config = ""
+
+        def _request(self, command, timeout):
+            if "GUIDE:CONFig" in command:
+                self.config = command
+                return "1"
+            if "GUIDE:PLAN?" in command:
+                return plan
+            if "RING:STATus?" in command:
+                return "1,4,0,0,1,1,0,0,1"
+            if "GUIDE:TRIGger" in command:
+                return "1"
+            return "SIM"
+
+        def _emit(self, _text):
+            return None
+
+    page = FakePage()
+    workflow = GuideWorkflow(page, level=23, label="10k",
+                             state_dir=tmp_path / "workflows",
+                             report_root=tmp_path / "out",
+                             log_root=tmp_path / "logs")
+    state = workflow.start({
+        "action": 1, "crc": 305397760, "generation": 1,
+        "window_ms": 4000, "trials": 4, "candidate_count": 3,
+        "candidates": [0, 4, 16], "threshold_low": 1,
+        "threshold_high": 64, "epoch": 1,
+    })
+    assert state.status == "SUCCEEDED"
+    assert ",23," in page.config
+    report_path = (tmp_path / "out" / "calibration" / "guide-10k" /
+                   f"{state.run_id}.json")
+    assert report_path.is_file()
+    report = report_path.read_text(encoding="utf-8")
+    assert "log_path" in report
+    assert list((tmp_path / "logs").glob("*/*.log"))
+
+
+
