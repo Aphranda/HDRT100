@@ -1485,8 +1485,24 @@ region 语义需单独登记），只放 ≤4 个高频 key（建议 `switch1/sw
 - 行按 slot 升序，`slot = offset + 行号`，不得跳号。
 
 **行的来源（单写者）。** 每行只由该 slot 的 owner 发布：本地槽由本板 provider 在发布点写入
-（`seq`/`epoch` 来自该 key 的发布计数器）；远端槽由本地镜像的该 slot 条目读出，镜像走
-`REFMEM_DELTA`。发布面未落地前，远端槽一律 `valid=0`，**不得用本地 provider 冒充当槽值**。
+（`seq`/`epoch` 来自该 key 的发布计数器）；远端槽由本地镜像的该 slot 条目读出，镜像走发布帧。
+发布面未落地前，远端槽一律 `valid=0`，**不得用本地 provider 冒充当槽值**。
+
+**发布面运输（M2 设计输入，2026-11-09 审计）。** 当前树没有远端 node region 的 writer：
+`s_distributed_refmem_table` 只初始化/心跳本板 slot（`distributed_refmem_link.c:777-789,1105-1112`），
+`NODES?` 对远端恒 `last_update_ms=0 / stale=1`；TDMA process-image 的 REFMEM 片只有 10 B
+（`tdma_process_image_layout.h:72-73`），装不下多字 key；`REFMEM_SYNC_FRAME_DELTA` 每帧只带 1 个 u32。
+因此 R1-3 必须新增发布通道，候选：
+
+- **A（推荐）** 新增 `REFMEM_SYNC_FRAME_OBS` 帧，载荷 `key_id,slot,seq,epoch,last_update_ms,words[8]`
+  （≤ `REFMEM_SYNC_FRAME_PAYLOAD_MAX` 256 B），变更时发 + 周期刷新；接收端写入
+  `statistics` 区（1024 B，生产零消费）的 per-slot mirror；
+- B 复用 `DELTA` 每字一帧：多字 key 需 2–7 帧，只适合标量 key；
+- C 命令面 request/response：违反 CP4/D0-A，不采用。
+
+A 需要 TDMA 线格式/席位评审（新帧类型）；`statistics` 区复用不改变 `table_size/layout_version`。
+pilot 预算：4 key × 4 slot × ~48 B = 768 B ≤ 1024 B。时基：`age_ms` 用读者本地 tick 减写者
+`last_update_ms`，跨板存在时基偏差；是否改用 TDMA 共同时钟待 TDMA 评审。
 
 **实现状态（M0 基线，2026-11-09）。** 当前 `OBS?` 返回
 `key,offset,count,valid,age_ms,<schema>` 的**单板单行**，`age_ms` 对 valid 行恒 0、
