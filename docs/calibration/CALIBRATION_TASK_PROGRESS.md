@@ -10,6 +10,82 @@ Last updated: 2026-11-09
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20261109-012 - 交接：单口引导阶梯与 REFMEM 读面的当前边界
+
+**一句话**：REFTMEM 读面（6/8 key）+ 阶梯 P1/P2 已可用；**P3 在 10 kHz 常驻环下不稳**，
+根因是“trial 起点锚在各板自己的 trigger 接收时刻 + 固定 300 ms guard”，与接线无关
+（P3 测量/触发/维护面源码在绿 build 与 HEAD 之间逐字节相同）。
+
+**已完成**（证据见各 commit 与 `out/`）：
+
+| 项 | 状态 | 关键证据 |
+|---|---|---|
+| OTA 首块 512 B + 孤儿事务 drain | ✅ | `be1e6eee`、`7ec900cb`，P3 多次 PASS |
+| 产品默认档裸板入环 | ✅ | `a28635e1`；`BOOT:PLAN?` 第 20 字段=2 |
+| P1@7 四板 | ✅ 严格 verdict PASS | `evidence/20261109-{055753,061114}-verify-1` |
+| P2 四板 | ✅ 可全过（间歇单板 coded 失败） | `CAL-TASK-20261109-010` |
+| C 段 count 错位（“假绿”根因） | ✅ 修 `ga` + 校验 | `2faa6f3a` |
+| REFMEM `OBS?` + 6 key 本地 provider | ✅ | `836dae7a`/`c6f2c76e`/`3624f322`；`control_plane_smoke.py` |
+| M3 控制面 read/write/wait_terminal | ✅ host + 实板 read | `7db8b04c`、`5c031aa8` |
+
+**未完成**：
+
+| 项 | 原因 | 下一步 |
+|---|---|---|
+| P3 四板全绿 | 见下节“回归分析” | 选 A 或 B 修法 |
+| T0–T3 | 依赖 P3 完成 | P3 绿后按阶梯顺序跑 |
+| `trigger_state`/`node_health` key | 无本地访问器 / 缺 `stale_count` 计数源 | 先补访问器 |
+| R1-2a pilot 存储 | 未开始 | 独立 region + seq/crc |
+| M4 页面迁移 | 未开始（与 console 会话在途改动重叠） | 先与 console 会话对齐 |
+| V-3/V-4 四板 HIL | 未做 | 单开 COM5 / 拔板 stale / 缺板 NACK |
+
+**回归分析（P3 link0，子代理 `0053b43b` 独立复核）**：
+
+- build id 是 **UTC**：`20261107003733` = 本地 11-07 08:37；11-07 当天有 **6 轮 P3 四板全绿**
+  （18:27–21:14），最后一轮绿 = `20261107130041`；第一轮红 = `20261108192050`（本地 11-09 03:20）。
+- **P3 测量/触发/维护面源码逐字节未变**（`tdma_pio_spi_phys_p3.c`、`tdma_ring_phase.c`、
+  `tdma_maintenance*`、`tdma_runtime_owner.c` 在绿 build→HEAD 的 `git diff` 为空）⇒ 不是测距代码。
+- 变化的是**窗口入口载波**：绿 build 归档为 `10000000/1000000`（10 MHz），现在是
+  `10000/150000000`（10 kHz，实读四板一致）。窗口关闭后的 boot replay 会把环按 boot profile
+  （23 / 10 kHz）重新 stage+apply（`app.c:108-124`），`14fc3456` 起该路径真正生效。
+- P3 的 trial 起点 `t0 = now + 6000 + 80×period`（`app.c:2502-2503`）锚在各板**自己**收到
+  trigger 的时刻，跟随者逐跳延后（10 kHz 下维护面一格 600 ms）；唯一补偿是固定
+  `APP_CTRQS_P3_REF_DELAY_MS=300`，是 CTRQS 里唯一没按载波缩放的预算。
+  link0 是唯一“发起端=origin（最早）/响应端=follower（较晚）”的链路 → 首 trial 丢，
+  再被 `P3_STOP` 5 s 与绝对 t0 级联成 3 个（`0x1`→`0x4/0x7`）。
+- **三次修复尝试均失败**（已全部回退，未入库）：
+  1. 固定 guard 300→3000 ms → 失败转移到 link3；
+  2. 按载波缩放 guard（2 rev+500 ms≈800 ms）→ link0 仍丢、link3 又丢；
+  3. 失败 trial 用新锚点重试 2 次 → NO.2 改在 P3_PREP abort(12)、NO.3/NO.4 仍部分失败。
+  原因：统一 guard 无法同时满足“先发端要等”与“响应端不能等太久”，且 `P3_STOP` 级联仍在。
+
+**两个候选修法（待定）**：
+
+- **A（小、与绿 build 行为一致）**：窗口关闭后不把环重新 stage 到 23，而是恢复窗口前的
+  staged 档（P3 窗口前是 7=10 MHz）。维护面交付回到 1 ms/rev，300 ms guard 足够。
+  代价：demo 环在两动作之间停在 10 MHz。
+- **B（结构性、符合 10 kHz 常驻意图）**：给 P3 引入共享 trial epoch（复用 P1 的
+  FORWARD→TRIAL 屏障思路），各板在同一绝对时刻进入 trial，不依赖 trigger 交付偏差。
+
+**台架状态**：四板 build `20261109034904`（=HEAD 源码），产品默认档（source=2），
+环 `1/1/1/1`；板号 1–4 正确。工作区中 18 条未提交改动属 console 会话，未触碰。
+
+**证据索引**：`out/calibration/guide-10k/evidence/20261109-*`（阶梯 verdict）、
+`out/calibration/guide-10k/bench/p3-{trace,instrumented}-gen*`（P3 追踪）、
+`out/HardwareAcceptance/20261109/p3-*`（P3 凭证）、`config/refmem/read_catalog.yaml`。
+
+**起手命令**：
+
+```powershell
+python tools/calibration/guide_cmdplane_probe.py plan
+python tools/calibration/guide_cmdplane_probe.py ga 1 <gen> <epoch> 7 4000 4 3 0 4 16 1 64
+python tools/calibration/guide_cmdplane_probe.py ga 2 <gen> <epoch> 7 8000 1 5 0 1 80 120 0 10 512
+python tools/calibration/guide_cmdplane_probe.py ga 3 <gen> <epoch> 7 20000 1 5 0 0 32 256 3 10000000 50000
+python tools/refmem/control_plane_smoke.py COM5
+```
+
+**需要用户决策**：选 A（快、回到绿 build 的载波行为）还是 B（结构修复、保 10 kHz 常驻）。
+
 ## CAL-TASK-20261109-011 - P1 TRIAL 的瞬态快照失败改为重试到 slot 截止（固件已入库）
 
 - **根因**（交叉审核 `eb4e845d`）：参考板 `ring_train` 入队后，下一次
