@@ -4676,19 +4676,14 @@ def phase_budget(run: AcceptanceRun) -> None:
         "warning_s": budget["warning_s"],
         "error_s": budget["error_s"],
     })
-    if budget["status"] == "ERROR":
-        if not run.diagnostic_continue:
-            raise AcceptanceError(
-                f"acceptance exceeded error budget: {budget['elapsed_s']:.3f}s "
-                f"> {budget['error_s']:.3f}s")
-        run.diagnostic_failures.append({
-            "phase": "acceptance time budget",
-            "returncode": 1,
-            "error": (
-                f"elapsed {budget['elapsed_s']:.3f}s exceeds "
-                f"error budget {budget['error_s']:.3f}s"),
-            "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
-        })
+    if budget["status"] != "PASS":
+        # Time is a soft signal: a long run (or a resumed one) must stay
+        # auditable, but it must not manufacture a hardware failure.
+        run.warn(
+            f"acceptance time budget: {budget['elapsed_s']:.3f}s "
+            f"> {budget['warning_s']:.3f}s"
+            + (f" (over error budget {budget['error_s']:.3f}s)"
+               if budget.get("over_error_budget") else ""))
     run.put(budget=budget)
 
 

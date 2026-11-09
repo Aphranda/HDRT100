@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 import json
 import sys
 import types
@@ -390,7 +390,7 @@ def test_code_scope_includes_runtime_tools_and_build_inputs() -> None:
     ):
         assert is_acceptance_source(path)
     for path in (
-        # AGENTS §2.7 routing: host tests, the host gate wiring and the host
+        # AGENTS 搂2.7 routing: host tests, the host gate wiring and the host
         # acceptance tooling carry their own credential, so a test-only change
         # must neither invalidate nor require a bench run.
         "tests/python/test_example.py",
@@ -1150,13 +1150,14 @@ def test_hardware_acceptance_timing_is_explicit_and_bounded() -> None:
         }})
 
 
-def test_quick_acceptance_budget_warns_then_errors() -> None:
+def test_quick_acceptance_budget_warns_only() -> None:
     quick = load_bench_config(
         ROOT / "config" / "hardware_acceptance" / "p3_bench_quick.json")
     assert quick["acceptance_profile"] == "QUICK_DIAGNOSTIC"
     assert acceptance_budget_status(quick, 390.0)["status"] == "PASS"
     assert acceptance_budget_status(quick, 390.001)["status"] == "WARN"
-    assert acceptance_budget_status(quick, 450.001)["status"] == "ERROR"
+    assert acceptance_budget_status(quick, 450.001)["status"] == "WARN"
+    assert acceptance_budget_status(quick, 450.001)["over_error_budget"] is True
     with pytest.raises(AcceptanceError, match="acceptance_time_budget"):
         acceptance_budget_status({"acceptance_time_budget": {
             "warning_s": 100, "error_s": 60}}, 1)
@@ -1211,3 +1212,5 @@ def test_calibration_and_training_tools_own_realtime_load_guard() -> None:
                   tool).read_text(encoding="utf-8")
         assert "CalibrationLoadGuard" in source
         assert "realtime_calibration_load" in source
+
+

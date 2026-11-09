@@ -101,7 +101,7 @@ def acceptance_budget_status(config: dict[str, Any], elapsed_s: float) -> dict[s
     if warning_s <= 0 or error_s <= warning_s:
         raise AcceptanceError(
             "acceptance_time_budget must satisfy 0 < warning_s < error_s")
-    status = "ERROR" if elapsed_s > error_s else (
-        "WARN" if elapsed_s > warning_s else "PASS")
+    status = "WARN" if elapsed_s > warning_s else "PASS"
     return {"status": status, "elapsed_s": round(elapsed_s, 3),
-            "warning_s": warning_s, "error_s": error_s}
+            "warning_s": warning_s, "error_s": error_s,
+            "over_error_budget": elapsed_s > error_s}

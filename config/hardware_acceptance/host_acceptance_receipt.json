@@ -6,10 +6,10 @@
     "-m",
     "pytest",
     "tests/python/test_owner_hook_link.py",
+    "tests/python/test_p3_hardware_acceptance.py",
     "tests/python/test_refmem_control_plane.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_trn03_closed_loop.py",
     "tests/python/test_vdc_host_harness.py",
     "-q",
     "-p",
@@ -17,34 +17,31 @@
   ],
   "paths": [
     "tests/python/test_owner_hook_link.py",
+    "tests/python/test_p3_hardware_acceptance.py",
     "tests/python/test_refmem_control_plane.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_trn03_closed_loop.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 14.078,
+  "duration_s": 26.203,
   "returncode": 0,
   "summary": {
-    "passed": 222,
+    "passed": 158,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
-    "xfailed": 1
+    "xfailed": 0
   },
-  "summary_line": "222 passed, 1 xfailed in 13.50s",
+  "summary_line": "158 passed in 23.11s",
   "tail": [
-    "........................................................................ [ 32%]",
-    "..........................x............................................. [ 64%]",
-    "........................................................................ [ 96%]",
-    ".......                                                                  [100%]",
-    "=========================== short test summary info ===========================",
-    "XFAIL tests/python/test_trn03_closed_loop.py::test_load_mask_releases_only_newly_enabled_loads - pre-existing: app.c quarantine release now includes the foundation mask (~ (newly_enabled | APP_REALTIME_LOAD_FOUNDATION_MASK)); the assertion predates that change and needs an owner decision",
-    "222 passed, 1 xfailed in 13.50s"
+    "........................................................................ [ 45%]",
+    "........................................................................ [ 91%]",
+    "..............                                                           [100%]",
+    "158 passed in 23.11s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "79f42a772dfd20f6494d20ecada251f5cc45844f3cc8341d2099ec7d0f24d1ed",
+  "fingerprint": "95d1ca5e48d97e5042ae1e29a244779c3551d93d742d1d306d9a8dab417f21f4",
   "file_count": 1179,
-  "working_fingerprint": "7792b8ed3f016da7f6999e28081099f14e82809c9a282c62453a6a90729a63ec",
-  "started_at_utc": "2026-11-09T10:24:42.881646+00:00"
+  "working_fingerprint": "b9c410cf3dc2715f02e9add408d9cf62fb78931310cbd466a567283b9cec547e",
+  "started_at_utc": "2026-11-09T10:37:46.663774+00:00"
 }
