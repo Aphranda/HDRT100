@@ -43,7 +43,7 @@ if __package__:
     from .acceptance_errors import AcceptanceError
     from .bench_config import (
         DEFAULT_ACCEPTANCE_TIMING, acceptance_budget_status, acceptance_timing,
-        load_bench_config)
+        apply_ring_board_count, load_bench_config)
     from .p3_alarm_policy import build_acceptance_report
     from .p3_dpll_short import PROVISIONAL_SCHEMA, summarize_joint, validate_summary
     from .source_scope import (
@@ -55,7 +55,7 @@ else:
     from acceptance_errors import AcceptanceError
     from bench_config import (
         DEFAULT_ACCEPTANCE_TIMING, acceptance_budget_status, acceptance_timing,
-        load_bench_config)
+        apply_ring_board_count, load_bench_config)
     from p3_alarm_policy import build_acceptance_report
     from p3_dpll_short import PROVISIONAL_SCHEMA, summarize_joint, validate_summary
     from source_scope import (
@@ -2988,6 +2988,18 @@ class AcceptanceRun:
         self.baseline_divisor = resolve_path_delay_baseline_divisor(config)
         self.previous_baseline_divisor = resolve_previous_path_delay_baseline_divisor(
             config)
+        # P0T measures whoever is physically wired, so the bench declares its
+        # ring size (ring_board_count, 2..4, default = every configured board).
+        # The `--ring-board-count` override rides the launch settings, so a
+        # resumed invocation measures the same ring it started with. Cutting
+        # every board-indexed input to the same head slice here keeps a
+        # three-board line order from ever meeting four-board offsets.
+        override = getattr(args, "ring_board_count", None)
+        if override is None and isinstance(state, dict):
+            override = state.get("ring_board_count_override")
+        if override is not None:
+            config["ring_board_count"] = override
+        self.ring_board_count = apply_ring_board_count(config)
         self.board_ids = list(config["p3_board_ids_in_physical_order"])
         self.tdma_only = bool(getattr(args, "tdma_only", False))
         self.diagnostic_continue = bool(getattr(args, "diagnostic_continue", False))
@@ -2999,9 +3011,10 @@ class AcceptanceRun:
         if self.quick_diagnostic:
             self.diagnostic_continue = True
         self.ota_board_ids = list(config["ota_board_ids"])
-        if len(self.board_ids) != 4 or self.ota_board_ids != self.board_ids:
+        if self.ota_board_ids != self.board_ids:
             raise AcceptanceError(
-                "P3 acceptance requires the same four configured OTA and ring nodes")
+                "P3 acceptance requires the same configured OTA and ring nodes "
+                f"(ring_board_count={self.ring_board_count})")
         self.timing = acceptance_timing(config)
         # Imported calibration tools resolve the same read quantum through the
         # process environment, even when their legacy CLI has no read-timeout
@@ -3014,6 +3027,11 @@ class AcceptanceRun:
         self.out_dir = out_dir
         self.state: dict[str, Any] = state if state is not None else {}
         self.state.setdefault("diagnostic_failures", [])
+        # Persist the resolved size, not the flag: a resumed run started with
+        # --ring-board-count 3 keeps measuring three boards even when the bench
+        # config's own list is longer.
+        if override is not None:
+            self.state["ring_board_count_override"] = self.ring_board_count
         self.state.setdefault("steps", {})
         self.state.setdefault("invocations", [])
         self.state.setdefault("sequence", 0)
@@ -3261,7 +3279,9 @@ def phase_setup(run: AcceptanceRun) -> None:
     topology_reuse_source = None
     if getattr(args, "reuse_topology", None) is not None:
         if not (run.tdma_only and run.quick_diagnostic):
-            raise AcceptanceError("known topology reuse requires four-board quick acceptance")
+            raise AcceptanceError(
+                "known topology reuse requires quick diagnostic acceptance of "
+                "the same board set")
         frozen = out_dir / "known-topology-source.json"
         if frozen.is_file() and frozen.read_bytes() == (root / args.reuse_topology).read_bytes():
             topology_reuse_source = evidence_entry(root, frozen)  # step 0 rerun
@@ -3591,7 +3611,8 @@ def phase_topology(run: AcceptanceRun) -> None:
     ]
     topology_summary_path = topology_dir / "summary.json"
     if topology_reuse_source is None:
-        print("Hardware acceptance: P0T line order and NO assignment", flush=True)
+        print("Hardware acceptance: P0T line order and NO assignment "
+              f"(ring_board_count={run.ring_board_count})", flush=True)
         add_serial_timing(topology_command, timing, action=True, gap=True)
         if "--timeout" in topology_command:
             topology_command[topology_command.index("--timeout") + 1] = str(
@@ -3614,7 +3635,7 @@ def phase_topology(run: AcceptanceRun) -> None:
     run.put(topology_summary_path=topology_summary_path)
 
 
-@acceptance_step(9, "拓扑门限（环序 = NO.1..NO.4，分配全部通过）")
+@acceptance_step(9, "拓扑门限（环序 = 配置的 NO.1..NO.N，分配全部通过）")
 def phase_topology_gate(run: AcceptanceRun) -> None:
     board_ids = run.board_ids
     topology_summary = run.load_json("topology_summary_path")
@@ -3622,7 +3643,9 @@ def phase_topology_gate(run: AcceptanceRun) -> None:
     validate_pass_summary(topology_summary, "P0T topology")
     if topology_summary.get("ring_order") != board_ids:
         raise AcceptanceError(
-            "measured physical loop order differs from bench NO.1..NO.4")
+            "measured physical loop order differs from the configured "
+            f"{len(board_ids)}-board order (ring_board_count="
+            f"{run.ring_board_count})")
     assignments = topology_summary.get("assignments", [])
     if ([row.get("address") for row in assignments] != board_ids or
             any(row.get("passed") is not True for row in assignments)):
@@ -4468,6 +4491,7 @@ def phase_dpll_scope(run: AcceptanceRun) -> None:
         print("Hardware acceptance: skip optional four-board DPLL short observation", flush=True)
         run.put(dpll_summary_path=None, dpll_scope_discovery_path=None)
         return
+    require_product_ring("DPLL 60 s joint observation", run.ring_board_count)
     if run.get("stopped_handoff_path") is None:
         raise AcceptanceError("four-board DPLL short observation requires stopped TDMA evidence")
     discovery_path, scope_enabled = dpll_short_discover_scope(
@@ -4721,9 +4745,30 @@ def credential_required_steps(run: AcceptanceRun) -> list[int]:
     return [0, 1, *firmware, *range(7, 35)]
 
 
+def require_product_ring(stage: str, board_count: int) -> None:
+    """Refuse a stage whose evidence is defined for the four-board product ring.
+
+    P0T and the stopped calibration ladder measure whatever is wired, but the
+    DPLL joint observation and every accepted TDMA receipt schema are defined
+    for the four-board product ring.  A 2..4-board bench must fail here with the
+    real reason instead of producing product-ring evidence from fewer boards.
+    """
+    if board_count != 4:
+        raise AcceptanceError(
+            f"{stage} requires the four-board product ring "
+            f"(ring_board_count={board_count}); measure P0T only")
+
+
 def credential_ineligibility(run: AcceptanceRun) -> list[str]:
     """Why this run directory cannot produce a commit credential (empty = it can)."""
     reasons: list[str] = []
+    if run.ring_board_count != 4:
+        # ACCEPTED_RECEIPT_SCHEMAS are all defined for the four-board product
+        # ring; a smaller bench may collect P0T/calibration evidence but must
+        # not label it as that ring.
+        reasons.append(
+            f"ring_board_count {run.ring_board_count} is not the four-board "
+            "product ring")
     steps = run.state["steps"]
     previous = 0
     for number in credential_required_steps(run):

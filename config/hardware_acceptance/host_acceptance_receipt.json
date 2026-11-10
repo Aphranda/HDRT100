@@ -2,49 +2,51 @@
   "passed": true,
   "unstaged_tested_files": [],
   "command": [
-    "C:\\Python310\\python.exe",
+    "D:\\Microsoft\\Miniconda\\python.exe",
     "-m",
     "pytest",
+    "tests/python/test_hardware_acceptance_workflow.py",
+    "tests/python/test_host_harness_portability.py",
     "tests/python/test_owner_hook_link.py",
+    "tests/python/test_p3_hardware_acceptance.py",
     "tests/python/test_refmem_control_plane.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_trigger_debug_demo.py",
-    "tests/python/test_trigger_debug_obs.py",
-    "tests/python/test_trigger_debug_ui.py",
     "tests/python/test_vdc_host_harness.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
+    "tests/python/test_hardware_acceptance_workflow.py",
+    "tests/python/test_host_harness_portability.py",
     "tests/python/test_owner_hook_link.py",
+    "tests/python/test_p3_hardware_acceptance.py",
     "tests/python/test_refmem_control_plane.py",
     "tests/python/test_refmem_host_units.py",
     "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_trigger_debug_demo.py",
-    "tests/python/test_trigger_debug_obs.py",
-    "tests/python/test_trigger_debug_ui.py",
     "tests/python/test_vdc_host_harness.py"
   ],
-  "duration_s": 27.454,
+  "duration_s": 60.75,
   "returncode": 0,
   "summary": {
-    "passed": 131,
+    "passed": 229,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "131 passed in 24.59s",
+  "summary_line": "229 passed in 59.37s",
   "tail": [
-    "........................................................................ [ 54%]",
-    "...........................................................              [100%]",
-    "131 passed in 24.59s"
+    "........................................................................ [ 31%]",
+    "........................................................................ [ 62%]",
+    "........................................................................ [ 94%]",
+    ".............                                                            [100%]",
+    "229 passed in 59.37s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "4686d70312de63a832b82444088293ad715a311dd10302015fd6e9d030769aaf",
-  "file_count": 1183,
-  "working_fingerprint": "4686d70312de63a832b82444088293ad715a311dd10302015fd6e9d030769aaf",
-  "started_at_utc": "2026-11-10T02:37:14.041927+00:00"
+  "fingerprint": "201d159b546f988375bba2efe321024c4a1fd21f6aac890b79bd1177ef805b52",
+  "file_count": 1185,
+  "working_fingerprint": "201d159b546f988375bba2efe321024c4a1fd21f6aac890b79bd1177ef805b52",
+  "started_at_utc": "2026-11-10T07:59:04.108528+00:00"
 }

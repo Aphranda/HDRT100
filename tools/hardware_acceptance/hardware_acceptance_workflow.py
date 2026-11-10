@@ -83,6 +83,11 @@ CALIBRATION_STEPS = tuple(range(8, 24))
 # Profiles that continue an existing run directory need --run.
 PROFILES: dict[str, dict[str, Any]] = {
     "full": {"steps": None, "note": "全部步骤（构建、刷写、新标定、TDMA、DPLL、凭证）"},
+    # P0T measures the boards that are physically wired (ring_board_count, 2..4,
+    # default 4), so the line order of a smaller bench can be checked without a
+    # build, a flash or any downstream stage.  Never writes a credential.
+    "topology": {"steps": [0, 1, 6, 7, 8, 9],
+                 "note": "只做 P0T 线序/拓扑（2~4 板，板上现有固件；不出凭证）"},
     "calibration": {"steps": [0, 1, 6, 7, *CALIBRATION_STEPS],
                     "note": "只做拓扑 + 标定 + 训练（板上现有固件；不出凭证）"},
     "firmware": {"steps": [0, 1, 2, 3, 4, 5, 7, *range(24, 37)], "reuse": True,
@@ -186,6 +191,15 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
             launch[key] = str(getattr(ns, key))
     if getattr(ns, "method", None):
         launch["flash_method"] = ns.method
+    # A bench that carries fewer wired boards than the product ring declares its
+    # size once, here; the value rides the persisted launch settings so every
+    # resumed invocation measures the same ring.
+    ring_board_count = getattr(ns, "ring_board_count", None)
+    if ring_board_count is not None:
+        if isinstance(ring_board_count, bool) or not isinstance(
+                ring_board_count, int):
+            raise SystemExit(f"invalid --ring-board-count: {ring_board_count!r}")
+        launch["ring_board_count"] = ring_board_count
     resume = bool(launch.get("package") and launch.get("ota_summary"))
     full = bool(launch.get("full"))
     internal = monitor == "internal"
@@ -209,6 +223,7 @@ def acceptance_args(ns: argparse.Namespace, launch: dict[str, Any] | None = None
         out_dir=out_dir, reuse_topology=path("reuse_topology"),
         build_dir=path("build_dir"), package=path("package"), preset=launch.get("preset"),
         ota_summary=path("ota_summary"), flash_method=launch.get("flash_method", "ota"),
+        ring_board_count=launch.get("ring_board_count"),
         strict_stage=[], _launch=launch)
 
 
@@ -753,6 +768,11 @@ def main(argv: list[str] | None = None) -> int:
                              "'scope' is the same detection-first policy; 'internal' "
                              "forces board-internal evidence only")
     parser.add_argument("--tdma-only", action="store_true")
+    parser.add_argument("--ring-board-count", type=int, default=None,
+                        help="boards physically wired in the ring (2..4, default: "
+                             "every board in the bench config). P0T and the "
+                             "calibration ladder measure that set; the DPLL "
+                             "observation and the receipt stay four-board only")
     parser.add_argument("--diagnostic-continue", action="store_true")
     parser.add_argument("--time-budget", default=None,
                         help="explicit acceptance time budget warning_s,error_s "

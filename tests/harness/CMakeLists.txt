@@ -4,7 +4,44 @@ cmake_minimum_required(VERSION 3.13)
 # The Pico SDK ships replacement implementations for its platform libraries
 # when PICO_PLATFORM=host, so no hand-written shim layer is needed.
 set(PICO_PLATFORM host CACHE STRING "" FORCE)
-set(PICO_SDK_PATH "C:/Users/10447/.pico-sdk/sdk/2.2.0" CACHE PATH "" FORCE)
+
+# SDK location. An explicit PICO_SDK_PATH (environment variable or
+# -DPICO_SDK_PATH=<dir>) wins; otherwise use the per-user Pico VS Code
+# extension install of whoever runs the harness, highest version first. The old
+# value pinned one developer's home directory, so every other machine failed at
+# configure time, and a stale cache entry is skipped rather than reported.
+if(WIN32)
+    set(_harness_userhome "$ENV{USERPROFILE}")
+else()
+    set(_harness_userhome "$ENV{HOME}")
+endif()
+set(_harness_sdk_candidates "")
+if(PICO_SDK_PATH)
+    list(APPEND _harness_sdk_candidates "${PICO_SDK_PATH}")
+endif()
+if(DEFINED ENV{PICO_SDK_PATH})
+    list(APPEND _harness_sdk_candidates "$ENV{PICO_SDK_PATH}")
+endif()
+file(GLOB _harness_sdk_installs LIST_DIRECTORIES true
+    "${_harness_userhome}/.pico-sdk/sdk/*")
+list(SORT _harness_sdk_installs)
+list(REVERSE _harness_sdk_installs)
+list(APPEND _harness_sdk_candidates ${_harness_sdk_installs})
+set(_harness_sdk_found "")
+foreach(_harness_candidate IN LISTS _harness_sdk_candidates)
+    if(EXISTS "${_harness_candidate}/external/pico_sdk_import.cmake")
+        set(_harness_sdk_found "${_harness_candidate}")
+        break()
+    endif()
+endforeach()
+if(NOT _harness_sdk_found)
+    message(FATAL_ERROR
+        "Pico SDK not found. Install the Pico VS Code extension for this user "
+        "('${_harness_userhome}/.pico-sdk/sdk'), or pass "
+        "-DPICO_SDK_PATH=<pico-sdk dir> / set PICO_SDK_PATH in the environment.")
+endif()
+set(PICO_SDK_PATH "${_harness_sdk_found}" CACHE PATH
+    "Raspberry Pi Pico SDK used by the host harness" FORCE)
 
 project(dhrt100_host_harness C)
 
@@ -57,8 +94,14 @@ set(HARNESS_INCLUDES
     ${REPO_ROOT}/config
 )
 
+# The SDK's host platform keeps its entry points weak and POSIX-only; these
+# strong definitions supply the delay/timestamp services the harness needs on
+# every target (see fakes/host_platform_shims.c).
+set(HOST_PLATFORM_SHIMS ${CMAKE_CURRENT_LIST_DIR}/fakes/host_platform_shims.c)
+
 add_executable(host_control_test
     scenarios/host_control_scenario.c
+    ${HOST_PLATFORM_SHIMS}
     ${REPO_ROOT}/components/vdc_dpll_manager/src/vdc_priority_host_control.c
 )
 
@@ -76,6 +119,7 @@ add_test(NAME host_control COMMAND host_control_test)
 add_executable(output_delay_test
     scenarios/output_delay_scenario.c
     fakes/output_delay_fakes.c
+    ${HOST_PLATFORM_SHIMS}
     ${REPO_ROOT}/components/vdc_dpll_manager/src/vdc_output_delay_config.c
 )
 
@@ -100,6 +144,7 @@ add_test(NAME output_delay COMMAND output_delay_test)
 # Compile-only gate for the large merged units: proves they build for the host
 # platform before their scenarios exist.
 add_library(unit_compile_check OBJECT
+    ${HOST_PLATFORM_SHIMS}
     ${REPO_ROOT}/components/vdc_dpll_manager/src/vdc_output.c
     ${REPO_ROOT}/components/vdc_dpll_manager/src/vdc_dpll_feedback.c
     ${REPO_ROOT}/components/vdc_dpll_manager/src/vdc_boundary.c
@@ -124,6 +169,7 @@ add_executable(reference_discipline_test
     scenarios/reference_discipline_scenario.c
     fakes/refdis_fakes.c
     fakes/refdis_unit_fakes.c
+    ${HOST_PLATFORM_SHIMS}
     ${REPO_ROOT}/components/vdc_dpll_manager/src/vdc_output.c
     ${REPO_ROOT}/components/vdc_dpll_manager/src/vdc_reference_config.c
 )

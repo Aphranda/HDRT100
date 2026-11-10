@@ -162,7 +162,12 @@ def test_workflow_selection_and_profiles():
     with pytest.raises(SystemExit):
         workflow.parse_selection("40")
     assert set(workflow.PROFILES) >= {"full", "calibration", "firmware", "retrain", "tdma",
-                                      "tail", "offline"}
+                                      "tail", "offline", "topology"}
+    # A bench with fewer physically wired boards still has to be able to check
+    # its line order: the topology profile stops after the P0T gate and never
+    # touches build, flash or a product-ring stage.
+    assert workflow.PROFILES["topology"]["steps"] == [0, 1, 6, 7, 8, 9]
+    assert not set(workflow.PROFILES["topology"]["steps"]) & set(range(24, 37))
     # DPLL needs a fresh TDMA stage right before it, and a continued profile must run
     # through the tail: nothing downstream of a rerun step may be left stale.
     for name in ("retrain", "tdma"):
@@ -178,6 +183,51 @@ def test_workflow_selection_and_profiles():
 def test_continuing_profiles_require_a_run(profile):
     with pytest.raises(SystemExit, match="--run"):
         workflow.main(["--profile", profile])
+
+
+def test_three_board_run_keeps_one_ring_size_for_every_stage(tmp_path):
+    # A bench that only has three boards wired declares it once on the command
+    # line; nothing about the product-ring stages is pretended.
+    args = make_args(tmp_path, ring_board_count=3)
+    run = p3.AcceptanceRun.create(args)
+    assert run.ring_board_count == 3
+    assert len(run.board_ids) == 3 and run.ota_board_ids == run.board_ids
+    # P0T probes exactly the wired boards: one --board-id per ring board.
+    assert run.common_boards == [
+        item for board_id in run.board_ids for item in ("--board-id", board_id)]
+    # Every board-indexed input follows the same slice, so a three-board line
+    # order can never meet four-board offsets.
+    for key in ("training_marker_offsets_by_node", "training_sck_offsets_by_node",
+                "training_data_offsets_by_node"):
+        assert len(run.config[key]) == 3
+    # The product-ring stages and the receipt stay out of reach by name.
+    with pytest.raises(p3.AcceptanceError, match="four-board product ring"):
+        p3.require_product_ring("DPLL 60 s joint observation", run.ring_board_count)
+    reasons = p3.credential_ineligibility(run)
+    assert any("ring_board_count 3" in reason for reason in reasons)
+
+
+def test_ring_board_count_survives_a_resumed_run(tmp_path):
+    args = make_args(tmp_path, ring_board_count=3)
+    run = p3.AcceptanceRun.create(args)
+    run.save()  # the CLI saves the launch settings when it opens a run
+    again = p3.AcceptanceRun.load(make_args(tmp_path), run.out_dir)
+    assert again.ring_board_count == 3
+    assert len(again.board_ids) == 3
+    # Without the flag and without a recorded override the bench config decides.
+    fresh = p3.AcceptanceRun.create(make_args(tmp_path / "plain"))
+    assert fresh.ring_board_count == 4
+    assert fresh.state.get("ring_board_count_override") is None
+
+
+def test_ring_board_count_flag_is_recorded_and_bounded(tmp_path):
+    ns = SimpleNamespace(profile="full", ring_board_count=3)
+    assert workflow.acceptance_args(ns).ring_board_count == 3
+    assert workflow.acceptance_args(SimpleNamespace(profile="full")).ring_board_count is None
+    with pytest.raises(SystemExit, match="ring-board-count"):
+        workflow.acceptance_args(SimpleNamespace(profile="full", ring_board_count="3"))
+    with pytest.raises(p3.AcceptanceError, match="ring_board_count"):
+        p3.AcceptanceRun.create(make_args(tmp_path, ring_board_count=5))
 
 
 def test_firmware_profile_requires_a_calibration_source():
@@ -539,6 +589,7 @@ def test_p0t_timeout_uses_serial_budget(tmp_path, monkeypatch):
         },
         common_boards=["--board-id", "anchor"],
         board_ids=["anchor"],
+        ring_board_count=1,
         state={},
         get=lambda key: {"build_id": "20261105011617"}.get(key),
     )

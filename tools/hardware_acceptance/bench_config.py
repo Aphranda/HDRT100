@@ -15,6 +15,20 @@ try:  # package import (tests, workflow)
 except ImportError:  # top-level import (tools/hardware_acceptance on sys.path)
     from acceptance_errors import AcceptanceError
 
+# The product ring is four boards, but P0T measures whoever is physically wired:
+# a bench may carry 2..4 boards.  The declaration is explicit and defaults to
+# "every configured board", so an unmodified bench config keeps measuring four.
+RING_BOARD_COUNT_MIN = 2
+RING_BOARD_COUNT_MAX = 4
+# Per-node arrays are indexed by the physical ring order, so a bench that
+# carries fewer boards must have them cut to the same head slice instead of
+# mixing (for example) three measured boards with four configured offsets.
+PER_NODE_CONFIG_KEYS = (
+    "training_marker_offsets_by_node",
+    "training_sck_offsets_by_node",
+    "training_data_offsets_by_node",
+)
+
 DEFAULT_ACCEPTANCE_TIMING = {
     "serial_timeout_s": 3.0,
     "serial_settle_s": 0.05,
@@ -56,6 +70,72 @@ def load_bench_config(path: Path, *,
         return merged
 
     return merge(result, raw)
+
+
+def ring_board_count(config: dict[str, Any]) -> int:
+    """How many boards form the ring; default = every configured board."""
+    ids = config.get("p3_board_ids_in_physical_order")
+    if not isinstance(ids, list) or not ids:
+        raise AcceptanceError(
+            "p3_board_ids_in_physical_order must be a non-empty list")
+    count = config.get("ring_board_count", len(ids))
+    if isinstance(count, bool) or not isinstance(count, int):
+        raise AcceptanceError(f"ring_board_count must be an integer, got {count!r}")
+    if not RING_BOARD_COUNT_MIN <= count <= RING_BOARD_COUNT_MAX:
+        raise AcceptanceError(
+            f"ring_board_count {count} is outside the supported "
+            f"{RING_BOARD_COUNT_MIN}..{RING_BOARD_COUNT_MAX} boards")
+    if count > len(ids):
+        raise AcceptanceError(
+            f"ring_board_count {count} exceeds the {len(ids)} configured boards")
+    return count
+
+
+def apply_ring_board_count(config: dict[str, Any]) -> int:
+    """Cut the bench config to the declared ring board count, in physical order.
+
+    P0T derives the line order from physical activity, so the board set has to
+    be exactly the boards that are wired.  Truncating every board-indexed input
+    to the same head slice keeps one topology for the whole run: the board
+    lists, the OTA list and each per-node training array.  The resolved count is
+    written back into the config so later stages and the receipt read the same
+    ring size.
+    """
+    count = ring_board_count(config)
+    ring_ids = list(config["p3_board_ids_in_physical_order"])[:count]
+    if len(set(ring_ids)) != len(ring_ids):
+        raise AcceptanceError(f"ring board ids must be unique: {ring_ids}")
+    anchor = config.get("topology_anchor_board_id")
+    if anchor is not None and anchor not in ring_ids:
+        raise AcceptanceError(
+            "topology_anchor_board_id must be one of the ring boards")
+    ota_ids = config.get("ota_board_ids")
+    if not isinstance(ota_ids, list) or len(ota_ids) < count:
+        raise AcceptanceError(
+            f"ota_board_ids must carry every ring board ({count})")
+    if list(ota_ids)[:count] != ring_ids:
+        raise AcceptanceError(
+            "ota_board_ids and p3_board_ids_in_physical_order must start with "
+            "the same ring boards")
+    for key in PER_NODE_CONFIG_KEYS:
+        values = config.get(key)
+        if values is None:
+            continue
+        if not isinstance(values, list) or len(values) < count:
+            raise AcceptanceError(f"{key} needs at least {count} per-node entries")
+        config[key] = list(values)[:count]
+    # A follower-candidate gate that asks for more followers than the ring has
+    # can never pass; refuse it here instead of inside the SCK training stage.
+    min_followers = config.get("training_sck_min_follower_candidates")
+    if (isinstance(min_followers, int) and not isinstance(min_followers, bool)
+            and min_followers > count - 1):
+        raise AcceptanceError(
+            f"training_sck_min_follower_candidates {min_followers} needs more "
+            f"than the {count - 1} followers a {count}-board ring has")
+    config["ring_board_count"] = count
+    config["p3_board_ids_in_physical_order"] = ring_ids
+    config["ota_board_ids"] = list(ota_ids)[:count]
+    return count
 
 
 def acceptance_timing(config: dict[str, Any]) -> dict[str, float]:

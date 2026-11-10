@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import json
 import sys
 import types
@@ -11,6 +11,7 @@ import pytest
 import tools.hardware_acceptance.workflow_steps as p3_acceptance
 from test_tdma_board_record import recorder  # noqa: F401 - shared production C recorder fixture
 
+from tools.hardware_acceptance.bench_config import ring_board_count
 from tools.hardware_acceptance.workflow_steps import (
     AcceptanceError,
     LIMITED_RECEIPT_SCHEMA,
@@ -23,6 +24,7 @@ from tools.hardware_acceptance.workflow_steps import (
     acceptance_config_path,
     acceptance_output_path,
     acceptance_timing,
+    apply_ring_board_count,
     build_diagnostic_feedback,
     calibration_coded_probe_phase_cycles,
     calibration_probe_phase_cycles,
@@ -1212,5 +1214,91 @@ def test_calibration_and_training_tools_own_realtime_load_guard() -> None:
                   tool).read_text(encoding="utf-8")
         assert "CalibrationLoadGuard" in source
         assert "realtime_calibration_load" in source
+
+
+FOUR_BOARD_CONFIG = (
+    ROOT / "config" / "hardware_acceptance" / "p3_bench.json")
+PER_NODE_KEYS = ("training_marker_offsets_by_node",
+                 "training_sck_offsets_by_node",
+                 "training_data_offsets_by_node")
+
+
+def _ring_config(count, ids=("a", "b", "c", "d"), **overrides):
+    config = {"p3_board_ids_in_physical_order": list(ids),
+              "ota_board_ids": list(ids), "ring_board_count": count}
+    config.update(overrides)
+    return config
+
+
+def test_ring_board_count_defaults_to_every_configured_board() -> None:
+    # The product ring is the default: a config that says nothing keeps
+    # measuring all four boards, so no existing bench changes behaviour.
+    bench = load_bench_config(FOUR_BOARD_CONFIG)
+    assert "ring_board_count" not in bench
+    assert ring_board_count(bench) == 4
+    assert apply_ring_board_count(bench) == 4
+    assert len(bench["p3_board_ids_in_physical_order"]) == 4
+
+
+def test_three_board_declaration_cuts_every_board_indexed_input() -> None:
+    three = load_bench_config(FOUR_BOARD_CONFIG)
+    three["ring_board_count"] = 3
+    assert apply_ring_board_count(three) == 3
+    assert three["ring_board_count"] == 3
+    assert len(three["p3_board_ids_in_physical_order"]) == 3
+    assert three["ota_board_ids"] == three["p3_board_ids_in_physical_order"]
+    for key in PER_NODE_KEYS:
+        assert len(three[key]) == 3
+    assert three["topology_anchor_board_id"] in three["p3_board_ids_in_physical_order"]
+    # The wired boards are the head of the configured physical order: P0T must
+    # not probe a board that is not on the bench.
+    four = load_bench_config(FOUR_BOARD_CONFIG)
+    assert three["p3_board_ids_in_physical_order"] == (
+        four["p3_board_ids_in_physical_order"][:3])
+    # The four-board defaults are untouched by the declaration.
+    assert ring_board_count(four) == 4
+
+
+def test_two_board_ring_is_supported_and_sliced() -> None:
+    config = _ring_config(2)
+    assert apply_ring_board_count(config) == 2
+    assert config["p3_board_ids_in_physical_order"] == ["a", "b"]
+    assert config["ota_board_ids"] == ["a", "b"]
+
+
+@pytest.mark.parametrize("count", [1, 5, 8, 0, -1, True, "3", 3.0])
+def test_ring_board_count_rejects_unsupported_sizes(count) -> None:
+    with pytest.raises(AcceptanceError, match="ring_board_count"):
+        apply_ring_board_count(_ring_config(count))
+
+
+def test_ring_board_count_cannot_exceed_the_configured_boards() -> None:
+    config = _ring_config(4, ids=("a", "b", "c"))
+    with pytest.raises(AcceptanceError, match="exceeds"):
+        apply_ring_board_count(config)
+
+
+def test_ring_board_count_rejects_inconsistent_board_inputs() -> None:
+    with pytest.raises(AcceptanceError, match="ota_board_ids"):
+        apply_ring_board_count(
+            _ring_config(3, ota_board_ids=["a", "b", "d", "c"]))
+    with pytest.raises(AcceptanceError, match="ota_board_ids"):
+        apply_ring_board_count(_ring_config(3, ota_board_ids=["a", "b"]))
+    with pytest.raises(AcceptanceError, match="topology_anchor_board_id"):
+        apply_ring_board_count(_ring_config(3, topology_anchor_board_id="d"))
+    with pytest.raises(AcceptanceError, match="training_sck_offsets_by_node"):
+        apply_ring_board_count(
+            _ring_config(3, training_sck_offsets_by_node=[1, 1]))
+    with pytest.raises(AcceptanceError, match="training_sck_min_follower_candidates"):
+        apply_ring_board_count(
+            _ring_config(2, training_sck_min_follower_candidates=2))
+
+
+def test_product_ring_stages_refuse_a_smaller_ring() -> None:
+    p3_acceptance.require_product_ring("P0T line order", 4)
+    for count in (2, 3):
+        with pytest.raises(AcceptanceError, match="four-board product ring"):
+            p3_acceptance.require_product_ring("DPLL 60 s joint observation", count)
+
 
 
