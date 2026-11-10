@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>DhrT100.SequenceDebug.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

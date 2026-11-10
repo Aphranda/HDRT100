@@ -50,6 +50,11 @@ generated/
 *.trace
 *.dump
 *.core
+# The WPF demo project directory is named DhrT100.SequenceDebug.Core, so the
+# runtime-dump pattern above would otherwise hide its sources on case-insensitive
+# filesystems. Keep that project tree tracked.
+!tools/sequence_trigger_debug_wpf/src/DhrT100.SequenceDebug.Core/
+!tools/sequence_trigger_debug_wpf/src/DhrT100.SequenceDebug.Core/**
 ota_validation_*/
 **/ota_validation_*/
 validation_manual/
