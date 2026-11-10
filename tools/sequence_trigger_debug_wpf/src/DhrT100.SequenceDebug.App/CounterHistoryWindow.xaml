@@ -1,0 +1,16 @@
+<Window x:Class="DhrT100.SequenceDebug.App.CounterHistoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="转台计数 · 最新切换记录" Width="780" Height="280" MinWidth="760" MinHeight="260"
+        Background="{StaticResource WindowBackground}"
+        FontFamily="Microsoft YaHei UI" FontSize="12" WindowStartupLocation="CenterOwner">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="{Binding CounterHistory}" TextWrapping="Wrap" VerticalAlignment="Top" />
+        <Button Grid.Row="1" Content="刷新最新记录" HorizontalAlignment="Center" Margin="0,10,0,0"
+                Command="{Binding ReadCounterHistoryCommand}" />
+    </Grid>
+</Window>

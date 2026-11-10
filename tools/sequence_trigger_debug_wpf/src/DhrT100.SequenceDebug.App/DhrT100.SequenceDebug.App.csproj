@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>DhrT100.SequenceDebug.App</RootNamespace>
+    <AssemblyName>DhrT100.SequenceDebug</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DhrT100.SequenceDebug.Core\DhrT100.SequenceDebug.Core.csproj" />
+    <ProjectReference Include="..\DhrT100.SequenceDebug.Transport\DhrT100.SequenceDebug.Transport.csproj" />
+  </ItemGroup>
+</Project>

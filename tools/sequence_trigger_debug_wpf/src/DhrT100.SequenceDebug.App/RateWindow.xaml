@@ -1,0 +1,20 @@
+<Window x:Class="DhrT100.SequenceDebug.App.RateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DhrT100.SequenceDebug.App"
+        Title="转台输入 · 每秒一个位置" Width="660" Height="290" MinWidth="640" MinHeight="270"
+        Background="{StaticResource WindowBackground}"
+        FontFamily="Microsoft YaHei UI" FontSize="12" WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="16">
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+            <local:FieldBox Label="脉冲源参数" Value="{Binding Fields[turntable_rate_kind], Mode=TwoWay}"
+                            Options="{Binding RateKinds}" Width="150" />
+            <local:FieldBox Label="数值" Value="{Binding Fields[turntable_rate_value], Mode=TwoWay}" Width="180" />
+            <Button Content="填入阈值 N" VerticalAlignment="Bottom" Margin="8,0,0,0"
+                    Command="{Binding ApplyRateCommand}" />
+        </StackPanel>
+        <TextBlock Text="{Binding TurntableRatePreview}" TextWrapping="Wrap" Margin="0,8,0,16" />
+        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondary}"
+                   Text="填写信号源实际设置；这里不控制信号源。填入后请重新配置，再启动。" />
+    </StackPanel>
+</Window>

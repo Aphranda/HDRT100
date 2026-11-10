@@ -1,0 +1,453 @@
+<Window x:Class="DhrT100.SequenceDebug.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DhrT100.SequenceDebug.App"
+        Title="{Binding AppTitle}" Width="1180" Height="880" MinWidth="1120" MinHeight="800"
+        Background="{StaticResource WindowBackground}"
+        FontFamily="Microsoft YaHei UI" FontSize="12" WindowStartupLocation="CenterScreen">
+    <Grid Margin="12,10,12,10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- connection bar -->
+        <Border Grid.Row="0" Style="{StaticResource Panel}" Padding="12,9">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="设备连接" Style="{StaticResource Section}"
+                           Margin="0,0,14,0" />
+                <ComboBox Grid.Column="1" Width="96" VerticalAlignment="Center"
+                          ItemsSource="{Binding BackendChoices}"
+                          SelectedItem="{Binding Fields[backend], Mode=TwoWay}" />
+                <ComboBox Grid.Column="2" Margin="8,0" IsEditable="True" IsTextSearchEnabled="False"
+                          ItemsSource="{Binding Resources}"
+                          Text="{Binding Fields[port], Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Button Grid.Column="3" Content="扫描设备" Command="{Binding ScanCommand}" />
+                <Button Grid.Column="4" Content="TDMA / VDC 预算" Margin="8,0,0,0"
+                        Command="{Binding OpenBudgetCommand}" />
+                <TextBlock Grid.Column="5" Width="250" Margin="14,0,0,0" TextAlignment="Right"
+                           TextTrimming="CharacterEllipsis" Text="{Binding Status}"
+                           Foreground="{StaticResource TextSecondary}" />
+            </Grid>
+        </Border>
+
+        <!-- mode pages -->
+        <TabControl Grid.Row="1" SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}"
+                    Background="Transparent" BorderThickness="0" Padding="0">
+
+            <!-- ============================ independent ============================ -->
+            <TabItem Header="独立 SP8T 序列">
+                <StackPanel Margin="10,8,10,4">
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="序列配置" Style="{StaticResource Section}" />
+                            <UniformGrid Columns="4">
+                                <local:FieldBox Label="计划" Value="{Binding Fields[plan], Mode=TwoWay}" />
+                                <local:FieldBox Label="编码 0-15（bit0=OUT0）" Value="{Binding Fields[codes], Mode=TwoWay}" />
+                                <local:FieldBox Label="响应延时 µs" Value="{Binding Fields[settle], Mode=TwoWay}" />
+                                <local:FieldBox Label="循环次数（0=持续）" Value="{Binding Fields[repeat_count], Mode=TwoWay}" Margin="0" />
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="OUT 属性" Style="{StaticResource Section}" />
+                            <local:OutAssignment Slots="{Binding OutSlots}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="推进事件" Style="{StaticResource Section}" />
+                            <UniformGrid Columns="4">
+                                <local:FieldBox Label="输入" Value="{Binding Fields[source], Mode=TwoWay}"
+                                                Options="{Binding ReadyInputs}" />
+                                <local:FieldBox Label="边沿" Value="{Binding Fields[edge], Mode=TwoWay}"
+                                                Options="{Binding Edges}" />
+                                <local:FieldBox Label="状态形式" Value="{Binding Fields[status_mode], Mode=TwoWay}"
+                                                Options="{Binding StatusModes}" />
+                                <local:FieldBox Label="状态脉宽 µs" Value="{Binding Fields[pulse], Mode=TwoWay}"
+                                                IsEnabled="{Binding PulseEditable}" Margin="0" />
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,6">
+                        <Button Content="配置此模式" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"
+                                Command="{Binding ConfigureForMode}" CommandParameter="independent" />
+                        <Button Content="启动" Margin="0,0,6,0"
+                                Command="{Binding StartForMode}" CommandParameter="independent" />
+                        <Button Content="下一步" Margin="0,0,6,0" Command="{Binding NextForMode}"
+                                CommandParameter="independent" IsEnabled="{Binding IndependentNextEnabled}" />
+                        <Button Content="暂停" Margin="0,0,6,0" Command="{Binding PauseForMode}"
+                                CommandParameter="independent" />
+                        <Button Content="继续" Margin="0,0,6,0" Command="{Binding ContinueForMode}"
+                                CommandParameter="independent" />
+                        <Button Content="停止" Style="{StaticResource DangerButton}" Margin="0,0,6,0"
+                                Command="{Binding StopForMode}" CommandParameter="independent" />
+                        <Button Content="回环工具" Command="{Binding OpenLoopbackForMode}"
+                                CommandParameter="independent" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding ModeHint}" Style="{StaticResource Hint}" />
+                    <TextBlock Text="{Binding OutputHint}" Style="{StaticResource Hint}" Margin="0,3,0,0" />
+                </StackPanel>
+            </TabItem>
+
+            <!-- ============================== RJ45 ================================ -->
+            <TabItem Header="RJ45 物理回环">
+                <StackPanel Margin="10,8,10,4">
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="序列配置" Style="{StaticResource Section}" />
+                            <UniformGrid Columns="4">
+                                <local:FieldBox Label="计划" Value="{Binding Fields[gateway_plan], Mode=TwoWay}" />
+                                <local:FieldBox Label="编码 0-15（bit0=OUT0）" Value="{Binding Fields[gateway_codes], Mode=TwoWay}" />
+                                <local:FieldBox Label="响应延时 µs" Value="{Binding Fields[gateway_settle], Mode=TwoWay}" />
+                                <local:FieldBox Label="循环次数（0=持续）" Value="{Binding Fields[gateway_repeat_count], Mode=TwoWay}" Margin="0" />
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="OUT 属性" Style="{StaticResource Section}" />
+                            <local:OutAssignment Slots="{Binding GatewayOutSlots}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="VNA 网关" Style="{StaticResource Section}" />
+                            <UniformGrid Columns="5">
+                                <local:FieldBox Label="READY 输入" Value="{Binding Fields[gateway_ready_input], Mode=TwoWay}"
+                                                Options="{Binding ReadyInputs}" />
+                                <local:FieldBox Label="READY 边沿" Value="{Binding Fields[gateway_edge], Mode=TwoWay}"
+                                                Options="{Binding Edges}" />
+                                <local:FieldBox Label="触发脉宽 µs" Value="{Binding Fields[gateway_pulse], Mode=TwoWay}" />
+                                <local:FieldBox Label="READY 超时 ms" Value="{Binding Fields[gateway_timeout], Mode=TwoWay}" />
+                                <StackPanel>
+                                    <TextBlock Text="{Binding OperatingLabel}" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox IsEditable="True" IsTextSearchEnabled="False"
+                                              ItemsSource="{Binding OperatingChoices}"
+                                              Text="{Binding Fields[operating_level], Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              GotFocus="OnOperatingProfileFocus" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,6">
+                        <Button Content="配置此模式" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"
+                                Command="{Binding ConfigureForMode}" CommandParameter="rj45" />
+                        <Button Content="启动" Margin="0,0,6,0"
+                                Command="{Binding StartForMode}" CommandParameter="rj45" />
+                        <Button Content="下一步" Margin="0,0,6,0" Command="{Binding NextForMode}"
+                                CommandParameter="rj45" IsEnabled="{Binding GatewayNextEnabled}" />
+                        <Button Content="暂停" Margin="0,0,6,0" Command="{Binding PauseForMode}" CommandParameter="rj45" />
+                        <Button Content="继续" Margin="0,0,6,0" Command="{Binding ContinueForMode}" CommandParameter="rj45" />
+                        <Button Content="停止" Style="{StaticResource DangerButton}" Margin="0,0,6,0"
+                                Command="{Binding StopForMode}" CommandParameter="rj45" />
+                        <Button Content="回环工具" Command="{Binding OpenLoopbackForMode}" CommandParameter="rj45" />
+                    </StackPanel>
+                    <TextBlock Text="流程：首编码 → RJ45 TDMA → VNA 触发 → READY → RJ45 TDMA → 下一编码。"
+                               Style="{StaticResource Hint}" />
+                    <TextBlock Text="{Binding ModeHint}" Style="{StaticResource Hint}" Margin="0,3,0,0" />
+                    <TextBlock Text="{Binding LinkStatus}" Style="{StaticResource Hint}" Margin="0,3,0,0" />
+                </StackPanel>
+            </TabItem>
+
+            <!-- ============================ turntable ============================= -->
+            <TabItem Header="转台脉冲计数">
+                <StackPanel Margin="10,8,10,4">
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="DUT 序列 · 每个计数位置执行整轮" Style="{StaticResource Section}" />
+                            <UniformGrid Columns="6">
+                                <local:FieldBox Label="计划" Value="{Binding Fields[turntable_plan], Mode=TwoWay}" />
+                                <local:FieldBox Label="编码 0-15" Value="{Binding Fields[turntable_codes], Mode=TwoWay}" />
+                                <local:FieldBox Label="响应延时 µs" Value="{Binding Fields[turntable_settle], Mode=TwoWay}" />
+                                <local:FieldBox Label="位置数（0=持续）" Value="{Binding Fields[turntable_repeat_count], Mode=TwoWay}" />
+                                <local:FieldBox Label="每位置脉冲数" Value="{Binding Fields[turntable_threshold], Mode=TwoWay}" />
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                                    <Button Content="频率/周期…" Command="{Binding OpenRateCommand}" Margin="0,0,6,0" />
+                                    <Button Content="角度扫描…" Command="{Binding OpenAngleCommand}" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Style="{StaticResource Panel}" Margin="0,0,8,8">
+                            <StackPanel>
+                                <TextBlock Text="转台计数与逻辑槽位" Style="{StaticResource Section}" />
+                                <UniformGrid Columns="4">
+                                    <local:FieldBox Label="脉冲输入" Value="{Binding Fields[turntable_input], Mode=TwoWay}"
+                                                    Options="{Binding ReadyInputs}" />
+                                    <local:FieldBox Label="计数槽位" Value="{Binding Fields[turntable_counter_slot], Mode=TwoWay}" />
+                                    <local:FieldBox Label="DUT 槽位" Value="{Binding Fields[turntable_dut_slot], Mode=TwoWay}" />
+                                    <local:FieldBox Label="VNA 槽位" Value="{Binding Fields[turntable_vna_slot], Mode=TwoWay}" Margin="0" />
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Style="{StaticResource Panel}">
+                            <StackPanel>
+                                <TextBlock Text="OUT 属性" Style="{StaticResource Section}" />
+                                <local:OutAssignment Slots="{Binding TurntableOutSlots}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="VNA 网关" Style="{StaticResource Section}" />
+                            <UniformGrid Columns="5">
+                                <local:FieldBox Label="READY 输入" Value="{Binding Fields[turntable_ready_input], Mode=TwoWay}"
+                                                Options="{Binding ReadyInputs}" />
+                                <local:FieldBox Label="共同边沿" Value="{Binding Fields[turntable_edge], Mode=TwoWay}"
+                                                Options="{Binding Edges}" />
+                                <local:FieldBox Label="触发脉宽 µs" Value="{Binding Fields[turntable_pulse], Mode=TwoWay}" />
+                                <local:FieldBox Label="READY 超时 ms" Value="{Binding Fields[turntable_timeout], Mode=TwoWay}" />
+                                <StackPanel>
+                                    <TextBlock Text="{Binding OperatingLabel}" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox IsEditable="True" IsTextSearchEnabled="False"
+                                              ItemsSource="{Binding OperatingChoices}"
+                                              Text="{Binding Fields[operating_level], Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              GotFocus="OnOperatingProfileFocus" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,6">
+                        <Button Content="配置此模式" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"
+                                Command="{Binding ConfigureForMode}" CommandParameter="turntable" />
+                        <Button Content="启动" Margin="0,0,6,0"
+                                Command="{Binding StartForMode}" CommandParameter="turntable" />
+                        <Button Content="模拟 READY" Margin="0,0,6,0" Command="{Binding NextForMode}"
+                                CommandParameter="turntable" IsEnabled="{Binding TurntableNextEnabled}" />
+                        <Button Content="暂停" Margin="0,0,6,0" Command="{Binding PauseForMode}" CommandParameter="turntable" />
+                        <Button Content="继续" Margin="0,0,6,0" Command="{Binding ContinueForMode}" CommandParameter="turntable" />
+                        <Button Content="停止" Style="{StaticResource DangerButton}" Margin="0,0,6,0"
+                                Command="{Binding StopForMode}" CommandParameter="turntable" />
+                        <Button Content="最新记录" Margin="0,0,6,0" Command="{Binding ReadCounterHistoryCommand}" />
+                        <Button Content="回环工具" Command="{Binding OpenLoopbackForMode}" CommandParameter="turntable" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="达到阈值 → RJ45 → DUT 整轮切换/网分采样；忙时继续计数，下一位置提前到达将报错。" />
+                    <TextBlock Text="{Binding CounterStatus}" Style="{StaticResource Hint}" Margin="0,3,0,0" />
+                </StackPanel>
+            </TabItem>
+
+            <!-- ============================ manual switch ========================= -->
+            <TabItem Header="手动开关控制">
+                <StackPanel Margin="10,8,10,4">
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="独立开关控制" Style="{StaticResource Section}" />
+                            <TextBlock Text="直接控制 SP8T（OUT1–OUT3）与 SP2T（OUT0）。请先停止序列并释放输出。"
+                                       Style="{StaticResource Hint}" Margin="0,0,0,10" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="SP8T 位置" Margin="0,0,8,0" />
+                                <ComboBox Width="80" ItemsSource="{Binding SwitchPositions}"
+                                          SelectedItem="{Binding Fields[independent_switch], Mode=TwoWay}" />
+                                <Button Content="切换" Margin="8,0,6,0" Command="{Binding SetSwitchCommand}" />
+                                <Button Content="读取" Margin="0,0,6,0" Command="{Binding ReadSwitchCommand}" />
+                                <Button Content="释放输出" Command="{Binding ReleaseOutputsCommand}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding IndependentSwitchStatus}" Style="{StaticResource Hint}"
+                                       Margin="0,12,0,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <TextBlock Text="IN3 / OUT0（SP2T）" Margin="0,0,8,0" />
+                                <ComboBox Width="80" ItemsSource="{Binding Sp2tLevels}"
+                                          SelectedItem="{Binding ManualSp2t, Mode=TwoWay}" />
+                                <Button Content="切换" Margin="8,0,6,0" Command="{Binding SetSp2tCommand}" />
+                                <Button Content="读取" Command="{Binding ReadSp2tCommand}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding ManualSp2tStatus}" Style="{StaticResource Hint}"
+                                       Margin="0,12,0,0" />
+                            <TextBlock TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#B91C1C"
+                                       Text="固件要求序列启动前 SMA 输出必须全为低。停在其它位置时“启动”会被静默拒绝（表现为超时），请先点“释放输出”。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ============================ maintenance =========================== -->
+            <TabItem Header="设备维护">
+                <StackPanel Margin="10,8,10,4">
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="设备信息" Style="{StaticResource Section}" Margin="0,0,14,0" />
+                            <Button Content="读取身份" Margin="0,0,6,0" Command="{Binding ReadIdentityCommand}" />
+                            <Button Content="查询 USB 模式" Margin="0,0,6,0" Command="{Binding QueryUsbModeCommand}" />
+                            <Button Content="切到 USB TMC" Margin="0,0,6,0" Command="{Binding SwitchToTmcCommand}" />
+                            <Button Content="切回 CDC" Command="{Binding SwitchToCdcCommand}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="单板 OTA" Style="{StaticResource Section}" />
+                            <Grid Grid.Row="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="固件包" Style="{StaticResource FieldLabel}"
+                                           Margin="0,0,8,0" VerticalAlignment="Center" />
+                                <TextBox Grid.Column="1" IsReadOnly="True" Margin="0,0,8,0"
+                                         Text="{Binding OtaFile, Mode=OneWay}" />
+                                <Button Grid.Column="2" Content="选择文件" Margin="0,0,8,0"
+                                        Command="{Binding SelectOtaCommand}" IsEnabled="{Binding CanSelectOta}" />
+                                <Button Grid.Column="3" Content="开始升级" Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding StartOtaCommand}" IsEnabled="{Binding CanSelectOta}" />
+                            </Grid>
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                                <ProgressBar Width="320" Height="8" IsIndeterminate="True"
+                                             Visibility="{Binding OtaProgressVisibility}" />
+                                <TextBlock Text="{Binding OtaStatus}" Style="{StaticResource FieldLabel}"
+                                           Margin="10,0,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Text="自定义 SCPI" Style="{StaticResource Section}" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBox Width="700" KeyDown="OnManualCommandKeyDown"
+                                         Text="{Binding ManualCommand, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <Button Content="发送" Margin="8,0,0,0" Command="{Binding SendManualCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <!-- common IO readback -->
+        <Border Grid.Row="2" Style="{StaticResource Panel}">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="{Binding SwitchPosition}" FontSize="14" FontWeight="Bold" />
+                    <Button Grid.Column="1" Content="刷新状态" Command="{Binding RefreshStatusCommand}" />
+                </Grid>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBlock Text="输入" Margin="0,0,5,0" VerticalAlignment="Center" />
+                    <ItemsControl ItemsSource="{Binding InputLamps}" Margin="0,0,16,0">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="52" Height="38" Margin="0,0,4,0" CornerRadius="3"
+                                        BorderThickness="1" BorderBrush="{Binding Border}"
+                                        Background="{Binding Background}">
+                                    <TextBlock Text="{Binding Text}" TextAlignment="Center"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               FontSize="11" Foreground="#374151" />
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="输出" Margin="0,0,5,0" VerticalAlignment="Center" />
+                    <ItemsControl ItemsSource="{Binding OutputLamps}" Margin="0,0,16,0">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="52" Height="38" Margin="0,0,4,0" CornerRadius="3"
+                                        BorderThickness="1" BorderBrush="{Binding Border}"
+                                        Background="{Binding Background}">
+                                    <TextBlock Text="{Binding Text}" TextAlignment="Center"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               FontSize="11" Foreground="#374151" />
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding IoOwned}" />
+                        <TextBlock Text="{Binding IoState}" />
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock Text="{Binding RepeatStatus}" Margin="0,5,0,0" Style="{StaticResource FieldLabel}" />
+                <TextBlock Text="{Binding OutputReleaseHint}" Margin="0,3,0,0" TextWrapping="Wrap"
+                           Foreground="#B91C1C" />
+            </StackPanel>
+        </Border>
+
+        <!-- command log -->
+        <Grid Grid.Row="3">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0" Margin="0,0,0,3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="命令日志" />
+                <CheckBox Grid.Column="1" Content="自动滚动" Margin="0,0,10,0"
+                          IsChecked="{Binding Bools[auto_scroll], Mode=TwoWay}" />
+                <Button Grid.Column="2" Content="导出日志" Margin="0,0,6,0" Command="{Binding ExportLogCommand}" />
+                <Button Grid.Column="3" Content="清空" Command="{Binding ClearLogCommand}" />
+            </Grid>
+            <ListBox x:Name="LogList" Grid.Row="1" ItemsSource="{Binding LogEntries}"
+                     Background="White" BorderBrush="#D1D5DB" BorderThickness="1"
+                     FontFamily="Consolas" FontSize="12"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     VirtualizingPanel.IsVirtualizing="True">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="3,0" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="Focusable" Value="False" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Time}" Foreground="#6B7280" />
+                            <TextBlock Text="{Binding Text}" Foreground="{Binding TextBrush}" Margin="8,0,0,0" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </Grid>
+</Window>

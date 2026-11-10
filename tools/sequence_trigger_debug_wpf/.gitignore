@@ -1,0 +1,15 @@
+# Visual Studio / MSBuild
+.vs/
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.binlog
+
+# Local build/verification transcripts
+*.out.txt
+*.err.txt
+out/

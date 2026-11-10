@@ -1,0 +1,81 @@
+<Window x:Class="DhrT100.SequenceDebug.App.BudgetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="TDMA / VDC 实时预算" Width="720" Height="680" MinWidth="700" MinHeight="640"
+        Background="{StaticResource WindowBackground}"
+        FontFamily="Microsoft YaHei UI" FontSize="12" WindowStartupLocation="CenterOwner">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16">
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,10"
+                       Text="Core1 软件周期与预算（µs），与链路 TDMA 挡位独立。&#10;修改周期不会缩放其他阶段；GUARD 使用剩余时间。500 / 1000 µs 需完整预算通过校验。" />
+
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="总周期（µs）" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" Margin="6,0"
+                         Text="{Binding CycleUs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            </Grid>
+
+            <Grid Margin="0,0,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="140" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="1" Text="时窗（µs）" FontWeight="Bold" />
+                <TextBlock Grid.Column="2" Text="WCET 预算（µs）" FontWeight="Bold" />
+            </Grid>
+
+            <ItemsControl ItemsSource="{Binding Rows}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="140" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1" Margin="6,0"
+                                     Text="{Binding Window, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Grid.Column="2" Margin="6,0"
+                                     Text="{Binding Wcet, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Grid Margin="0,2,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="140" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="GUARD（剩余）" />
+                <TextBlock Grid.Column="1" Text="{Binding GuardUs}" Margin="6,0" />
+                <TextBlock Grid.Column="2" Text="0" Margin="6,0" />
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Margin="0,14,0,8">
+                <Button Content="读取设备" Margin="0,0,6,0" Command="{Binding ReadCommand}"
+                        IsEnabled="{Binding CanRead}" />
+                <Button Content="校验草稿" Margin="0,0,6,0" Command="{Binding ValidateCommand}"
+                        IsEnabled="{Binding CanValidate}" />
+                <Button Content="临时应用" Margin="0,0,6,0" Command="{Binding ApplyCommand}"
+                        IsEnabled="{Binding CanApply}" />
+                <Button Content="保存到 Flash" Style="{StaticResource PrimaryButton}"
+                        Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
+            </StackPanel>
+
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondary}"
+                       Text="应用/保存会停止触发与 TDMA 环路。保存仅固化已应用预算；未保存的修改重启丢失。" />
+            <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,10,0,0" />
+            <TextBlock Text="{Binding DraftMessage}" TextWrapping="Wrap" Foreground="{StaticResource TextSecondary}"
+                       Margin="0,4,0,0" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>

@@ -1,0 +1,41 @@
+<Window x:Class="DhrT100.SequenceDebug.App.AngleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DhrT100.SequenceDebug.App"
+        Title="转台角度扫描" Width="760" Height="520" MinWidth="740" MinHeight="500"
+        Background="{StaticResource WindowBackground}"
+        FontFamily="Microsoft YaHei UI" FontSize="12" WindowStartupLocation="CenterOwner">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16">
+            <CheckBox Content="启用角度扫描（位置数与阈值由角度参数确定）" Margin="0,0,0,12"
+                      IsChecked="{Binding Bools[turntable_angle_enabled], Mode=TwoWay}" />
+            <Border Style="{StaticResource Panel}">
+                <StackPanel>
+                    <TextBlock Text="扫描配置" Style="{StaticResource Section}" />
+                    <UniformGrid Columns="4">
+                        <local:FieldBox Label="开始 °" Value="{Binding Fields[turntable_angle_start], Mode=TwoWay}" />
+                        <local:FieldBox Label="终止 °" Value="{Binding Fields[turntable_angle_stop], Mode=TwoWay}" />
+                        <local:FieldBox Label="步长 °" Value="{Binding Fields[turntable_angle_step], Mode=TwoWay}" />
+                        <local:FieldBox Label="运行速度 °/s" Value="{Binding Fields[turntable_angle_speed], Mode=TwoWay}"
+                                        Margin="0" />
+                    </UniformGrid>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Panel}">
+                <StackPanel>
+                    <TextBlock Text="输入标定（与实际编码器一致）" Style="{StaticResource Section}" />
+                    <StackPanel Orientation="Horizontal">
+                        <local:FieldBox Label="每度脉冲数" Value="{Binding Fields[turntable_angle_ppd], Mode=TwoWay}" />
+                        <TextBlock Text="输入端口沿用主页面“脉冲输入”。" Margin="16,18,0,0"
+                                   Foreground="{StaticResource TextSecondary}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <TextBlock Text="{Binding TurntableAnglePreview}" TextWrapping="Wrap" Margin="0,4,0,8" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondary}"
+                       Text="速度用于配置/换算；实际转台或信号源需另行设置。&#10;这里编辑配置草稿；关闭后点击“配置此模式”下发 ANGLE 指令，再点击启动。" />
+            <Button Content="读取设备角度配置 / 位置" HorizontalAlignment="Left" Margin="0,10,0,0"
+                    Command="{Binding ReadAngleConfigCommand}" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>
