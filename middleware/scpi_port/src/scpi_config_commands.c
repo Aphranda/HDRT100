@@ -23,6 +23,7 @@ __attribute__((weak)) bool sync_io_sequence_set_switch(uint32_t number, uint32_t
 }
 __attribute__((weak)) uint32_t sync_io_sequence_get_switch(uint32_t number)
 { return number == 1u ? s_host_switch1 : (number == 2u ? s_host_switch2 : 0u); }
+__attribute__((weak)) bool sync_io_sequence_is_armed(void) { return false; }
 #endif
 
 static bool sequence_end_parameters(scpi_t *context)
@@ -529,7 +530,8 @@ scpi_result_t scpi_config_switch_q(scpi_t *context)
     }
     SCPI_ResultInt32(context, numbers[0]);
     SCPI_ResultUInt32(context, sync_io_sequence_get_switch((uint32_t)numbers[0]));
-    SCPI_ResultBool(context, FALSE);
+    /* A switch is busy while the sequence engine owns the SMA outputs. */
+    SCPI_ResultBool(context, sync_io_sequence_is_armed() ? TRUE : FALSE);
     SCPI_ResultUInt32(context, 0u);
     SCPI_ResultUInt32(context, 0u);
     return SCPI_RES_OK;
@@ -542,9 +544,10 @@ scpi_result_t scpi_config_switch(scpi_t *context)
     SCPI_CommandNumbers(context, numbers, 1u, 1);
     if (!scpi_sequence_param_u32(context, &value) ||
         !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
-    if (numbers[0] != 1 ||
+    /* #=1 is the SP8T link switch, #=2 the SP2T polarization switch. */
+    if ((numbers[0] != 1 && numbers[0] != 2) ||
         !sync_io_sequence_set_switch((uint32_t)numbers[0], value)) {
-        scpi_port_push_exec_error(context, "SP8T_BUSY_OR_RANGE");
+        scpi_port_push_exec_error(context, "SWITCH_BUSY_OR_RANGE");
         return SCPI_RES_ERR;
     }
     return scpi_port_result_accepted(context);

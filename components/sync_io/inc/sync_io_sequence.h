@@ -13,6 +13,11 @@
 #define SYNC_IO_SEQUENCE_TIMING_PIO0 1u
 #define SYNC_IO_SEQUENCE_PLAN_WORDS 3u
 #define SYNC_IO_SEQUENCE_COUNTER_LIMIT (UINT32_MAX - 32u)
+/* Per-step output code: bit0 drives OUT0 (SP2T), bits1..3 drive OUT1..OUT3
+ * (SP8T position). OUT4 stays available for the status/VNA output. */
+#define SYNC_IO_SEQUENCE_CODE_MAX 0x0Fu
+#define SYNC_IO_SEQUENCE_CODE_SP2T_MASK 0x01u
+#define SYNC_IO_SEQUENCE_CODE_SP8T_SHIFT 1u
 
 typedef enum {
     SYNC_IO_SEQUENCE_STATUS_LEVEL = 0,
@@ -104,6 +109,23 @@ typedef struct {
 /* Core0 reservation is software-only and precedes the START mailbox.
  * Release is only for rollback before ARM. ARM failure and STOP release it.
  * All other lifecycle calls belong to Core1. Snapshot publication is atomic. */
+typedef enum {
+    SYNC_IO_SEQUENCE_RESERVE_OK = 0,
+    SYNC_IO_SEQUENCE_RESERVE_NOT_INITIALIZED,
+    SYNC_IO_SEQUENCE_RESERVE_PWM_ACTIVE,
+    SYNC_IO_SEQUENCE_RESERVE_SEQ_STEP_ACTIVE,
+    SYNC_IO_SEQUENCE_RESERVE_ENC_ACTIVE,
+    SYNC_IO_SEQUENCE_RESERVE_MODEL_ACTIVE,
+    SYNC_IO_SEQUENCE_RESERVE_WAVE_ACTIVE,
+    SYNC_IO_SEQUENCE_RESERVE_PAD_FUNCTION,
+    SYNC_IO_SEQUENCE_RESERVE_ALREADY_RESERVED,
+    SYNC_IO_SEQUENCE_RESERVE_OWNER_BUSY,
+    SYNC_IO_SEQUENCE_RESERVE_WRONG_CORE,
+} sync_io_sequence_reserve_result_t;
+
+/* Reserve the SMA output group and drive OUT1..OUT4 low. The caller must use
+ * reserve_checked() when it needs to report why admission failed. */
+sync_io_sequence_reserve_result_t sync_io_sequence_reserve_checked(void);
 bool sync_io_sequence_reserve(void);
 void sync_io_sequence_release(void);
 bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,

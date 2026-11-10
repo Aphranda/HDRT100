@@ -95,10 +95,27 @@ typedef struct {
 
 static sync_io_context_t s_sync_io;
 static sync_io_sma_frequency_tx_status_t s_sma_frequency_tx;
+static uint32_t s_sp2t_driven;
+static uint32_t s_sp2t_level;
 uint32_t sync_io_shared_workspace[SYNC_IO_SHARED_WORKSPACE_WORDS]
     __attribute__((section(".sync_io_dma_ring")))
     __attribute__((aligned(SYNC_IO_CAPTURE_DMA_RING_BYTES)));
 #define s_sync_io_capture_dma_ring sync_io_shared_workspace
+
+static void sync_io_sp2t_apply(void)
+{
+    const uint pin = SYNC_IO_HW_SP2T_OUT_PIN;
+    gpio_set_function(pin, GPIO_FUNC_SIO);
+    gpio_set_dir(pin, GPIO_OUT);
+    gpio_put(pin, s_sp2t_level != 0u);
+}
+
+void sync_io_core_sp2t_reassert(void)
+{
+    if (__atomic_load_n(&s_sp2t_driven, __ATOMIC_ACQUIRE) != 0u) {
+        sync_io_sp2t_apply();
+    }
+}
 
 _Static_assert(sizeof(sync_io_shared_workspace) ==
                    (1u << SYNC_IO_CAPTURE_DMA_RING_BITS),
@@ -694,6 +711,7 @@ void sync_io_core_capture_sm_restore(const void *owner)
         s_sync_io.capture_offset, BOARD_SYNC_INPUT_BASE_PIN, BOARD_SYNC_INPUT_PIN_COUNT,
         sync_io_clkdiv_for_instruction_rate(s_sync_io.capture_sample_hz));
     pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
+    sync_io_core_sp2t_reassert();
     (void)sync_io_workspace_release(owner);
 }
 
@@ -847,6 +865,7 @@ bool sync_io_init(const sync_io_config_t *config)
                                    BOARD_SYNC_INPUT_BASE_PIN,
                                    BOARD_SYNC_INPUT_PIN_COUNT,
                                    sync_io_clkdiv_for_instruction_rate(capture_hz));
+    sync_io_core_sp2t_reassert();
 
 #if BOARD_SYNC_AUX_ENABLED
     for (uint channel = 0u; channel < (uint)SYNC_IO_AUX_COUNT; channel++) {
@@ -1422,6 +1441,43 @@ uint32_t sync_io_debug_read_input_mask(void)
         }
     }
     return sync_io_map_input_mask(mask);
+}
+
+static bool sync_io_sp2t_write_unleased(bool level)
+{
+    /* The encoder's B phase shares GPIO21, so the two owners are mutually
+     * exclusive. The caller holds the SMA lease for the pad change. */
+    if (!s_sync_io.initialized || sync_io_enc_count_is_running()) {
+        return false;
+    }
+    __atomic_store_n(&s_sp2t_level, level ? 1u : 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_sp2t_driven, 1u, __ATOMIC_RELEASE);
+    sync_io_sp2t_apply();
+    return true;
+}
+
+bool sync_io_sp2t_write(bool level)
+{
+    if (!sync_io_sequence_legacy_begin()) {
+        return false;
+    }
+    const bool result = sync_io_sp2t_write_unleased(level);
+    sync_io_sequence_legacy_end();
+    return result;
+}
+
+bool sync_io_sp2t_read(bool *level)
+{
+    if (level == NULL || !s_sync_io.initialized) {
+        return false;
+    }
+    *level = gpio_get(SYNC_IO_HW_SP2T_OUT_PIN) != 0;
+    return true;
+}
+
+bool sync_io_sp2t_is_driven(void)
+{
+    return __atomic_load_n(&s_sp2t_driven, __ATOMIC_ACQUIRE) != 0u;
 }
 
 static uint32_t sync_io_sma_public_input_pin(uint32_t input_channel)

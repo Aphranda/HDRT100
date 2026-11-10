@@ -17,11 +17,21 @@ public sealed class ScpiLink : IDisposable
 
     public string Endpoint => _session.Endpoint;
 
-    public static ScpiLink Open(Backend backend, string resource, int timeoutMs = 2000)
+    /// <summary>
+    /// Open a link. A non-positive <paramref name="timeoutMs"/> falls back to
+    /// <c>DHRT100_SCPI_TIMEOUT_MS</c> (default 2000), which keeps the timeout
+    /// tunable for bench diagnosis without rebuilding the UI.
+    /// </summary>
+    public static ScpiLink Open(Backend backend, string resource, int timeoutMs = 0)
     {
         if (string.IsNullOrWhiteSpace(resource))
         {
             throw new TransportException("请先扫描并选择通信资源");
+        }
+        if (timeoutMs <= 0)
+        {
+            timeoutMs = int.TryParse(Environment.GetEnvironmentVariable("DHRT100_SCPI_TIMEOUT_MS"),
+                out var configured) ? Math.Clamp(configured, 200, 60000) : 2000;
         }
 
         IScpiChannel channel = backend == Backend.UsbTmc

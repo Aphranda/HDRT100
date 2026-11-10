@@ -92,6 +92,16 @@ static bool sync_io_enc_count_arm_unleased(uint32_t target,
         return false;
     }
 
+    /* B phase is GPIO21 = IN3/OUT0, the SP2T control line. Never take that
+     * pad away from an active SP2T level. */
+    if (sync_io_sp2t_is_driven()) {
+        sync_io_core_trace(SYNC_IO_TRACE_ENC_ARM_FAIL,
+                           SYNC_IO_TRACE_ERROR,
+                           in_pin_base,
+                           output_pin);
+        return false;
+    }
+
     if (in_pin_base != SYNC_IO_HW_ENC_A_PIN ||
         output_pin != SYNC_IO_HW_TRIG_OUT_PIN) {
         sync_io_core_trace(SYNC_IO_TRACE_ENC_ARM_FAIL,

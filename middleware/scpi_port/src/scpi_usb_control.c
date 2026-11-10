@@ -4,6 +4,9 @@
 #include "product_config.h"
 #include "project_config.h"
 #include "scpi_port.h"
+#if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
+#include "usbtmc_scpi_port.h"
+#endif
 
 static scpi_result_t scpi_usb_control_result_ok(scpi_t *context)
 {
@@ -43,3 +46,21 @@ scpi_result_t scpi_usb_control_cmd_boot(scpi_t *context)
     drv_watchdog_reboot(50u);
     return result;
 }
+
+#if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
+/* Reply-transport counters; see usbtmc_scpi_port.h for the field meanings.
+ * A setter acknowledgement that costs a full read timeout shows up either as
+ * zero_requests (host polls with TransferSize 0) or as last_end_flag == 0. */
+scpi_result_t scpi_usb_control_cmd_stats_q(scpi_t *context)
+{
+    usbtmc_scpi_port_stats_t stats;
+    usbtmc_scpi_port_get_stats(&stats);
+    SCPI_ResultUInt32(context, stats.bulk_in_requests);
+    SCPI_ResultUInt32(context, stats.zero_requests);
+    SCPI_ResultUInt32(context, stats.last_request_size);
+    SCPI_ResultUInt32(context, stats.last_tx_len);
+    SCPI_ResultUInt32(context, stats.last_end_flag);
+    SCPI_ResultUInt32(context, stats.last_reply_len);
+    return SCPI_RES_OK;
+}
+#endif

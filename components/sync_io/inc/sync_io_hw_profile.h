@@ -29,6 +29,8 @@
 #define SYNC_IO_HW_RJ45_TRIG_IN_PIN  BOARD_SYNC_RJ45_TRIG_IN_PIN
 #define SYNC_IO_HW_RJ45_TRIG_OUT_PIN BOARD_SYNC_RJ45_TRIG_OUT_PIN
 #define SYNC_IO_HW_RJ45_TRIG_IN_SM   BOARD_SYNC_RJ45_TRIG_IN_SM
+/* SP2T control is OUT0 on the IN3 pad (see board_config). */
+#define SYNC_IO_HW_SP2T_OUT_PIN      BOARD_SYNC_SP2T_OUT_PIN
 
 #define SYNC_IO_HW_ENC_A_PIN  BOARD_SYNC_INPUT_BASE_PIN
 #define SYNC_IO_HW_ENC_B_PIN  (BOARD_SYNC_INPUT_BASE_PIN + 1u)
@@ -68,6 +70,16 @@ _Static_assert(SYNC_IO_HW_RJ45_TRIG_OUT_PIN == 26u,
                "product RJ45 frame-sync output must be GPIO26");
 _Static_assert(BOARD_SYNC_MARKER_OUT_PIN == SYNC_IO_HW_RJ45_TRIG_OUT_PIN,
                "MARKER_OUT alias must resolve to RJ45_TRIG_OUT");
+_Static_assert(SYNC_IO_HW_SP2T_OUT_PIN == 21u,
+               "product SP2T control must use IN3/OUT0 (GPIO21)");
+_Static_assert(SYNC_IO_HW_SP2T_OUT_PIN >= SYNC_IO_HW_MAIN_INPUT_BASE_PIN &&
+               SYNC_IO_HW_SP2T_OUT_PIN <
+                   (SYNC_IO_HW_MAIN_INPUT_BASE_PIN +
+                    SYNC_IO_HW_MAIN_INPUT_PIN_COUNT),
+               "SP2T control reuses the IN3 pad");
+_Static_assert(SYNC_IO_HW_SP2T_OUT_PIN != SYNC_IO_HW_RJ45_TRIG_IN_PIN &&
+               SYNC_IO_HW_SP2T_OUT_PIN != SYNC_IO_HW_RJ45_TRIG_OUT_PIN,
+               "SP2T control must not collide with the RJ45 trigger pins");
 
 static inline bool sync_io_hw_enc_pins_valid(uint32_t a_pin,
                                              uint32_t b_pin,

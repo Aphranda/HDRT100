@@ -212,7 +212,9 @@ trigger_sequence_service_result_t trigger_sequence_service_set_code(
     if (!configuration_available_locked()) result = TRIGGER_SEQUENCE_SERVICE_FROZEN;
     else if (!s_io.valid) result = TRIGGER_SEQUENCE_SERVICE_IO_CONFIG;
     else if (state_id >= s_store.state_count || state_id >= TRIGGER_SEQUENCE_STATE_MAX ||
-             (value & ~s_io.sequence_output_mask)) result = TRIGGER_SEQUENCE_SERVICE_INVALID;
+             value > SYNC_IO_SEQUENCE_CODE_MAX ||
+             ((value >> SYNC_IO_SEQUENCE_CODE_SP8T_SHIFT) &
+              ~s_io.sequence_output_mask) != 0u) result = TRIGGER_SEQUENCE_SERVICE_INVALID;
     else { s_codes[state_id] = (uint8_t)value; s_code_valid[state_id] = true; }
     trigger_sequence_service_configuration_end();
     return result;
@@ -285,9 +287,33 @@ trigger_sequence_service_result_t trigger_sequence_service_start(const char *pla
         result = TRIGGER_SEQUENCE_SERVICE_EXHAUSTED;
         goto done;
     }
-    if (!sync_trigger_sequence_can_start() || !sync_io_sequence_reserve()) {
-        result = TRIGGER_SEQUENCE_SERVICE_RESOURCE;
+    if (!sync_trigger_sequence_can_start()) {
+        result = TRIGGER_SEQUENCE_SERVICE_TRIGGER_BUSY;
         goto done;
+    }
+    switch (sync_io_sequence_reserve_checked()) {
+    case SYNC_IO_SEQUENCE_RESERVE_OK: break;
+    case SYNC_IO_SEQUENCE_RESERVE_NOT_INITIALIZED:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_NOT_INITIALIZED; goto done;
+    case SYNC_IO_SEQUENCE_RESERVE_PWM_ACTIVE:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_PWM_ACTIVE; goto done;
+    case SYNC_IO_SEQUENCE_RESERVE_SEQ_STEP_ACTIVE:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_SEQ_STEP_ACTIVE; goto done;
+    case SYNC_IO_SEQUENCE_RESERVE_ENC_ACTIVE:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_ENC_ACTIVE; goto done;
+    case SYNC_IO_SEQUENCE_RESERVE_MODEL_ACTIVE:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_MODEL_ACTIVE; goto done;
+    case SYNC_IO_SEQUENCE_RESERVE_WAVE_ACTIVE:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_WAVE_ACTIVE; goto done;
+    case SYNC_IO_SEQUENCE_RESERVE_PAD_FUNCTION:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_PAD_FUNCTION; goto done;
+    case SYNC_IO_SEQUENCE_RESERVE_ALREADY_RESERVED:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_ALREADY_RESERVED; goto done;
+    case SYNC_IO_SEQUENCE_RESERVE_OWNER_BUSY:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_OWNER_BUSY; goto done;
+    case SYNC_IO_SEQUENCE_RESERVE_WRONG_CORE:
+    default:
+        result = TRIGGER_SEQUENCE_SERVICE_SMA_WRONG_CORE; goto done;
     }
     if (plan_id && trigger_sequence_activate(&s_store, plan_id) != TRIGGER_SEQUENCE_OK) {
         sync_io_sequence_release();
@@ -762,7 +788,11 @@ const char *trigger_sequence_service_result_name(trigger_sequence_service_result
 {
     static const char *const names[] = { "NONE", "INVALID_ARGUMENT", "FROZEN",
         "NOT_READY", "BUSY", "SOURCE_MISMATCH", "CONFIG_INVALID", "IO_CONFIG_INVALID",
-        "CODE_MISSING", "RESOURCE_BUSY", "BACKEND_FAULT", "RUN_EXHAUSTED" };
+        "CODE_MISSING", "RESOURCE_BUSY", "BACKEND_FAULT", "RUN_EXHAUSTED",
+        "TRIGGER_BUSY", "SMA_NOT_INITIALIZED", "SMA_PWM_ACTIVE",
+        "SMA_SEQ_STEP_ACTIVE", "SMA_ENC_ACTIVE", "SMA_MODEL_ACTIVE",
+        "SMA_WAVE_ACTIVE", "SMA_PAD_FUNCTION", "SMA_ALREADY_RESERVED",
+        "SMA_OWNER_BUSY", "SMA_WRONG_CORE" };
     return (uint32_t)result < sizeof(names) / sizeof(names[0]) ? names[result] : "UNKNOWN";
 }
 

@@ -184,6 +184,68 @@ cmake --preset pico2-usb-runtime-switch      # PROJECT_ENABLE_USB_RUNTIME_SWITCH
 - 需要对时序敏感的操作（手动开关、预算、回环观察）优先走 CDC；TMC 适合
   “仪器库统一访问”的场景。
 
+### 固件侧怎么把这个延迟消掉（已按开源实现对齐并改好代码）
+
+先看别人怎么做——这两处是权威参考：
+
+1. **Linux 内核 `usbtmc.c`** 的 `usbtmc_generic_read()` 用**短包/ZLP**判读结束：
+
+   ```c
+   if (urb->actual_length < bufsize) {
+           /* short packet or ZLP received => ready */
+           retval = 1;
+           break;
+   }
+   ```
+
+   同一个函数在 `USBTMC_FLAG_IGNORE_TRAILER` 分支里还写明：设备可能为了**避免发零长包**
+   而补最多 `wMaxPacketSize-1` 个对齐字节。
+   （[drivers/usb/class/usbtmc.c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/drivers/usb/class/usbtmc.c)）
+
+2. **TinyUSB 的 USBTMC 约定**：`tud_usbtmc_transmit_dev_msg_data()` 是**带 EOM/终止标志**
+   入队的唯一入口，而 `tud_usbtmc_msgBulkIn_request_cb()` “收到主机取数请求时应在数据就绪后
+   把响应排进去”。（[TinyUSB USBTMC 文档](https://docs.tinyusb.org/en/latest/reference/class/usbtmc.html)）
+
+由此得到的固件规则是三条：**一次回包用一次带 `end=true` 的调用排入**；
+**长度恰好是 64 的整数倍时必须补 ZLP**；**任何 Bulk-In 请求都不能悬空**。
+
+本仓库已按这三条改好（4 个文件）：
+
+| 文件 | 改动 |
+|---|---|
+| `middleware/usbtmc_scpi_port/src/usbtmc_scpi_port.c` | 新增 `usbtmc_send_reply()`：`end` 标在最后一段、`tx_len % 64 == 0` 时 `zlt=true`、`TransferSize==0` 用 ZLP 应答；`msgBulkIn_request_cb` 改走它 |
+| `middleware/usbtmc_scpi_port/inc/usbtmc_scpi_port.h` | 统计结构 `usbtmc_scpi_port_stats_t` + `usbtmc_scpi_port_get_stats()` |
+| `middleware/scpi_port/src/scpi_port.c` | `scpi_port_execute()` 给每条回包补 CRLF（已是则不重复） |
+| `middleware/scpi_port/src/scpi_usb_control.c` / `.h` | 新增 `SYSTem:USB:STATS?`（7 个计数） |
+
+**改完先读一次统计**（这一步不用猜）：
+
+```text
+SYST:USB:STATS? => bulk_in_requests,zero_requests,
+                   last_request_size,last_tx_len,last_end_flag,last_reply_len
+```
+
+| 观测 | 结论 |
+|---|---|
+| `zero_requests` 增长 | 主机确实用 `TransferSize=0` 轮询，ZLP 应答就是解药 |
+| `last_end_flag == 0` | 结束标志没置上，`end` 计算还需调整 |
+| `last_request_size == 1` | 主机按 1 字节探测，需要让最后一段强制 `end=true`（已含在补丁里） |
+| 三者都正常但仍 2 s | 剩下的才是 NI 驱动侧行为，考虑把命令执行搬出 USB 回调 |
+
+**判据**（工具侧现成命令）：
+
+```powershell
+# 每条写命令耗时：改前 ~2 s，改后应 <100 ms
+.\DhrT100.SequenceDebug.exe --probe "USB TMC" "USB0::0xCAFE::0x4030::<SN>::INSTR" `
+    "CONF:SEQ:REPEAT 1" "CONF:SEQ:REPEAT 1" "CONF:SEQ:REPEAT 1" "CONF:SEQ:REPEAT 1"
+# 端到端：改前 127 s，改后应接近 CDC 的 ~2 s
+.\DhrT100.SequenceDebug.exe --configure independent --settings out\tmc-settings.json
+```
+
+> 本机没有 `arm-none-eabi-gcc`/`picotool`，所以以上是源码级修改，**未在本机编译/烧录**；
+> 工具侧保留 `DHRT100_SCPI_TIMEOUT_MS`（单命令超时）与 `DHRT100_TMC_WRITE_GAP_MS`
+> （写读间隔，用于复现/排除“请求早于回包”）两个诊断开关。
+
 ## 结构
 
 ```

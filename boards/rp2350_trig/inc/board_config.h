@@ -321,6 +321,14 @@
  * physical product signal; legacy MARK:* commands pulse RJ45_TRIG_OUT. */
 #define BOARD_SYNC_MARKER_OUT_PIN BOARD_SYNC_RJ45_TRIG_OUT_PIN
 
+/* SP2T polarization control output on the IN3 pad (OUT0).
+ * IN3 is the same pad seen as an input; as an output it is OUT0 and must not
+ * be selected as an input source while the SP2T line is driven. */
+#ifndef PROJECT_SYNC_SP2T_OUT_PIN
+#define PROJECT_SYNC_SP2T_OUT_PIN 21u
+#endif
+#define BOARD_SYNC_SP2T_OUT_PIN PROJECT_SYNC_SP2T_OUT_PIN
+
 #define BOARD_SYNC_AUX0_PIN 26u
 #define BOARD_SYNC_AUX1_PIN 27u
 #define BOARD_SYNC_AUX2_PIN 28u

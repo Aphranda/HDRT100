@@ -11,10 +11,18 @@ public sealed class VisaScpiChannel : IScpiChannel
     private int _resourceManager;
     private int _session;
     private bool _disposed;
+    private readonly int _writeGapMs;
 
     public VisaScpiChannel(string resource, int timeoutMs = 2000)
     {
         Endpoint = resource;
+        // Diagnostic/mitigation knob: the device answers some setter commands
+        // only after the host has already issued Bulk-In, and a request that
+        // arrives before the reply stays pending until the host times out.
+        // DHRT100_TMC_WRITE_GAP_MS inserts a short pause between write and read.
+        _writeGapMs = Math.Clamp(
+            int.TryParse(Environment.GetEnvironmentVariable("DHRT100_TMC_WRITE_GAP_MS"),
+                out var gap) ? gap : 0, 0, 2000);
         var status = VisaNative.viOpenDefaultRM(out _resourceManager);
         if (status < 0)
         {
@@ -75,6 +83,10 @@ public sealed class VisaScpiChannel : IScpiChannel
         {
             throw new TransportException(
                 $"VISA 写入不完整 {Endpoint}：{written}/{payload.Length} 字节");
+        }
+        if (_writeGapMs > 0)
+        {
+            Thread.Sleep(_writeGapMs);
         }
     }
 

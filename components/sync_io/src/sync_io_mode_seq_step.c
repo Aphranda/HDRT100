@@ -174,6 +174,9 @@ static bool sync_io_seq_step_arm_unleased(const uint32_t *seq_table,
                              1.0f,
                              gate_enabled,
                              (int)edge);
+    /* Gate mode claims the whole SMA input group as PIO inputs; keep the
+     * OUT0 (IN3/SP2T) level asserted on the same pad. */
+    sync_io_core_sp2t_reassert();
 
     s_seq_step.dma_ch = SYNC_IO_SEQ_STEP_DMA_CH;
     dma_channel_abort(s_seq_step.dma_ch);

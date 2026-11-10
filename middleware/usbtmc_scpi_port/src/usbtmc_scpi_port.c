@@ -23,6 +23,8 @@
 #define USBTMC_SCPI_DEVICE_BCD 0x0100u
 #define USBTMC_SCPI_BULK_EP_OUT 0x01u
 #define USBTMC_SCPI_BULK_EP_IN 0x81u
+/* Full-speed bulk max packet size; the FS configuration below advertises 64. */
+#define USBTMC_SCPI_BULK_EP_PACKET 64u
 #define USBTMC_SCPI_INT_EP_IN 0x82u
 #define USBTMC_SCPI_INT_EP_SIZE 8u
 #define USBTMC_SCPI_INT_EP_INTERVAL 16u
@@ -42,6 +44,48 @@ static size_t s_response_offset;
 static bool s_response_ready;
 static bool s_bulk_in_requested;
 static uint8_t s_status_byte;
+static usbtmc_scpi_port_stats_t s_reply_stats;
+
+/* Send (part of) the pending reply. A zero max_len means "everything that is
+ * left": a USBTMC poll request carries TransferSize 0, and leaving that
+ * request unanswered is what makes the host wait for its read timeout.
+ *
+ * A reply must end with EOM set on its last chunk (TinyUSB's `end`). When the
+ * chunk is an exact multiple of the bulk endpoint packet size the transfer has
+ * no short packet, so a zero-length packet is required as well; the Linux
+ * usbtmc driver compensates for that only with USBTMC_FLAG_IGNORE_TRAILER, so
+ * do not rely on the host. */
+static bool usbtmc_send_reply(size_t max_len)
+{
+    if (!s_response_ready || s_response_offset >= s_response_len) {
+        return false;
+    }
+
+    const size_t remaining = s_response_len - s_response_offset;
+    size_t tx_len = max_len;
+    if (tx_len == 0u || tx_len > remaining) {
+        tx_len = remaining;
+    }
+
+    const bool end = (s_response_offset + tx_len) >= s_response_len;
+    const bool zlt = ((tx_len % USBTMC_SCPI_BULK_EP_PACKET) == 0u);
+    tud_usbtmc_transmit_dev_msg_data(&s_response_buffer[s_response_offset],
+                                     tx_len,
+                                     end,
+                                     zlt);
+    s_response_offset += tx_len;
+    s_reply_stats.last_tx_len = (uint32_t)tx_len;
+    s_reply_stats.last_end_flag = end ? 1u : 0u;
+    return true;
+}
+
+void usbtmc_scpi_port_get_stats(usbtmc_scpi_port_stats_t *stats)
+{
+    if (stats == NULL) {
+        return;
+    }
+    *stats = s_reply_stats;
+}
 
 #if PROJECT_ENABLE_USB_RUNTIME_SWITCH
 static size_t usb_cdc_scpi_write(const char *data, size_t len, void *context)
@@ -218,19 +262,26 @@ bool tud_usbtmc_msgBulkIn_request_cb(usbtmc_msg_request_dev_dep_in const *reques
 {
     s_bulk_in_requested = true;
 
-    if (s_response_ready && s_response_offset < s_response_len) {
-        const size_t remaining = s_response_len - s_response_offset;
-        const size_t requested = request->TransferSize;
-        const size_t tx_len = remaining < requested ? remaining : requested;
-        const bool complete = tx_len >= remaining;
+    ++s_reply_stats.bulk_in_requests;
+    s_reply_stats.last_request_size = (uint32_t)request->TransferSize;
+    s_reply_stats.last_reply_len = (uint32_t)s_response_len;
 
-        if (tx_len > 0u) {
-            tud_usbtmc_transmit_dev_msg_data(&s_response_buffer[s_response_offset],
-                                             tx_len,
-                                             complete,
-                                             false);
-            s_response_offset += tx_len;
-        }
+    if (request->TransferSize == 0u) {
+        /* USBTMC poll request. The host asks for a zero-length packet to find
+         * out whether a message is waiting; leaving it unanswered is what costs
+         * a full read timeout on every setter command (CDC has no such poll).
+         * Acknowledge with an empty end-of-message packet and keep the reply
+         * pending for the real read that follows. */
+        ++s_reply_stats.zero_requests;
+        tud_usbtmc_transmit_dev_msg_data(&s_response_buffer[0], 0u, true, false);
+        s_reply_stats.last_tx_len = 0u;
+        s_reply_stats.last_end_flag = 1u;
+        return true;
+    }
+
+    if (usbtmc_send_reply(request->TransferSize) &&
+        s_response_offset >= s_response_len) {
+        s_bulk_in_requested = false;
     }
 
     return true;

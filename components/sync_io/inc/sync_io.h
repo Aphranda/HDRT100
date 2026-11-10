@@ -185,6 +185,10 @@ bool sync_io_fire_rj45_trigger_us(uint32_t high_us);
 bool sync_io_debug_set_output_mask(uint32_t mask);
 void sync_io_debug_release_output_mask(void);
 uint32_t sync_io_debug_read_input_mask(void);
+/* SP2T control output: IN3 seen as OUT0. Only valid while the line is driven. */
+bool sync_io_sp2t_write(bool level);
+bool sync_io_sp2t_read(bool *level);
+bool sync_io_sp2t_is_driven(void);
 bool sync_io_debug_model_set_output_mask(uint32_t enable_mask, uint32_t value_mask);
 bool sync_io_debug_model_write_pin(uint32_t pin_index, bool enable, bool value);
 void sync_io_debug_model_release(void);

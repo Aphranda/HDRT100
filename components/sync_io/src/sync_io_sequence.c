@@ -13,6 +13,7 @@
 #include "pico/platform.h"
 #include "resource_arbiter.h"
 #include "sync_io.h"
+#include "sync_io_hw_profile.h"
 #include "sync_io_persona_manager.h"
 #include "sync_io_sequence.pio.h"
 
@@ -20,6 +21,12 @@
 #define LEGACY_OWNER "sync_io.sma_mutator"
 #define SNAPSHOT_WORDS ((sizeof(sync_io_sequence_snapshot_t) + 3u) / 4u)
 #define SMA_MASK ((1u << BOARD_SYNC_OUTPUT_PIN_COUNT) - 1u)
+/* SWITCH1/SP8T is decoded from the low three main outputs; the remaining
+ * output stays available for the VNA trigger. */
+#define SP8T_OUTPUT_BITS 3u
+#define SP8T_OUTPUT_MASK ((1u << SP8T_OUTPUT_BITS) - 1u)
+_Static_assert(SP8T_OUTPUT_BITS < BOARD_SYNC_OUTPUT_PIN_COUNT,
+               "SP8T code must leave one main output for the VNA trigger");
 #define INGRESS_SM 1u
 #define EXECUTOR_SM 2u
 #define COUNTER_SM 3u
@@ -86,6 +93,8 @@ static struct {
     uint32_t gateway_edge_consumed;
     gpio_function_t saved_function[BOARD_SYNC_OUTPUT_PIN_COUNT];
     bool saved_direction[BOARD_SYNC_OUTPUT_PIN_COUNT];
+    gpio_function_t saved_sp2t_function;
+    bool saved_sp2t_direction;
     bool pins_saved;
     bool paused;
     bool manager_claimed;
@@ -110,11 +119,35 @@ static uint32_t s_owned_mask;
 static uint32_t s_publish_seq;
 static uint32_t s_published[SNAPSHOT_WORDS];
 static uint32_t s_legacy_depth[2];
+/* SP2T bit of each logical step: bit0 of the 0..15 output code. */
+static uint8_t s_step_sp2t[SYNC_IO_SEQUENCE_PLAN_MAX];
+static bool s_sp2t_level_valid;
+static bool s_sp2t_level;
 
 static uint32_t stop_counter(void);
 static void gateway_service(void);
 static void gateway_cancel(void);
 static void gateway_start(void);
+
+/* OUT0 is outside the contiguous OUT1..OUT4 PIO group, so the step's SP2T
+ * bit is applied here: initially for the first step, then for the next step
+ * as soon as the current completion receipt arrives (after its pulse). */
+static void apply_sp2t_level(bool level)
+{
+    if (s_sp2t_level_valid && s_sp2t_level == level) return;
+    const uint pin = SYNC_IO_HW_SP2T_OUT_PIN;
+    gpio_set_function(pin, GPIO_FUNC_SIO);
+    gpio_set_dir(pin, GPIO_OUT);
+    gpio_put(pin, level);
+    s_sp2t_level = level;
+    s_sp2t_level_valid = true;
+}
+
+static void apply_step_sp2t(uint32_t logical_index)
+{
+    if (logical_index >= s_sequence.status.plan_count) return;
+    apply_sp2t_level(s_step_sp2t[logical_index] != 0u);
+}
 
 static bool feedback_capture_enabled(void)
 {
@@ -180,27 +213,39 @@ bool sync_io_sequence_set_switch(uint32_t switch_number, uint32_t value)
         (switch_number == 1u && (value < 1u || value > 8u)) ||
         (switch_number == 2u && value > 1u)) return false;
     if (!sync_io_sequence_legacy_begin()) return false;
-    const uint32_t encoded = switch_number == 1u ? value - 1u : value << 3u;
-    const uint32_t mask = switch_number == 1u ? 0x7u : 0x8u;
-    for (uint i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
-        gpio_set_function(BOARD_SYNC_OUTPUT_BASE_PIN + i, GPIO_FUNC_SIO);
-        gpio_set_dir(BOARD_SYNC_OUTPUT_BASE_PIN + i, GPIO_OUT);
+    bool accepted = true;
+    if (switch_number == 1u) {
+        /* SP8T channel is the 3-bit code on OUT1..OUT3.  OUT4 belongs to the
+         * VNA trigger and is deliberately never touched here. */
+        for (uint i = 0u; i < SP8T_OUTPUT_BITS; ++i) {
+            gpio_set_function(BOARD_SYNC_OUTPUT_BASE_PIN + i, GPIO_FUNC_SIO);
+            gpio_set_dir(BOARD_SYNC_OUTPUT_BASE_PIN + i, GPIO_OUT);
+        }
+        gpio_put_masked(SP8T_OUTPUT_MASK << BOARD_SYNC_OUTPUT_BASE_PIN,
+                        (value - 1u) << BOARD_SYNC_OUTPUT_BASE_PIN);
+        s_switch1 = value;
+    } else {
+        /* SP2T is OUT0 on the IN3 pad, outside the main 4-bit output group. */
+        accepted = sync_io_sp2t_write(value != 0u);
+        if (accepted) s_switch2 = value;
     }
-    gpio_put_masked(mask << BOARD_SYNC_OUTPUT_BASE_PIN,
-                   encoded << BOARD_SYNC_OUTPUT_BASE_PIN);
-    if (switch_number == 1u) s_switch1 = value;
-    else s_switch2 = value;
     sync_io_sequence_legacy_end();
-    return true;
+    return accepted;
 }
 
 uint32_t sync_io_sequence_get_switch(uint32_t switch_number)
 {
     if (switch_number == 1u) {
         /* Report the physical SP8T position, not only the last command. */
-        return (sync_io_sequence_read_outputs() & 0x7u) + 1u;
+        return (sync_io_sequence_read_outputs() & SP8T_OUTPUT_MASK) + 1u;
     }
-    if (switch_number == 2u) return s_switch2;
+    if (switch_number == 2u) {
+        bool level = false;
+        if (sync_io_sp2t_is_driven() && sync_io_sp2t_read(&level)) {
+            return level ? 1u : 0u;
+        }
+        return s_switch2;
+    }
     return 0u;
 }
 
@@ -248,34 +293,57 @@ void sync_io_sequence_legacy_end(void)
     restore_interrupts(saved);
 }
 
-static bool outputs_available(void)
+static sync_io_sequence_reserve_result_t reserve_blocker(void)
 {
     sync_io_sma_frequency_tx_status_t pwm = {0};
     sync_io_sma_frequency_tx_get_status(&pwm);
-    if (!sync_io_core_initialized() || pwm.running ||
-        sync_io_seq_step_is_running() || sync_io_enc_count_is_running() ||
-        sync_io_core_model_output_active() ||
-        sync_io_core_wave_output_persona_active()) return false;
+    if (!sync_io_core_initialized()) return SYNC_IO_SEQUENCE_RESERVE_NOT_INITIALIZED;
+    if (pwm.running) return SYNC_IO_SEQUENCE_RESERVE_PWM_ACTIVE;
+    if (sync_io_seq_step_is_running()) return SYNC_IO_SEQUENCE_RESERVE_SEQ_STEP_ACTIVE;
+    if (sync_io_enc_count_is_running()) return SYNC_IO_SEQUENCE_RESERVE_ENC_ACTIVE;
+    if (sync_io_core_model_output_active()) return SYNC_IO_SEQUENCE_RESERVE_MODEL_ACTIVE;
+    if (sync_io_core_wave_output_persona_active())
+        return SYNC_IO_SEQUENCE_RESERVE_WAVE_ACTIVE;
     for (uint32_t i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
-        const gpio_function_t function = gpio_get_function(BOARD_SYNC_OUTPUT_BASE_PIN + i);
-        if (function != GPIO_FUNC_SIO && function != GPIO_FUNC_NULL) return false;
+        const gpio_function_t function =
+            gpio_get_function(BOARD_SYNC_OUTPUT_BASE_PIN + i);
+        if (function != GPIO_FUNC_SIO && function != GPIO_FUNC_NULL)
+            return SYNC_IO_SEQUENCE_RESERVE_PAD_FUNCTION;
     }
-    return sync_io_sequence_read_outputs() == 0u;
+    return SYNC_IO_SEQUENCE_RESERVE_OK;
+}
+
+/* START takes the group over from whatever left a static level behind. */
+static void drive_outputs_low(void)
+{
+    for (uint32_t i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
+        const uint pin = BOARD_SYNC_OUTPUT_BASE_PIN + i;
+        gpio_set_function(pin, GPIO_FUNC_SIO);
+        gpio_set_dir(pin, GPIO_OUT);
+    }
+    gpio_put_masked(SMA_MASK << BOARD_SYNC_OUTPUT_BASE_PIN, 0u);
+}
+
+sync_io_sequence_reserve_result_t sync_io_sequence_reserve_checked(void)
+{
+    if (get_core_num() != 0u) return SYNC_IO_SEQUENCE_RESERVE_WRONG_CORE;
+    if (__atomic_load_n(&s_reserved, __ATOMIC_ACQUIRE) != 0u)
+        return SYNC_IO_SEQUENCE_RESERVE_ALREADY_RESERVED;
+    const sync_io_sequence_reserve_result_t blocker = reserve_blocker();
+    if (blocker != SYNC_IO_SEQUENCE_RESERVE_OK) return blocker;
+    if (!resource_arbiter_acquire_owned(RESOURCE_ARBITER_RESOURCE_SMA_GPIO,
+                                        SEQUENCE_OWNER)) {
+        return SYNC_IO_SEQUENCE_RESERVE_OWNER_BUSY;
+    }
+    drive_outputs_low();
+    __atomic_store_n(&s_reserved, 1u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_owned_mask, SMA_MASK, __ATOMIC_RELEASE);
+    return SYNC_IO_SEQUENCE_RESERVE_OK;
 }
 
 bool sync_io_sequence_reserve(void)
 {
-    if (get_core_num() != 0u ||
-        !resource_arbiter_acquire_owned(RESOURCE_ARBITER_RESOURCE_SMA_GPIO, SEQUENCE_OWNER)) {
-        return false;
-    }
-    if (!outputs_available()) {
-        resource_arbiter_release_owned(RESOURCE_ARBITER_RESOURCE_SMA_GPIO, SEQUENCE_OWNER);
-        return false;
-    }
-    __atomic_store_n(&s_reserved, 1u, __ATOMIC_RELEASE);
-    __atomic_store_n(&s_owned_mask, SMA_MASK, __ATOMIC_RELEASE);
-    return true;
+    return sync_io_sequence_reserve_checked() == SYNC_IO_SEQUENCE_RESERVE_OK;
 }
 
 void sync_io_sequence_release(void)
@@ -313,6 +381,7 @@ static void safe_low(void)
         gpio_set_function(BOARD_SYNC_OUTPUT_BASE_PIN + i, GPIO_FUNC_SIO);
         gpio_set_dir(BOARD_SYNC_OUTPUT_BASE_PIN + i, GPIO_OUT);
     }
+    apply_sp2t_level(false);
 }
 
 static void stop_hardware(void)
@@ -366,7 +435,12 @@ static void cleanup(void *context, const sync_io_persona_descriptor_t *descripto
             gpio_set_dir(pin, s_sequence.saved_direction[i]);
             gpio_set_function(pin, s_sequence.saved_function[i]);
         }
+        gpio_set_dir(SYNC_IO_HW_SP2T_OUT_PIN,
+                     s_sequence.saved_sp2t_direction ? GPIO_OUT : GPIO_IN);
+        gpio_set_function(SYNC_IO_HW_SP2T_OUT_PIN,
+                          s_sequence.saved_sp2t_function);
     }
+    s_sp2t_level_valid = false;
     s_sequence.pins_saved = false;
     s_sequence.loaded = 0u;
     s_sequence.sm_claimed = 0u;
@@ -421,6 +495,8 @@ static bool load_hardware(void *context, const sync_io_persona_descriptor_t *des
         s_sequence.saved_function[i] = gpio_get_function(pin);
         s_sequence.saved_direction[i] = gpio_get_dir(pin);
     }
+    s_sequence.saved_sp2t_function = gpio_get_function(SYNC_IO_HW_SP2T_OUT_PIN);
+    s_sequence.saved_sp2t_direction = gpio_get_dir(SYNC_IO_HW_SP2T_OUT_PIN);
     s_sequence.pins_saved = true;
     return true;
 }
@@ -670,13 +746,22 @@ static bool build_plan(const sync_io_sequence_config_t *config,
     if (!config_valid(config) || (values == NULL) == (bytes == NULL) || count == 0u ||
         count > SYNC_IO_SEQUENCE_PLAN_MAX) return false;
     for (uint i = 0u; i < count; ++i) {
-        const uint32_t value = bytes != NULL ? bytes[i] : values[i];
-        if ((value & ~config->sequence_output_mask) != 0u) return false;
+        const uint32_t code = bytes != NULL ? bytes[i] : values[i];
+        if (code > SYNC_IO_SEQUENCE_CODE_MAX ||
+            ((code >> SYNC_IO_SEQUENCE_CODE_SP8T_SHIFT) &
+             ~config->sequence_output_mask) != 0u) return false;
     }
+    memset(s_step_sp2t, 0, sizeof(s_step_sp2t));
     for (uint i = 0u; i < count; ++i) {
         const uint32_t logical = logical_index_for_transfer(i, count);
-        const uint32_t value = bytes != NULL ? bytes[logical] : values[logical];
+        const uint32_t code = bytes != NULL ? bytes[logical] : values[logical];
+        /* OUT1..OUT3 carry the SP8T position; OUT0 carries SP2T and is not
+         * part of the contiguous PIO output group. */
+        const uint32_t value =
+            (code >> SYNC_IO_SEQUENCE_CODE_SP8T_SHIFT) & config->sequence_output_mask;
         const uint32_t base = i * SYNC_IO_SEQUENCE_PLAN_WORDS;
+        s_step_sp2t[logical] =
+            (uint8_t)(code & SYNC_IO_SEQUENCE_CODE_SP2T_MASK);
         s_plan[base] = value | (logical << PLAN_INDEX_SHIFT) |
             ((value | config->status_output_mask) << ACTIVE_VALUE_SHIFT);
         s_plan[base + 1u] = config->settle_us == 0u ? 0u :
@@ -704,12 +789,17 @@ static bool arm_plan(const sync_io_sequence_config_t *config,
         s_sequence.status.fault = SYNC_IO_SEQUENCE_FAULT_CONFIG;
         goto rejected;
     }
-    if (__atomic_load_n(&s_reserved, __ATOMIC_ACQUIRE) == 0u || !outputs_available()) {
+    if (__atomic_load_n(&s_reserved, __ATOMIC_ACQUIRE) == 0u ||
+        reserve_blocker() != SYNC_IO_SEQUENCE_RESERVE_OK) {
         s_sequence.status.fault = SYNC_IO_SEQUENCE_FAULT_RESOURCE;
         goto rejected;
     }
     s_sequence.config = *config;
-    s_sequence.initial_output = bytes != NULL ? bytes[0] : values[0];
+    s_sequence.initial_output = bytes != NULL ?
+        ((uint32_t)bytes[0] >> SYNC_IO_SEQUENCE_CODE_SP8T_SHIFT) :
+        (values[0] >> SYNC_IO_SEQUENCE_CODE_SP8T_SHIFT);
+    s_sequence.initial_output &= config->sequence_output_mask;
+    s_sp2t_level_valid = false;
     s_sequence.status.plan_count = count;
     s_sequence.input_pin = BOARD_SYNC_INPUT_BASE_PIN;
     const uint32_t input_channel = config->gateway_input_channel != 0u ?
@@ -750,6 +840,8 @@ static bool arm_plan(const sync_io_sequence_config_t *config,
     s_sequence.status.current_index = 0u;
     s_sequence.status.output_ownership_mask = config->sequence_output_mask |
         config->status_output_mask | config->gateway_output_mask;
+    /* START primes step 0 on OUT1..OUT3; put its SP2T bit on OUT0 as well. */
+    apply_step_sp2t(0u);
     __atomic_store_n(&s_owned_mask, s_sequence.status.output_ownership_mask,
                      __ATOMIC_RELEASE);
     __atomic_store_n(&s_armed, 1u, __ATOMIC_RELEASE);
@@ -816,7 +908,12 @@ static bool receive_word(uint32_t word)
             fail(SYNC_IO_SEQUENCE_FAULT_RECEIPT);
             return false;
         }
-        --s_sequence.prime_receipts_remaining;
+        if (--s_sequence.prime_receipts_remaining == 0u) {
+            /* START's primed state is the first state; the first accepted
+             * trigger executes the following one, so pre-drive its SP2T. */
+            apply_step_sp2t(logical_index_for_transfer(0u,
+                                                       s_sequence.status.plan_count));
+        }
         return true;
     }
     const bool completion = (word & 0x80000000u) != 0u;
@@ -835,6 +932,9 @@ static bool receive_word(uint32_t word)
     if (completion) {
         ++s_sequence.status.completed;
         s_sequence.status.completed_index = logical_index;
+        /* The step's status/VNA pulse is already done: pre-drive the next
+         * step's polarization so it is stable before its trigger arrives. */
+        apply_step_sp2t((logical_index + 1u) % s_sequence.status.plan_count);
     } else {
         ++s_sequence.status.written;
         if (s_sequence.status.accepted < s_sequence.status.written)

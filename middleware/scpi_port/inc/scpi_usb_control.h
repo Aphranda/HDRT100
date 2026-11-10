@@ -6,10 +6,14 @@
 scpi_result_t scpi_usb_control_cmd_mode_q(scpi_t *context);
 scpi_result_t scpi_usb_control_cmd_mode(scpi_t *context);
 scpi_result_t scpi_usb_control_cmd_boot(scpi_t *context);
+/* Defined only when the USBTMC port is built; the command table entry below is
+ * likewise only expanded in that configuration. */
+scpi_result_t scpi_usb_control_cmd_stats_q(scpi_t *context);
 
 #define SCPI_USB_CONTROL_COMMANDS \
     {.pattern = "SYSTem:USB:MODE?", .callback = scpi_usb_control_cmd_mode_q}, \
     {.pattern = "SYSTem:USB:MODE", .callback = scpi_usb_control_cmd_mode}, \
-    {.pattern = "SYSTem:USB:BOOT", .callback = scpi_usb_control_cmd_boot}
+    {.pattern = "SYSTem:USB:BOOT", .callback = scpi_usb_control_cmd_boot}, \
+    {.pattern = "SYSTem:USB:STATS?", .callback = scpi_usb_control_cmd_stats_q}
 
 #endif

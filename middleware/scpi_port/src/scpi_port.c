@@ -13,10 +13,10 @@
 #include "pico/unique_id.h"
 #include "pico/error.h"
 #include "pico/stdio.h"
-#include "project_config.h"
-#if PROJECT_ENABLE_OTA_FAULT_INJECTION
 #include "pico/bootrom.h"
-#endif
+#include "pico/multicore.h"
+#include "project_config.h"
+#include "osal.h"
 #include "scpi_calibration_commands.h"
 #include "scpi_communication_biss_commands.h"
 #include "scpi_communication_uart_commands.h"
@@ -316,14 +316,28 @@ static scpi_result_t scpi_cmd_boot_reset(scpi_t *context)
     return result;
 }
 
-#if PROJECT_ENABLE_OTA_FAULT_INJECTION
+static void scpi_port_bootsel_quiesce(void)
+{
+    osal_critical_enter();
+#if PROJECT_USE_MULTICORE
+    multicore_reset_core1();
+#endif
+}
+
 static scpi_result_t scpi_cmd_boot_bootsel(scpi_t *context)
 {
     (void)scpi_port_result_ok(context);
     scpi_port_flush_now();
+    /* reset_usb_boot() parks the BOOTSEL magic in the watchdog scratch
+     * registers.  The other core and the OS tick keep writing their own
+     * breadcrumbs there (watchdog progress in scratch[5], TDMA priority
+     * breadcrumbs in scratch[6]), which can clobber the magic before the
+     * ROM samples it, leaving the board to boot flash again.  Quiesce the
+     * other core and local interrupts first. */
+    scpi_port_bootsel_quiesce();
     reset_usb_boot(0u, 0u);
+    return SCPI_RES_OK;
 }
-#endif
 
 static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "*CLS", .callback = SCPI_CoreCls},
@@ -348,9 +362,7 @@ static const scpi_command_t s_scpi_commands[] = {
     SCPI_SYSTEM_ACCESS_COMMANDS,
     SCPI_LOOP_ENGINE_COMMANDS,
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
-#if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:BOOTSel", .callback = scpi_cmd_boot_bootsel},
-#endif
     SCPI_CONFIG_COMMANDS,
     SCPI_SYSTEM_DIAGNOSTICS_READ_COMMANDS,
     SCPI_CALIBRATION_COMMANDS,
@@ -471,6 +483,26 @@ bool scpi_port_execute(const char *data,
     s_scpi_capture_truncated = false;
 
     SCPI_Input(&s_scpi_context, data, (int)len);
+
+    /* Terminate every reply with CRLF. Hosts that frame on the terminator
+     * (NI-VISA ReadTermination, pyvisa read_termination) can then finish the
+     * read immediately instead of waiting for their timeout, which is what a
+     * setter acknowledgement without a newline used to cost. */
+    if (s_scpi_capture_buffer != NULL && s_scpi_capture_len > 0u) {
+        const char last = s_scpi_capture_buffer[s_scpi_capture_len - 1u];
+        if (last != '\n') {
+            const bool need_cr = (last != '\r');
+            const size_t needed = need_cr ? 2u : 1u;
+            if (s_scpi_capture_len + needed <= s_scpi_capture_capacity) {
+                if (need_cr) {
+                    s_scpi_capture_buffer[s_scpi_capture_len] = '\r';
+                    s_scpi_capture_len++;
+                }
+                s_scpi_capture_buffer[s_scpi_capture_len] = '\n';
+                s_scpi_capture_len++;
+            }
+        }
+    }
 
     *response_len = s_scpi_capture_len;
     const bool ok = !s_scpi_capture_truncated;

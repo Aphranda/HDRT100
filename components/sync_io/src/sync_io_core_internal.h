@@ -75,6 +75,9 @@ bool sync_io_core_capture_is_running(void);
  * lease excludes capture/analyzer/schedule owners until restoration. */
 bool sync_io_core_capture_sm_lease(const void *owner);
 void sync_io_core_capture_sm_restore(const void *owner);
+/* Re-apply the OUT0 (IN3/SP2T) output after a PIO program claims the SMA
+ * input pads as inputs; a no-op until the SP2T line has been driven. */
+void sync_io_core_sp2t_reassert(void);
 bool sync_io_core_wave_output_persona_active(void);
 bool sync_io_core_model_output_active(void);
 bool sync_io_core_sm_is_enabled(PIO pio, uint sm);
