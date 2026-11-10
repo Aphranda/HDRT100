@@ -1,6 +1,13 @@
 #include "scpi_config_commands.h"
 
+#include "distributed_refmem.h"
+#include "refmem_application_model.h"
+#include "refmem_command.h"
+#include "refmem_command_catalog.h"
+#include "refmem_control_route.h"
+#include "refmem_domain_config.h"
 #include "sync_io_sequence.h"
+#include "trigger_deployment_service.h"
 #include "trigger_sequence_service.h"
 
 scpi_result_t scpi_config_trigger_parameter_q(scpi_t *context)
@@ -157,11 +164,66 @@ scpi_result_t scpi_config_sequence_active_q(scpi_t *context)
 
 scpi_result_t scpi_config_switch_write(scpi_t *context)
 {
-    /* The legacy local entry used to answer 1 without moving anything, so a
-     * caller could not tell "accepted" from "switched".  Fail closed and point
-     * at the unified plane (SYSTem:CTRL:EXECute TRIGGER_SWITCH). */
-    scpi_port_push_exec_error(context, "USE_CTRL_EXECUTE");
-    return SCPI_RES_ERR;
+    int32_t numbers[1];
+    uint32_t value = 0u;
+    SCPI_CommandNumbers(context, numbers, 1u, 1);
+    const uint32_t number = (numbers[0] > 0) ? (uint32_t)numbers[0] : 1u;
+    if (number < 1u || number > 2u ||
+        !SCPI_ParamUInt32(context, &value, TRUE) ||
+        (number == 1u && (value < 1u || value > 8u)) ||
+        (number == 2u && value > 1u)) {
+        scpi_port_push_exec_error(context, "BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+    /* Outward alias of the unified control command: resolve the switch-type
+     * route (configured via TRIGGER_SWITCH_ROUTE, else the deployment roles
+     * SWITCH_A/B), then submit the same TRIGGER_SWITCH record. */
+    uint32_t route = refmem_domain_config_switch_route(number);
+    if (route == 0u) {
+        trigger_deployment_snapshot_t snapshot;
+        if (trigger_deployment_snapshot_cached(&snapshot) == 0u &&
+            snapshot.active.valid) {
+            const uint32_t role = (number == 1u)
+                ? (uint32_t)TRIGGER_DEPLOYMENT_SLOT_SWITCH_A
+                : (uint32_t)TRIGGER_DEPLOYMENT_SLOT_SWITCH_B;
+            const uint32_t slot = snapshot.active.table.rows[role].tdma_slot;
+            if (slot < 8u) {
+                route = 1u << slot;
+            }
+        }
+    }
+    if (route == 0u) {
+        scpi_port_push_exec_error(context, "BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+    const uint32_t local_bit = 1u << distributed_refmem_local_slot();
+    if ((route & ~local_bit) != 0u) {
+        if (!distributed_refmem_ring_transport_ready()) {
+            scpi_port_push_exec_error(context, "NOT_ONLINE_SAFE");
+            return SCPI_RES_ERR;
+        }
+        uint32_t control_owner = 0u;
+        const bool owner_valid =
+            refmem_application_model_control_owner_slot(&control_owner);
+        if (refmem_control_entry_decide(distributed_refmem_local_slot(),
+                                        control_owner, owner_valid,
+                                        route) ==
+            REFMEM_CONTROL_ENTRY_REJECT_REMOTE) {
+            scpi_port_push_exec_error(context, "NOT_CONTROL_OWNER");
+            return SCPI_RES_ERR;
+        }
+    }
+    const uint32_t params[2] = { number, value };
+    uint32_t seq = 0u;
+    if (!distributed_refmem_control_submit(
+            (uint16_t)REFMEM_CMD_ID_TRIGGER_SWITCH, route, route,
+            params, 2u, &seq)) {
+        scpi_port_push_exec_error(context, "REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "QUEUED");
+    SCPI_ResultUInt32(context, seq);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_config_switch_q(scpi_t *context)

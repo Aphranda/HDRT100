@@ -61,6 +61,7 @@ class Function:
     ctl_id: int | None
     fields: tuple[Field, ...] = ()
     warning: str = ""
+    app_deprecated: bool = False
 
 
 @dataclass(frozen=True)
@@ -156,11 +157,15 @@ FUNCTIONS: tuple[Function, ...] = (
              "CONFigure:SWITch1", "TRIGGER_SWITCH", 45,
              fields=(_f("number", "通道", "u32", "1", "1..8"),
                      _f("value", "值", "enum", "1", "0/1", ("0", "1"))),
-             warning="统一控制面固定发送 [switch_number, value] 两个 word。"),
+             warning="统一控制面固定发送 [switch_number, value] 两个 word；"
+                     "应用层 CONFigure:SWITch1 已废弃（USE_CTRL_EXECUTE）。",
+             app_deprecated=True),
     Function("switch.polarization", "switch", "SP2T 极化", "设置 switch2 的 0/1。",
              "CONFigure:SWITch2", "TRIGGER_SWITCH", 45,
              fields=(_f("value", "值", "enum", "0", "0/1", ("0", "1")),),
-             warning="统一控制面发送 [2, value]；应用层命令为 CONFigure:SWITch2 <value>。"),
+             warning="统一控制面发送 [2, value]；应用层 CONFigure:SWITch2 已废弃"
+                     "（USE_CTRL_EXECUTE）。",
+             app_deprecated=True),
 
     # --------------------------------------------------------------- sequence
     Function("sequence.plan", "sequence", "写 plan 表", "plan_id + 1..11 个 state_id；统一控制面固定 16 words。",
@@ -373,6 +378,10 @@ def _required(value: str, field: Field) -> str:
 
 def build_app(function: Function, values: Mapping[str, str]) -> str:
     """Render the application-layer SCPI command for a function."""
+    if function.app_deprecated:
+        raise ValueError(
+            f"{function.title}的应用层入口已废弃（固件返回 USE_CTRL_EXECUTE），"
+            "请改用统一控制面")
     if function.app_scpi is None:
         raise ValueError(f"{function.title}没有应用层命令")
     parts: list[str] = []

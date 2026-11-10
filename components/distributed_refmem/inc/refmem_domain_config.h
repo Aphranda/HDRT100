@@ -13,7 +13,12 @@ extern "C" {
  * layer registers handlers that call the owning TDMA/VDC/T2 API.  This keeps
  * components/distributed_refmem free of a link dependency on the domain
  * components and preserves the single-writer boundary. */
-#define REFMEM_DOMAIN_CONFIG_MAX_HANDLERS 32u
+/* Must exceed the number of refmem_domain_config_register() calls in
+ * app_refmem_domain_config_init() (33 at the time of writing).  Overflowing
+ * this table fails the last registration, which aborts app_init(), leaves
+ * core1 spinning on app_is_ready(), starves the CORE1 watchdog heartbeat and
+ * reset-loops the board. */
+#define REFMEM_DOMAIN_CONFIG_MAX_HANDLERS 40u
 #define REFMEM_DOMAIN_CONFIG_MAX_PARAMS 16u
 
 typedef bool (*refmem_domain_config_handler_t)(
@@ -34,6 +39,9 @@ bool refmem_domain_config_find(uint32_t command_type,
 /* Dispatch one already-authorized target-local command.  Unknown type,
  * word-count mismatch and handler rejection are fail-closed; the caller
  * turns the returned false into NACK with the supplied reason. */
+/* Zero when unconfigured; otherwise the slot mask that owns SWITCH1/2. */
+uint32_t refmem_domain_config_switch_route(uint32_t switch_number);
+
 bool refmem_domain_config_dispatch(uint32_t command_type,
                                    const uint32_t *params,
                                    uint32_t param_words,

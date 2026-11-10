@@ -40,6 +40,7 @@ const refmem_catalog_entry_t refmem_command_catalog[] = {
     {49u, 49u, 5u, 0u, 1u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_ANGLE_SPEED", "CONFigure:ANGLe:SPEEd"},
     {50u, 50u, 3u, 1u, 16u, 0u, 1u, 3u, 0u, 0u, "CAL_GUIDE_CONFIG", "SYSTem:TDMA:GUIDE:CONFig"},
     {51u, 51u, 3u, 1u, 2u, 0u, 0u, 3u, 0u, 0u, "CAL_GUIDE_TRIGGER", "SYSTem:TDMA:GUIDE:TRIGger"},
+    {52u, 52u, 5u, 0u, 2u, 0u, 1u, 31u, 0u, 0u, "TRIGGER_SWITCH_ROUTE", "SYSTem:CTRL:EXECute"},
 };
 
 const uint32_t refmem_command_catalog_count =

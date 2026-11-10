@@ -14,6 +14,13 @@ from tkinter.scrolledtext import ScrolledText
 try:
     from .calibration_action import ACTION_SPECS, CalibrationActionPage, action_inputs
     from .calibration_workflow import GuideWorkflow
+    from .obs_read import (
+        ObsReaderMixin,
+        RING_STATUS_SCHEMA,
+        format_rows,
+        read_boot_plan,
+        read_ring_status,
+    )
     from .ui import UiEvent
 except ImportError:  # direct script execution
     from calibration_action import (  # type: ignore
@@ -22,6 +29,13 @@ except ImportError:  # direct script execution
         action_inputs,
     )
     from calibration_workflow import GuideWorkflow  # type: ignore
+    from obs_read import (  # type: ignore
+        ObsReaderMixin,
+        RING_STATUS_SCHEMA,
+        format_rows,
+        read_boot_plan,
+        read_ring_status,
+    )
     from ui import UiEvent  # type: ignore
 
 PLAN_FIELDS = (
@@ -40,7 +54,7 @@ BOOT_FIELDS = (
 )
 
 
-class CalibrationSummaryPage(ttk.Frame):
+class CalibrationSummaryPage(ObsReaderMixin, ttk.Frame):
     """Summary page: boot state + single-port C/T flow."""
 
     def __init__(self, master, app) -> None:
@@ -104,11 +118,16 @@ class CalibrationSummaryPage(ttk.Frame):
         ttk.Label(boot, textvariable=self.boot_state, style="Value.TLabel").grid(
             row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.boot_button = ttk.Button(
-            boot, text="读 BOOT:PLAN?", command=self.read_boot)
+            boot, text="读启环状态（OBS key5）", command=self.read_boot)
         self.boot_button.grid(row=2, column=4, columnspan=2, sticky="e")
         self.boot_ring_button = ttk.Button(
-            boot, text="读 RING:STATus?", command=self.read_ring)
+            boot, text="读环状态（OBS key6）", command=self.read_ring)
         self.boot_ring_button.grid(row=2, column=6, columnspan=2, sticky="e")
+        self.boot_detail_button = ttk.Button(
+            boot, text="详细 BOOT:PLAN?（本地 SCPI 例外）",
+            command=self.read_boot_detail)
+        self.boot_detail_button.grid(row=3, column=4, columnspan=4, sticky="e",
+                                     pady=(4, 0))
 
         summary = ttk.LabelFrame(self, text="本轮参数汇总",
                                  style="Card.TLabelframe", padding=(12, 6))
@@ -125,7 +144,8 @@ class CalibrationSummaryPage(ttk.Frame):
             text="10 kHz 的流程与 10 MHz 相同，只是 profile level 不同；"
                  "10 kHz 启环已确认可用。CONFig 约 50 s、TRIGger 约 78 s，"
                  "窗口结束前不要重发。四板一致性仍需外部读回；"
-                 "本页只保证单口命令与协调板 PLAN? 读回。")
+                 "启环/环状态/节点健康走 OBS key5/6/8，"
+                 "PLAN? 全字段仍是本地 SCPI（诊断例外）。")
         info.pack(fill="x", padx=12, pady=(0, 6))
 
         flow_bar = ttk.Frame(self, style="Panel.TFrame", padding=(12, 6))
@@ -170,7 +190,8 @@ class CalibrationSummaryPage(ttk.Frame):
         ttk.Checkbutton(
             form, text="CRC=0x12340000+gen", variable=self.auto_crc).grid(
             row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        self.plan_button = ttk.Button(form, text="读 PLAN?", command=self.read_plan)
+        self.plan_button = ttk.Button(form, text="读 PLAN?（本地 SCPI 例外）",
+                                      command=self.read_plan)
         self.plan_button.grid(row=3, column=2, sticky="w", pady=(8, 0))
         self.scan_button = ttk.Button(form, text="读 SCAN?", command=self.read_scan)
         self.scan_button.grid(row=3, column=4, sticky="w", pady=(8, 0))
@@ -223,7 +244,8 @@ class CalibrationSummaryPage(ttk.Frame):
         state = "normal" if vector.connection.connected else "disabled"
         for button in (self.config_button, self.plan_button, self.scan_button,
                        self.pair_button, self.trigger_button, self.ring_button,
-                       self.boot_button, self.boot_ring_button):
+                       self.boot_button, self.boot_ring_button,
+                       self.boot_detail_button):
             button.configure(state=state)
         flow_state = ("normal" if vector.connection.connected and not self.busy
                       else "disabled")
@@ -406,7 +428,42 @@ class CalibrationSummaryPage(ttk.Frame):
         self._send(f"SYST:TDMA:GUIDE:TRIGger {action},{epoch}", "cal:trigger")
 
     def read_boot(self) -> None:
-        self._send("SYST:TDMA:BOOT:PLAN?", "cal:boot")
+        """Unified read: OBS key 5 carries the boot verdict fields."""
+        try:
+            transport = self.app.obs_transport()
+        except RuntimeError as exc:
+            self._record(f"! {exc}")
+            return
+        try:
+            data = read_boot_plan(transport)
+        except Exception as exc:  # noqa: BLE001 - surfaced on the page
+            self._record(f"! OBS key5 读取失败：{exc}")
+            return
+        self._show_boot_obs(data)
+
+    def _show_boot_obs(self, data: dict) -> None:
+        for name, variable in self.boot_vars.items():
+            variable.set(str(data.get(name, "0")))
+        # OBS key 5 has no steps/boot_next_step/have_profile columns.
+        for missing in ("steps", "boot_next_step", "have_profile"):
+            if missing in self.boot_vars:
+                self.boot_vars[missing].set("—")
+        source = str(data.get("profile_source", 0))
+        source_name = {"1": "持久档", "2": "默认档", "0": "无档"}.get(
+            source, f"source={source}")
+        self.boot_vars["profile_source"].set(source_name)
+        action = str(data.get("action", "0"))
+        done = str(data.get("boot_done", "0"))
+        fail = str(data.get("fail_step", "1"))
+        half = str(data.get("half_ring", "1"))
+        ready = done == "1" and fail == "0" and half == "0" and action in ("1", "2")
+        self.boot_state.set(
+            f"{'READY' if ready else 'NOT READY'} · OBS key5 · "
+            f"action={action} · {source_name}")
+
+    def read_boot_detail(self) -> None:
+        """Diagnostic exception: the 20-field BOOT:PLAN? has no OBS key."""
+        self._send("SYST:TDMA:BOOT:PLAN?", "cal:boot-detail")
 
     def read_plan(self) -> None:
         self._send("SYST:TDMA:GUIDE:PLAN?", "cal:plan")
@@ -418,7 +475,25 @@ class CalibrationSummaryPage(ttk.Frame):
         self._send("SYST:TDMA:GUIDE:PAIR?", "cal:pair")
 
     def read_ring(self) -> None:
-        self._send("SYST:TDMA:RING:STATus?", "cal:ring")
+        """Unified read: OBS key 6 carries the ring verdict fields."""
+        try:
+            transport = self.app.obs_transport()
+        except RuntimeError as exc:
+            self._record(f"! {exc}")
+            return
+        try:
+            data = read_ring_status(transport)
+        except Exception as exc:  # noqa: BLE001 - surfaced on the page
+            self._record(f"! OBS key6 读取失败：{exc}")
+            return
+        self._record(
+            "OBS key6 ring_status: "
+            f"valid={data['valid']} enabled={data['enabled']} "
+            f"up={data['up']} down={data['down']} adapter={data['adapter']} "
+            f"nodes={data['nodes']} local_slot={data['local_slot']}")
+        self._record(format_rows(
+            {"key": 6, "offset": 0, "count": len(data["rows"]),
+             "rows": data["rows"]}, RING_STATUS_SCHEMA))
 
     def _show_boot(self, response: str) -> None:
         values = [item.strip() for item in response.split(",")]
@@ -442,7 +517,9 @@ class CalibrationSummaryPage(ttk.Frame):
             self._record(f"! {source} → {error}")
             return
         self._record(f"< {response}")
-        if source == "cal:boot":
+        if source in ("cal:boot", "cal:boot-detail"):
+            if source == "cal:boot-detail":
+                self._record("  （诊断例外：本地 BOOT:PLAN? 20 字段，无 OBS key）")
             self._show_boot(response)
             return
         if source == "cal:plan":

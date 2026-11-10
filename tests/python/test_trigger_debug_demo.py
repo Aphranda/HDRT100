@@ -50,8 +50,13 @@ def test_build_app_and_control_commands() -> None:
     assert catalog.build_ctl(sweep, {"start": "0", "stop": "360", "step": "1"},
                              15, 15) == \
         "SYSTem:CTRL:EXECute TRIGGER_ANGLE_SWEEP,15,15,0,1135869952,1065353216"
-    assert catalog.build_app(catalog.FUNCTION_BY_KEY["switch.polarization"],
-                             {"value": "1"}) == "CONFigure:SWITch2 1"
+    switch = catalog.FUNCTION_BY_KEY["switch.polarization"]
+    assert switch.app_deprecated
+    with pytest.raises(ValueError):
+        catalog.build_app(switch, {"value": "1"})
+    assert catalog.build_ctl(catalog.FUNCTION_BY_KEY["switch.channel"],
+                             {"number": "1", "value": "1"}, 15, 15) == \
+        "SYSTem:CTRL:EXECute TRIGGER_SWITCH,15,15,1,1"
     plan = catalog.FUNCTION_BY_KEY["sequence.plan"]
     command = catalog.build_ctl(plan, {"plan_id": "PLAN_A", "states": "0,1,2"}, 15, 15)
     assert command.startswith("SYSTem:CTRL:EXECute TRIGGER_SEQUENCE_PLAN,15,15,")
@@ -84,6 +89,24 @@ def test_simulator_refmem_ack_flow() -> None:
     sim.close()
 
 
+def test_simulator_obs_pages_match_contract() -> None:
+    sim = device.SimulatedTransport(ack_delay_s=0)
+    sim.open()
+    values = [int(item) for item in
+              sim.execute("SYSTem:REFMEM:OBS? 6,0,4").split(",")]
+    assert values[0:3] == [6, 0, 4]
+    # row 0: slot,valid,epoch,seq,age,stale + enabled/up/down/adapter/nodes/slot
+    assert values[3:5] == [0, 1]
+    assert values[8] == 0                      # stale=0 on the local row
+    assert values[9:15] == [1, 1, 1, 1, 4, 0]
+    peer = values[15:27]
+    assert peer[0] == 1 and peer[1] == 0
+    assert peer[4] == 0xFFFFFFFF and peer[5] == 1
+    assert sim.execute("SYSTem:REFMEM:OBS? 99,0,1").startswith("-200")
+    assert sim.execute("SYSTem:REFMEM:OBS? 6,4,4").startswith("-200")
+    sim.close()
+
+
 def test_dispatcher_sync_request() -> None:
     sim = device.SimulatedTransport(ack_delay_s=0)
     sim.open()
@@ -93,6 +116,24 @@ def test_dispatcher_sync_request() -> None:
         result = dispatcher.request("*IDN?", "test", 2.0)
         assert not result.error
         assert result.response.startswith("DHRT100")
+    finally:
+        dispatcher.stop()
+        dispatcher.join(2.0)
+        sim.close()
+
+
+def test_dispatcher_transport_serializes_worker_reads() -> None:
+    sim = device.SimulatedTransport(ack_delay_s=0)
+    sim.open()
+    dispatcher = device.Dispatcher(sim, lambda _result: None)
+    dispatcher.start()
+    try:
+        adapter = device.DispatcherTransport(dispatcher, 2.0)
+        assert adapter.execute("*IDN?").startswith("DHRT100")
+        page = adapter.execute("SYSTem:REFMEM:OBS? 6,0,1")
+        assert page.startswith("6,0,1")
+        with pytest.raises(device.TransportError):
+            adapter.execute("")
     finally:
         dispatcher.stop()
         dispatcher.join(2.0)
@@ -479,9 +520,13 @@ def test_ui_smoke(monkeypatch) -> None:
         assert calibration.ladder_button.cget("text").startswith("运行全阶梯")
         assert application.tcp_page.port.get()
         application.overview_page.refresh()
-        for _ in range(40):
+        for _ in range(200):
             application.update()
+            if "槽0" in application.overview_page.vars["nodes"].get():
+                break
             time.sleep(0.01)
         assert "DHRT100" in application.overview_page.vars["idn"].get()
+        assert "槽0" in application.overview_page.vars["nodes"].get()
+        assert "heartbeat=" in application.overview_page.vars["nodes"].get()
     finally:
         application.close()

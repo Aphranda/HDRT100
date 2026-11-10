@@ -14,6 +14,10 @@
 #include "trigger_action_service.h"
 #include "trigger_sequence_service.h"
 #include "tdma_runtime_owner.h"
+
+/* Switch-type routing for the CONFigure:SWITch# alias: index 1 → SWITCH1
+ * (SP8T owner slot mask), index 2 → SWITCH2 (SP2T owner slot mask). */
+static uint32_t s_switch_route[3];
 #include "trigger_action_template_store.h"
 #include "trigger_deployment_service.h"
 #include "trigger_grid_preview.h"
@@ -480,6 +484,30 @@ static bool trigger_abort_handler(const uint32_t *params, uint32_t param_words,
     return true;
 }
 
+static bool trigger_switch_route_handler(const uint32_t *params,
+                                         uint32_t param_words,
+                                         uint32_t *reason)
+{
+    /* Unified configuration of the switch-type routing used by the
+     * CONFigure:SWITch# alias.  params = [switch_number, target_mask]; a zero
+     * mask clears the entry and lets the alias fall back to the deployment
+     * roles (SWITCH_A for switch 1, SWITCH_B for switch 2). */
+    if (params == NULL || param_words != 2u ||
+        params[0] < 1u || params[0] > 2u) {
+        return reject(reason);
+    }
+    s_switch_route[params[0]] = params[1] & 0xFFu;
+    return true;
+}
+
+uint32_t refmem_domain_config_switch_route(uint32_t switch_number)
+{
+    if (switch_number < 1u || switch_number > 2u) {
+        return 0u;
+    }
+    return s_switch_route[switch_number] & 0xFFu;
+}
+
 static bool trigger_switch_handler(const uint32_t *params,
                                    uint32_t param_words, uint32_t *reason)
 {
@@ -938,6 +966,9 @@ bool app_refmem_domain_config_init(void)
                                          trigger_abort_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_SWITCH, 2u,
                                          trigger_switch_handler) &&
+           refmem_domain_config_register(
+               REFMEM_COMMAND_TYPE_TRIGGER_SWITCH_ROUTE, 2u,
+               trigger_switch_route_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_CONFIGURE, 4u,
                                          trigger_configure_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_TRIGGER_ANGLE_SWEEP,

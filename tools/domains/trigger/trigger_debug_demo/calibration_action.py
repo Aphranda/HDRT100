@@ -14,9 +14,11 @@ from tkinter.scrolledtext import ScrolledText
 
 try:
     from .calibration_workflow import GuideWorkflow
+    from .obs_read import ObsReaderMixin
     from .ui import UiEvent
 except ImportError:  # direct script execution
     from calibration_workflow import GuideWorkflow  # type: ignore
+    from obs_read import ObsReaderMixin  # type: ignore
     from ui import UiEvent  # type: ignore
 
 ACTION_SPECS = {
@@ -87,7 +89,7 @@ def action_inputs(spec: dict, generation: int, epoch: int, level=None) -> dict:
     }
 
 
-class CalibrationActionPage(ttk.Frame):
+class CalibrationActionPage(ObsReaderMixin, ttk.Frame):
     def __init__(self, master, app, key: str) -> None:
         super().__init__(master, style="Page.TFrame")
         self.app = app
@@ -148,9 +150,9 @@ class CalibrationActionPage(ttk.Frame):
             bar, text="运行当前动作", style="Accent.TButton",
             command=self.run_action)
         self.run_button.pack(side="left")
-        self.plan_button = ttk.Button(bar, text="读 PLAN?", command=self.read_plan)
+        self.plan_button = ttk.Button(bar, text="读 PLAN?（本地）", command=self.read_plan)
         self.plan_button.pack(side="left", padx=6)
-        self.boot_button = ttk.Button(bar, text="读 BOOT:PLAN?", command=self.read_boot)
+        self.boot_button = ttk.Button(bar, text="读 BOOT:PLAN?（本地）", command=self.read_boot)
         self.boot_button.pack(side="left", padx=6)
         self.cancel_button = ttk.Button(bar, text="取消", command=self.cancel)
         self.cancel_button.pack(side="left", padx=6)

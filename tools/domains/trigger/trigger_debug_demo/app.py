@@ -23,6 +23,7 @@ import zlib
 try:
     from . import catalog, device, ota
     from .calibration_page import CalibrationPage
+    from .obs_read import OBS_KEYS, OBS_NODE_COUNT, read_key
     from .ota_workflow import OtaWorkflow
     from .ui import (
         ConsoleStore,
@@ -47,6 +48,7 @@ except ImportError:  # direct script execution
     import device  # type: ignore
     import ota  # type: ignore
     from calibration_page import CalibrationPage  # type: ignore
+    from obs_read import OBS_KEYS, OBS_NODE_COUNT, read_key  # type: ignore
     from ota_workflow import OtaWorkflow  # type: ignore
     from ui import (  # type: ignore
         ConsoleStore,
@@ -199,13 +201,16 @@ class FunctionCard(ttk.LabelFrame):
 
         controls = ttk.Frame(self, style="Card.TFrame")
         controls.grid(row=row, column=0, columnspan=6, sticky="ew", pady=(4, 2))
-        if function.ctl_name:
+        if function.ctl_name and not function.app_deprecated:
             ttk.Radiobutton(controls, text="统一控制面", value="ctl",
                             variable=self.channel, command=self._refresh,
                             style="Card.TRadiobutton").pack(side="left")
             ttk.Radiobutton(controls, text="应用层 SCPI", value="app",
                             variable=self.channel, command=self._refresh,
                             style="Card.TRadiobutton").pack(side="left", padx=(6, 12))
+        elif function.ctl_name:
+            ttk.Label(controls, text="仅统一控制面（应用层入口已废弃）",
+                      style="Warn.TLabel").pack(side="left", padx=(0, 12))
         else:
             ttk.Label(controls, text="应用层专用", style="Muted.TLabel").pack(
                 side="left", padx=(0, 12))
@@ -665,7 +670,7 @@ class OverviewPage(ttk.Frame):
         self._row(card, "ACK / NACK", self.vars["ack"])
         self._row(card, "拒绝原因", self.vars["reason"])
 
-        card = self._card(grid, "板卡在线（REFMEM:NODES?）", 2, 0, columnspan=2)
+        card = self._card(grid, "板卡在线（OBS key8 逐槽）", 2, 0, columnspan=2)
         nodes = ttk.Label(card, textvariable=self.vars["nodes"], style="Value.TLabel",
                           justify="left")
         nodes.pack(anchor="w")
@@ -708,9 +713,11 @@ class OverviewPage(ttk.Frame):
                 ("SYSTem:BOARD:NO?", "overview:board"),
                 ("SYSTem:CTRL:OWNer?", "overview:owner"),
                 ("READ:TRIGger:STATe?", "overview:trigger"),
-                ("SYSTem:CTRL:STATus?", "overview:status"),
-                ("SYSTem:REFMEM:NODES? 0,4", "overview:nodes")):
+                ("SYSTem:CTRL:STATus?", "overview:status")):
             self.app.send_command(command, key)
+        # REFMEM-READ-01: node health is mirrored per slot, so read it through
+        # the OBS plane instead of the rich REFMEM:NODES? query.
+        self.app.read_obs_async(OBS_KEYS["node_health"], "overview:nodes")
 
     def show(self, key: str, response: str) -> None:
         values = _csv(response)
@@ -734,15 +741,24 @@ class OverviewPage(ttk.Frame):
                 self.vars["command_state"].set(f"{values[2]} {state_name(int(values[2]))}")
                 self.vars["ack"].set(f"{values[6]} / {values[7]}")
                 self.vars["reason"].set(f"{values[10]} {reason_name(int(values[10]))}")
-            elif key == "overview:nodes" and len(values) >= 15:
-                lines = []
-                for index in range(0, min(len(values), 60), 15):
-                    chunk = values[index:index + 15]
-                    lines.append(f"槽{chunk[0]}  state={chunk[1]}  heartbeat={chunk[2]}  "
-                                 f"age={chunk[5]}ms  stale={chunk[6]}  fault={chunk[8]}")
-                self.vars["nodes"].set("\n".join(lines))
         except (ValueError, IndexError):
             pass
+
+    def show_obs(self, source: str, page: dict) -> None:
+        """Render one OBS page (REFTMEM-READ-01 per-slot rows)."""
+        if source != "overview:nodes":
+            return
+        lines = []
+        for row in page.get("rows") or ():
+            words = list(row.get("value") or ())
+            def word(index: int) -> int:
+                return words[index] if index < len(words) else 0
+            lines.append(
+                f"槽{row.get('slot', 0)}  state={word(0)}  heartbeat={word(1)}  "
+                f"stale_count={word(2)}  fault={word(3)}  "
+                f"age={row.get('age_ms', 0)}ms  stale={row.get('stale', 1)}  "
+                f"valid={row.get('valid', 0)}")
+        self.vars["nodes"].set("\n".join(lines) if lines else "（无行）")
 
 
     def render(self, vector) -> None:
@@ -2095,9 +2111,19 @@ class DemoApp(tk.Tk):
         self.store.update_ui(status_text=self.status_var.get(),
                              selected_item=page_id)
 
+    def obs_transport(self):
+        """Transport for OBS reads: serialized through the single Dispatcher."""
+        if self.dispatcher is None:
+            raise RuntimeError("未连接：OBS 读需要设备会话")
+        return device.DispatcherTransport(self.dispatcher, 5.0)
+
+    def read_obs(self, key: int, offset: int = 0,
+                 count: int = OBS_NODE_COUNT) -> dict:
+        return read_key(self.obs_transport(), key, offset, count)
+
     def read_obs_query(self, key: int) -> bool:
-        """M5: read a switch key through ControlPlane.read (not raw SCPI)."""
-        if not self.connected or self.transport is None:
+        """M5/M6: read a switch key through ControlPlane over the Dispatcher."""
+        if not self.connected or self.dispatcher is None:
             self.dialogs.warning("未连接", "请先连接协调板端口")
             return False
         try:
@@ -2105,13 +2131,27 @@ class DemoApp(tk.Tk):
         except ImportError:
             from obs_read import read_switch_obs  # type: ignore
         try:
-            text = read_switch_obs(self.transport, key)
+            text = read_switch_obs(self.obs_transport(), key)
         except Exception as exc:  # noqa: BLE001 - surfaced on the page
             self.readback_page.show_result(f"read.switch{key}", "", str(exc))
             return False
         self.readback_page.show_result(f"read.switch{key}", text, "")
         self.log(f"OBS switch{key}: {text}", "INFO")
         return True
+
+    def read_obs_async(self, key: int, source: str) -> None:
+        """Read one OBS key off the Tk thread; the page renders via ``pump``."""
+        if not self.connected or self.dispatcher is None or self.ota_busy:
+            return
+        threading.Thread(target=self._read_obs_worker, args=(int(key), source),
+                         daemon=True, name=f"obs-{key}").start()
+
+    def _read_obs_worker(self, key: int, source: str) -> None:
+        try:
+            page = self.read_obs(key)
+            self.pump.post(UiEvent("obs", (source, page)))
+        except Exception as exc:  # noqa: BLE001 - surfaced in the log/banner
+            self.pump.post(UiEvent("obs-error", (source, str(exc))))
 
     def send_command(self, command: str, source: str = "") -> bool:
         if self.ota_busy and not source.startswith("ota"):
@@ -2139,6 +2179,15 @@ class DemoApp(tk.Tk):
     def _handle_ui_event(self, event: UiEvent) -> None:
         if event.kind == "result":
             self._handle_result(event.payload)
+        elif event.kind == "obs":
+            source, page = event.payload
+            if source == "overview:nodes":
+                self.overview_page.show_obs(source, page)
+            self.log(f"OBS {source}: key={page.get('key')} "
+                     f"rows={len(page.get('rows') or ())}", "INFO")
+        elif event.kind == "obs-error":
+            source, text = event.payload
+            self.log(f"! OBS {source} → {text}", "ERR")
         elif event.kind == "tcp":
             kind, text = event.payload
             self.tcp_page.note(kind, text)

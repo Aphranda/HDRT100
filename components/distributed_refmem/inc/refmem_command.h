@@ -78,6 +78,10 @@ typedef enum {
     /* Guide-ladder (P1..T3) control plane over the low-speed ring. */
     REFMEM_COMMAND_TYPE_CAL_GUIDE_CONFIG = 50u,
     REFMEM_COMMAND_TYPE_CAL_GUIDE_TRIGGER = 51u,
+    /* Switch-type routing table for the CONFigure:SWITch# alias: which slot
+     * owns SWITCH1 (SP8T) and SWITCH2 (SP2T).  Params: switch_number,
+     * target_mask (0 = derive from the deployment roles). */
+    REFMEM_COMMAND_TYPE_TRIGGER_SWITCH_ROUTE = 52u,
 } refmem_command_type_t;
 
 typedef enum {

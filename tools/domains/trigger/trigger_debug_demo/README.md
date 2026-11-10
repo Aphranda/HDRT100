@@ -53,19 +53,30 @@ python tools/domains/trigger/trigger_debug_demo/trigger_debug_demo.py --headless
 | 状态回读 | `READ:TRIGger/SEQuence/ANGLe/SWITch` 查询 |
 | 板卡与 ACK | 目标/必需掩码、聚合 ACK、逐板 `COMMand:TARget?` |
 | 统一控制面 | 通用 `CTRL:EXECute`、目录、OWNer、56 B 原始命令帧 |
+| 校准引导 | 汇总 + P0–T3 八个动作页；`GUIDE` C/T、`PLAN?`、启环状态（OBS key5/6） |
 | OTA | 常规单板 OTA（BEGIN/DATA/END/BOOT/COMMIT）、自动签发凭证、TDMA 流状态（开发中） |
 | TCP 透传 | 本地 TCP 服务启停、客户端计数、透传日志 |
 | 诊断 | 错误队列、故障、环状态、命令帧/装载统计 |
 | 原始命令 | 任意 SCPI 命令行 |
 
-每个写入功能都有两条通道：
+写入以**统一控制面**为唯一入口：
 
 1. **统一控制面**（默认）：`SYSTem:CTRL:EXECute <目录名>,<target_mask>,<required_mask>,<params...>`
    —— 一次提交，目标掩码决定哪些板执行，必需掩码决定聚合完成条件；回读
    `SYSTem:CTRL:STATus?` / `SYSTem:COMMand:TARget?` / `SYSTem:REFMEM:CMD:REPLy?`。
-2. **应用层 SCPI**：`TRIGger:*` / `CONFigure:*`，直接发给当前协调板（板本地作用域）。
+2. **应用层 SCPI**：只保留没有 REFMEM 类型的写（如 `CONFigure:SEQuence:REPeat`）。
+   开关的旧入口 `CONFigure:SWITch#` 固件已废弃（返回 `-200,"USE_CTRL_EXECUTE"`），
+   界面不再把它当作可选项。
 
-查询类约 30 条保留应用层 SCPI，不进入 REFMEM 命令面。
+读面分三层：
+
+- **OBS 观测模型**（有 key 的状态）：`SYSTem:REFMEM:OBS? <key>,<offset>,<count>`，
+  经 `ControlPlane.read` 返回逐槽行；`switch1/2`、`trigger_state`、`guide_plan`、
+  `boot_plan`、`ring_status`、`cal_status`、`node_health` 均走这里。
+- **命令结果**：`SYSTem:CTRL:STATus?`（origin 聚合记录）与
+  `SYSTem:COMMand:TARget? <slot>`（本地命令记录）。
+- **诊断例外**：`GUIDE:PLAN?`、`BOOT:PLAN?`、`READ:*`、`RING:STATus?` 的富字段没有
+  OBS key，仍是本地 SCPI；界面按钮标注“本地 / 诊断例外”，不得用于跨板判据。
 
 ## TCP 透传协议
 
@@ -154,7 +165,10 @@ OTA 日志 SHA-256、源码版本（`source_revision`/`source_tree`/`source_dirt
 | `device.py` | 串口/VISA/模拟器、Dispatcher、TCP 服务 |
 | `ota.py` | 镜像哈希、SCPI arbitrary block、凭证签发 |
 | `ota_workflow.py` | 常规 OTA 的 WorkflowSpec：snapshot→begin→stream→end→wait→receipt |
-| `calibration_page.py` | 单口校准引导：10 MHz/10 kHz 的 GUIDE C/T/PLAN/SCAN/PAIR/RING 读回 |
+| `calibration_page.py` | 单口校准引导：汇总页 + P0–T3 动作页壳 |
+| `calibration_action.py` | P0–T3 独立动作页与参数表（`ACTION_SPECS`） |
+| `calibration_workflow.py` | 单口 GuideWorkflow：precheck(OBS key6)→CONFig→…→report |
+| `obs_read.py` | OBS key 读取（`ControlPlane.read`）与 `ControlPlaneTransport` 包装 |
 | `ui/workflow.py` | WorkflowSpec/StepSpec/WorkflowRunner：持久化 cursor/step_data、resume/cancel |
 | `ui/settings.py` | schema 白名单、原子写、损坏 `.bad` 备份 |
 | `ui/errors.py` | ErrorBoundary + Tk 回调异常限流 |
@@ -180,7 +194,7 @@ fail-closed；GUI 只是视图，不得持有唯一执行状态。
 ## Tk 架构接入（strangler）
 
 `app.py` 已接入 `ui/` 基础件：Store 四 slice、PageRouter + LegacyPageAdapter、TkScheduler、
-DialogPort、UiPump/PumpSink；13 个现有 tab 先通过 legacy adapter 注册，ACK/OTA/TCP 的事件
+DialogPort、UiPump/PumpSink；现有 tab 先通过 legacy adapter 注册，ACK/OTA/TCP 的事件
 走同一条主线程泵。页面内部仍是 legacy 代码（直接 Tk 变量、OTA ad-hoc 线程），迁移顺序见
 [CONSOLE_TK_ARCHITECTURE.md](../../../../../docs/console/CONSOLE_TK_ARCHITECTURE.md) §15。
 
@@ -191,7 +205,8 @@ python -m pytest tests/python/test_trigger_debug_demo.py -q -p no:cacheprovider
 ```
 
 覆盖：目录 ID/word 数、f32 与 plan 编码、命令渲染、响应字段、模拟四板 ACK、
-Dispatcher 同步请求、TCP 往返、GUI/TCP 共用一个 transport、Tk 界面冒烟。
+Dispatcher 同步请求、TCP 往返、GUI/TCP 共用一个 transport、Tk 界面冒烟、
+OBS 逐槽行解析（key3/4/5/6/8）、模拟器 OBS 应答、开关应用层写废弃。
 
 ## 已知限制
 
@@ -201,6 +216,11 @@ Dispatcher 同步请求、TCP 往返、GUI/TCP 共用一个 transport、Tk 界�
 - 自动凭证是自查摘要（`receipt_sha256` + `.sha256` 旁路），不是私钥签名；发布级签名仍走发布流程。
 - 当前固件 `TRIGGER_MODE` 的 REFMEM 域配置 handler 仍是 fail-closed（IF-013 未接完），真机上该命令会
   得到 NACK；这是当前固件行为，不是 Demo 的编码问题。
-- 应用层写命令在当前固件上可能是 accepted-only；跨板动作以 REFMEM 统一控制面为准。
+- 应用层写只保留没有 REFMEM 类型的命令；开关的 `CONFigure:SWITch#` 固件已废弃，
+  Demo 只提供统一控制面入口。
+- OBS key 是窄 schema（见 `config/refmem/read_catalog.yaml`）：`GUIDE:PLAN?`/`BOOT:PLAN?`
+  的全字段、`READ:*` 富查询仍走本地 SCPI，界面标注“诊断例外”，不得用于跨板判据。
+- 模拟器按 REFMEM-READ-01 行格式应答 OBS；真机 OBS 的逐槽/stale 证据由 REFMEM 域
+  `out/refmem_read/` 的 HIL 报告提供。
 - `TRIGGER_SEQUENCE_PLAN` 的 count 上限为 11，plan ID 最多 16 个 ASCII 字符。
 - TCP 为本地明文 `127.0.0.1`，不做鉴权；不要绑定到非回环地址。

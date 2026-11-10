@@ -70,6 +70,7 @@ COMMAND_TYPES = {
     # low-speed ring, so the plan (slot ref) and the trigger travel as commands.
     "CAL_GUIDE_CONFIG": 50,
     "CAL_GUIDE_TRIGGER": 51,
+    "TRIGGER_SWITCH_ROUTE": 52,
 }
 
 OWNERS = {

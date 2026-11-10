@@ -639,6 +639,46 @@ class SimulatedTransport:
                                     1, 1, 0, 0, 0)))
         return ",".join(values)
 
+    OBS_SCHEMA_WORDS = {1: 2, 2: 2, 3: 3, 4: 7, 5: 5, 6: 6, 7: 3, 8: 4}
+
+    def _obs_words(self, key: int) -> list[int]:
+        if key == 1:
+            return [self.switch1[0], self.switch1[1]]
+        if key == 2:
+            return [self.switch2, self.switch2]
+        if key == 3:
+            return [self.run_state, 1 if self.run_state == 1 else 0, 0]
+        if key == 4:
+            return [1, self.plan_generation, 0, 0, 0, 0, 0]
+        if key == 5:
+            return [1, 0, 1, 0, 2]
+        if key == 6:
+            return [1, 1, 1, 1, 4, 0]
+        if key == 7:
+            return [1, self.plan_generation, 0]
+        return [1, 100, 0, 0]
+
+    def _cmd_system_refmem_obs(self, args: list[str]) -> str:
+        """REFTMEM-READ-01 per-slot rows; slot 0 is the local board."""
+        key = int(args[0], 0) if args else 0
+        offset = int(args[1], 0) if len(args) > 1 else 0
+        count = int(args[2], 0) if len(args) > 2 else 4
+        schema_words = self.OBS_SCHEMA_WORDS.get(key)
+        if schema_words is None:
+            return '-200,"OBS_KEY"'
+        if offset < 0 or offset >= 4:
+            return '-200,"OBS_OFFSET"'
+        if count <= 0 or count > 4 - offset:
+            count = 4 - offset
+        values = [key, offset, count]
+        for slot in range(offset, offset + count):
+            if slot == 0:
+                values += [slot, 1, 1, self.command_seq, 0, 0]
+                values += self._obs_words(key)
+            else:
+                values += [slot, 0, 0, 0, 0xFFFFFFFF, 1] + [0] * schema_words
+        return ",".join(str(value) for value in values)
+
     def _cmd_system_refmem_node_control(self, args: list[str]) -> str:
         slot = int(args[0]) if args else 0
         b = self.boards[slot] if 0 <= slot < 4 else self.boards[0]
@@ -986,6 +1026,28 @@ class Dispatcher(threading.Thread):
 
 # Backwards-compatible name for callers that only use submit().
 Worker = Dispatcher
+
+
+class DispatcherTransport:
+    """Transport view that serializes a worker's reads through the Dispatcher.
+
+    OBS/ControlPlane reads issued from a page worker must not touch the port
+    directly: the Dispatcher stays the only transport owner, so a read can
+    never interleave bytes with a queued write (CONSOLE-SESSION-01).
+    """
+
+    def __init__(self, dispatcher: Dispatcher, timeout_s: float = 5.0) -> None:
+        self.dispatcher = dispatcher
+        self.timeout_s = timeout_s
+
+    def execute(self, command: str) -> str:
+        result = self.dispatcher.request(command, "obs", self.timeout_s)
+        if result.error:
+            raise TransportError(result.error)
+        return result.response
+
+    def close(self) -> None:
+        return None
 
 
 # ------------------------------------------------------------------ TCP bridge

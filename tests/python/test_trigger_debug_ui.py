@@ -360,6 +360,15 @@ def test_guide_workflow_uses_10k_level_and_report(tmp_path) -> None:
     class FakePage:
         def __init__(self) -> None:
             self.config = ""
+            self.obs_calls: list[int] = []
+
+        def read_obs(self, key, offset=0, count=4):
+            self.obs_calls.append(key)
+            if key == 6:
+                return {"key": 6, "valid": 1, "enabled": 1, "up": 1,
+                        "down": 1, "adapter": 1, "nodes": 4, "local_slot": 0,
+                        "age_ms": 0, "stale": 0, "rows": []}
+            raise AssertionError(f"unexpected OBS key {key}")
 
         def _request(self, command, timeout):
             if "GUIDE:CONFig" in command:
@@ -367,8 +376,6 @@ def test_guide_workflow_uses_10k_level_and_report(tmp_path) -> None:
                 return "1"
             if "GUIDE:PLAN?" in command:
                 return plan
-            if "RING:STATus?" in command:
-                return "1,4,0,0,1,1,0,0,1"
             if "GUIDE:TRIGger" in command:
                 return "1"
             return "SIM"
@@ -388,6 +395,7 @@ def test_guide_workflow_uses_10k_level_and_report(tmp_path) -> None:
         "threshold_high": 64, "epoch": 1,
     })
     assert state.status == "SUCCEEDED"
+    assert page.obs_calls and set(page.obs_calls) == {6}
     assert ",23," in page.config
     report_path = (tmp_path / "out" / "calibration" / "guide-10k" /
                    f"{state.run_id}.json")

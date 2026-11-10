@@ -93,11 +93,7 @@ class GuideWorkflow:
             final_plan = self._plan()
         except Exception:
             final_plan = {}
-        try:
-            ring_after = _ints(self.page._request(
-                "SYSTem:TDMA:RING:STATus?", 5.0))
-        except Exception:
-            ring_after = []
+        ring_after = self._ring_rows()
         body = {
             "schema": f"HDRT100_GUIDE_{self.label.upper()}_FLOW_V1",
             "run_id": run_id,
@@ -132,21 +128,28 @@ class GuideWorkflow:
         build = self.page._request("SYSTem:FW:BUILD?", 5.0)
         self._log(
             f"precheck: {idn.strip()} build={build.strip()} level={self.level}")
-        ring = []
+        ring: dict = {}
         deadline = time.monotonic() + 30.0
         while time.monotonic() < deadline:
-            ring = _ints(self.page._request("SYSTem:TDMA:RING:STATus?", 5.0))
-            if (len(ring) >= 9 and ring[0] == 1 and ring[4] == 1
-                    and ring[5] == 1 and ring[8] == 1):
+            try:
+                ring = self.page.read_obs(6)   # OBS key6 ring_status
+            except Exception as exc:  # noqa: BLE001 - surface as workflow error
+                raise RuntimeError(f"OBS key6 (ring_status) 不可用：{exc}") from exc
+            if (ring.get("valid") == 1 and ring.get("enabled") == 1
+                    and ring.get("up") == 1 and ring.get("down") == 1
+                    and ring.get("adapter") == 1):
                 break
             if ctx.cancel_requested():
                 raise RuntimeError("用户取消")
             time.sleep(1.0)
-        if len(ring) < 9 or ring[0] != 1 or ring[4] != 1 or ring[5] != 1 or ring[8] != 1:
+        if (ring.get("valid") != 1 or ring.get("enabled") != 1
+                or ring.get("up") != 1 or ring.get("down") != 1
+                or ring.get("adapter") != 1):
             raise RuntimeError(
-                f"ring is not running (need enabled/up/down/adapter=1); "
-                f"start the level-{self.level} guide ring before this flow")
-        ctx.checkpoint(idn=idn, build=build, ring=ring[:12])
+                "ring is not running (OBS key6 needs valid/enabled/up/down/"
+                f"adapter=1); start the level-{self.level} guide ring before "
+                "this flow")
+        ctx.checkpoint(idn=idn, build=build, ring_obs=ring.get("rows", []))
 
     def _config(self, ctx: WorkflowContext) -> None:
         inputs = ctx.state.inputs
@@ -284,7 +287,7 @@ class GuideWorkflow:
             "build": ctx.state.step_data.get("build", ""),
             "inputs": ctx.state.inputs,
             "final_plan": values,
-            "ring_after": _ints(self.page._request("SYSTem:TDMA:RING:STATus?", 5.0)),
+            "ring_after": self._ring_rows(),
             "failure_class": "NONE" if passed else _failure_class(values),
             "passed": passed,
             "log_path": str(self.run_log.path),
@@ -304,6 +307,13 @@ class GuideWorkflow:
         values = _ints(self.page._request("SYSTem:TDMA:GUIDE:PLAN?", 5.0))
         return {name: (values[index] if index < len(values) else -1)
                 for index, name in enumerate(PLAN_FIELDS)}
+
+    def _ring_rows(self) -> list[dict]:
+        """OBS key6 per-slot rows for the report: evidence, never a verdict."""
+        try:
+            return list(self.page.read_obs(6).get("rows") or ())
+        except Exception:  # noqa: BLE001 - evidence only
+            return []
 
 
 def _ints(text: str) -> list[int]:
