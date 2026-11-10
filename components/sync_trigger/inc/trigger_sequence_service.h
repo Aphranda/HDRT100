@@ -178,6 +178,34 @@ trigger_sequence_service_result_t trigger_sequence_service_cycle_finish(
     uint32_t run, uint32_t generation, uint32_t step);
 trigger_sequence_service_result_t trigger_sequence_service_counter_rearm(
     uint32_t run, uint32_t generation, uint32_t step);
+/* Single-board local READY gateway: same per-step OUT/READY handshake as the
+ * linked model, but without any TDMA message. Only valid while LINK is off. */
+typedef struct {
+    uint32_t trigger_output_mask;
+    uint32_t ready_input;   /* 0=MANUAL; 1..4=logical IN */
+    bool falling;
+    uint32_t pulse_us;
+    uint32_t timeout_ms;
+} trigger_local_gateway_config_t;
+
+typedef struct {
+    bool enabled;
+    bool active;
+    bool done;
+    bool fault;
+    uint32_t phase;
+    uint32_t run_id;
+    uint32_t step;
+    uint32_t items;
+    uint32_t triggers;
+    uint32_t ready;
+    uint32_t timeouts;
+} trigger_local_gateway_status_t;
+
+bool trigger_local_gateway_configure(const trigger_local_gateway_config_t *config);
+void trigger_local_gateway_disable(void);
+void trigger_local_gateway_service(void);
+void trigger_local_gateway_get_status(trigger_local_gateway_status_t *status);
 const char *trigger_sequence_service_result_name(trigger_sequence_service_result_t result);
 const char *trigger_sequence_service_state_name(trigger_sequence_service_state_t state);
 

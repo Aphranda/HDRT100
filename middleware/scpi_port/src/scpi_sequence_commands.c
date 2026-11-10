@@ -274,3 +274,62 @@ scpi_result_t scpi_sequence_io_state_q(scpi_t *context)
     SCPI_ResultBool(context, snapshot.busy);
     return SCPI_RES_OK;
 }
+
+scpi_result_t scpi_sequence_local_gateway(scpi_t *context)
+{
+    static const scpi_choice_def_t modes[] = {
+        {"OFF", 0}, {"OUT1", 1}, {"OUT2", 2}, {"OUT3", 4}, {"OUT4", 8},
+        SCPI_CHOICE_LIST_END};
+    static const scpi_choice_def_t inputs[] = {
+        {"MANUAL", 0}, {"IN1", 1}, {"IN2", 2}, {"IN3", 3}, {"IN4", 4},
+        SCPI_CHOICE_LIST_END};
+    static const scpi_choice_def_t lg_edges[] = {
+        {"RISing", 0}, {"FALLing", 1}, SCPI_CHOICE_LIST_END};
+    int32_t mode;
+    if (!SCPI_ParamChoice(context, modes, &mode, TRUE)) return SCPI_RES_ERR;
+    if (mode == 0) {
+        if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+        trigger_local_gateway_disable();
+        return scpi_port_result_accepted(context);
+    }
+    int32_t input, edge;
+    trigger_local_gateway_config_t config = {0};
+    config.trigger_output_mask = (uint32_t)mode;
+    if (!SCPI_ParamChoice(context, inputs, &input, TRUE) ||
+        !scpi_sequence_param_u32(context, &config.pulse_us) ||
+        !scpi_sequence_param_u32(context, &config.timeout_ms) ||
+        !SCPI_ParamChoice(context, lg_edges, &edge, TRUE) ||
+        !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    config.ready_input = (uint32_t)input;
+    config.falling = edge != 0;
+    trigger_sequence_link_status_t link;
+    trigger_sequence_link_get_status(&link);
+    if (link.config.enabled) {
+        scpi_port_push_exec_error(context, "LINK_ACTIVE");
+        return SCPI_RES_ERR;
+    }
+    if (!trigger_local_gateway_configure(&config)) {
+        scpi_port_push_exec_error(context, "LOCAL_GATEWAY_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_accepted(context);
+}
+
+scpi_result_t scpi_sequence_local_gateway_q(scpi_t *context)
+{
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    trigger_local_gateway_status_t status;
+    trigger_local_gateway_get_status(&status);
+    SCPI_ResultBool(context, status.enabled);
+    SCPI_ResultUInt32(context, status.phase);
+    SCPI_ResultUInt32(context, status.run_id);
+    SCPI_ResultUInt32(context, status.step);
+    SCPI_ResultUInt32(context, status.items);
+    SCPI_ResultUInt32(context, status.triggers);
+    SCPI_ResultUInt32(context, status.ready);
+    SCPI_ResultUInt32(context, status.timeouts);
+    SCPI_ResultBool(context, status.active);
+    SCPI_ResultBool(context, status.done);
+    SCPI_ResultBool(context, status.fault);
+    return SCPI_RES_OK;
+}

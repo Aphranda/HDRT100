@@ -6,6 +6,10 @@
 #include "sync_io_sequence.h"
 #include "sync_trigger.h"
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico/time.h"
+#endif
+
 typedef enum { COMMAND_NONE, COMMAND_START, COMMAND_STOP, COMMAND_PAUSE,
                COMMAND_CONTINUE, COMMAND_STEP, COMMAND_EXHAUSTED,
                COMMAND_GATEWAY_FIRE, COMMAND_GATEWAY_READY, COMMAND_FINISH,
@@ -760,6 +764,7 @@ void trigger_sequence_service_service(void)
         }
     }
     publish(command, serial);
+    trigger_local_gateway_service();
 }
 
 void trigger_sequence_service_get_status(trigger_sequence_service_status_t *status)
@@ -782,6 +787,228 @@ bool trigger_sequence_service_is_active(void)
     trigger_sequence_service_status_t status;
     trigger_sequence_service_get_status(&status);
     return status.state != TRIGGER_SEQUENCE_SERVICE_IDLE;
+}
+
+/* ── single-board local READY gateway (no TDMA messages) ──────────────── */
+
+typedef enum {
+    LOCAL_GATEWAY_OFF = 0u,
+    LOCAL_GATEWAY_WAIT_FIRST,
+    LOCAL_GATEWAY_WAIT_STEP,
+    LOCAL_GATEWAY_WAIT_READY,
+    LOCAL_GATEWAY_DONE,
+    LOCAL_GATEWAY_FAULT,
+} local_gateway_phase_t;
+
+static struct {
+    trigger_local_gateway_config_t config;
+    local_gateway_phase_t phase;
+    uint32_t run_id;
+    uint32_t generation;
+    uint32_t step;
+    uint32_t items;          /* 0 = continuous */
+    uint32_t baseline_ready;
+    uint32_t triggers;
+    uint32_t ready;
+    uint32_t timeouts;
+    uint32_t phase_at_ms;
+    bool enabled;
+    bool active;
+    bool done;
+    bool fault;
+} s_local_gateway;
+
+static bool local_gateway_guard(void) { return true; }
+
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+static uint32_t local_gateway_now_ms(void)
+{
+    return (uint32_t)(time_us_64() / 1000u);
+}
+#else
+static uint32_t local_gateway_now_ms(void) { return 0u; }
+#endif
+
+static void local_gateway_reset(void)
+{
+    s_local_gateway.step = 0u;
+    s_local_gateway.items = 0u;
+    s_local_gateway.baseline_ready = 0u;
+    s_local_gateway.triggers = 0u;
+    s_local_gateway.ready = 0u;
+    s_local_gateway.timeouts = 0u;
+    s_local_gateway.active = false;
+    s_local_gateway.done = false;
+    s_local_gateway.fault = false;
+    s_local_gateway.phase = LOCAL_GATEWAY_WAIT_FIRST;
+}
+
+bool trigger_local_gateway_configure(const trigger_local_gateway_config_t *config)
+{
+    if (config == NULL || config->trigger_output_mask == 0u ||
+        config->trigger_output_mask > 0x0Fu ||
+        (config->trigger_output_mask & (config->trigger_output_mask - 1u)) != 0u ||
+        config->ready_input > 4u || config->pulse_us == 0u ||
+        config->pulse_us > SYNC_IO_SEQUENCE_TIME_MAX_US ||
+        config->timeout_ms == 0u || config->timeout_ms > 0x7FFFFFFFu) {
+        return false;
+    }
+    /* Only MANUAL/NONE without a status output can host the local gateway;
+     * the linked model rejects the same combinations at START. */
+    trigger_sequence_service_io_t io;
+    trigger_sequence_service_get_io(&io);
+    if (!io.valid || io.source != 0u ||
+        io.status_mode != TRIGGER_SEQUENCE_STATUS_NONE ||
+        (io.sequence_output_mask & config->trigger_output_mask) != 0u) {
+        return false;
+    }
+    trigger_sequence_gateway_config_t gateway = {
+        .enabled = true,
+        .ready_input = config->ready_input,
+        .falling = config->falling,
+        .trigger_output_mask = config->trigger_output_mask,
+        .pulse_us = config->pulse_us,
+        .counter_input = 0u,
+        .counter_threshold = 0u,
+    };
+    if (trigger_sequence_service_set_gateway(&gateway, local_gateway_guard) !=
+        TRIGGER_SEQUENCE_SERVICE_OK) {
+        return false;
+    }
+    s_local_gateway.config = *config;
+    s_local_gateway.enabled = true;
+    local_gateway_reset();
+    return true;
+}
+
+void trigger_local_gateway_disable(void)
+{
+    trigger_sequence_gateway_config_t gateway = {0};
+    (void)trigger_sequence_service_set_gateway(&gateway, NULL);
+    s_local_gateway.enabled = false;
+    s_local_gateway.active = false;
+    s_local_gateway.phase = LOCAL_GATEWAY_OFF;
+}
+
+void trigger_local_gateway_get_status(trigger_local_gateway_status_t *status)
+{
+    if (status == NULL) return;
+    status->enabled = s_local_gateway.enabled;
+    status->active = s_local_gateway.active;
+    status->done = s_local_gateway.done;
+    status->fault = s_local_gateway.fault;
+    status->phase = (uint32_t)s_local_gateway.phase;
+    status->run_id = s_local_gateway.run_id;
+    status->step = s_local_gateway.step;
+    status->items = s_local_gateway.items;
+    status->triggers = s_local_gateway.triggers;
+    status->ready = s_local_gateway.ready;
+    status->timeouts = s_local_gateway.timeouts;
+}
+
+/* Core1 only, called at the end of the sequence service pass. */
+void trigger_local_gateway_service(void)
+{
+    if (!s_local_gateway.enabled) return;
+    trigger_sequence_service_status_t status;
+    trigger_sequence_service_get_status(&status);
+    if (status.state == TRIGGER_SEQUENCE_SERVICE_IDLE) {
+        if (s_local_gateway.phase != LOCAL_GATEWAY_DONE ||
+            status.run_id != s_local_gateway.run_id) {
+            local_gateway_reset();
+        }
+        s_local_gateway.active = false;
+        return;
+    }
+    /* A new START publishes a new run identity; a finished local run must not
+     * keep LOCAL_GATEWAY_DONE and ignore it. */
+    if (s_local_gateway.phase == LOCAL_GATEWAY_DONE &&
+        status.run_id != s_local_gateway.run_id) {
+        local_gateway_reset();
+    }
+    if (status.state == TRIGGER_SEQUENCE_SERVICE_FAULT || status.backend_fault != 0u) {
+        s_local_gateway.fault = true;
+        s_local_gateway.active = false;
+        s_local_gateway.phase = LOCAL_GATEWAY_FAULT;
+        return;
+    }
+    if (status.state != TRIGGER_SEQUENCE_SERVICE_READY &&
+        status.state != TRIGGER_SEQUENCE_SERVICE_RUNNING) {
+        return;
+    }
+    const uint32_t now_ms = local_gateway_now_ms();
+    switch (s_local_gateway.phase) {
+    case LOCAL_GATEWAY_WAIT_FIRST:
+        if (status.completed != 0u || status.accepted != 0u) return;
+        s_local_gateway.run_id = status.run_id;
+        s_local_gateway.generation = status.generation;
+        s_local_gateway.step = 0u;
+        s_local_gateway.items = status.repeat_count == 0u ? 0u :
+            status.count * status.repeat_count;
+        s_local_gateway.baseline_ready = status.gateway_ready_count;
+        if (trigger_sequence_service_gateway_fire(status.run_id, status.generation, 0u) ==
+            TRIGGER_SEQUENCE_SERVICE_OK) {
+            ++s_local_gateway.triggers;
+            s_local_gateway.phase = LOCAL_GATEWAY_WAIT_READY;
+            s_local_gateway.phase_at_ms = now_ms;
+            s_local_gateway.active = true;
+        }
+        break;
+    case LOCAL_GATEWAY_WAIT_STEP:
+        if (status.state != TRIGGER_SEQUENCE_SERVICE_READY ||
+            status.completed != s_local_gateway.step + 1u ||
+            status.accepted != status.completed) {
+            return;
+        }
+        s_local_gateway.step = status.completed;
+        s_local_gateway.baseline_ready = status.gateway_ready_count;
+        if (trigger_sequence_service_gateway_fire(status.run_id, status.generation,
+                                                  s_local_gateway.step) ==
+            TRIGGER_SEQUENCE_SERVICE_OK) {
+            ++s_local_gateway.triggers;
+            s_local_gateway.phase = LOCAL_GATEWAY_WAIT_READY;
+            s_local_gateway.phase_at_ms = now_ms;
+        }
+        break;
+    case LOCAL_GATEWAY_WAIT_READY:
+        if (s_local_gateway.config.ready_input == 0u && status.gateway_waiting &&
+            !status.gateway_pulse_busy) {
+            (void)trigger_sequence_service_gateway_ready(status.run_id,
+                                                          status.generation,
+                                                          s_local_gateway.step);
+            trigger_sequence_service_get_status(&status);
+        }
+        if (status.gateway_ready_count > s_local_gateway.baseline_ready &&
+            !status.gateway_pulse_busy && !status.gateway_waiting) {
+            ++s_local_gateway.ready;
+            if (s_local_gateway.items != 0u &&
+                s_local_gateway.step + 1u >= s_local_gateway.items) {
+                (void)trigger_sequence_service_cycle_finish(status.run_id,
+                                                             status.generation,
+                                                             s_local_gateway.step);
+                s_local_gateway.phase = LOCAL_GATEWAY_DONE;
+                s_local_gateway.done = true;
+                s_local_gateway.active = false;
+            } else if (trigger_sequence_service_cycle_step(status.run_id,
+                                                           status.generation,
+                                                           s_local_gateway.step) ==
+                       TRIGGER_SEQUENCE_SERVICE_OK) {
+                s_local_gateway.phase = LOCAL_GATEWAY_WAIT_STEP;
+            }
+            break;
+        }
+        if ((uint32_t)(now_ms - s_local_gateway.phase_at_ms) >
+            s_local_gateway.config.timeout_ms) {
+            ++s_local_gateway.timeouts;
+            s_local_gateway.fault = true;
+            s_local_gateway.active = false;
+            s_local_gateway.phase = LOCAL_GATEWAY_FAULT;
+            (void)trigger_sequence_service_stop();
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 const char *trigger_sequence_service_result_name(trigger_sequence_service_result_t result)
