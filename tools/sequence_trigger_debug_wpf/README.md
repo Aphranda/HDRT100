@@ -59,6 +59,29 @@ value > SYNC_IO_SEQUENCE_CODE_MAX                                    /* 0x0F */
 （`8 >> 1 = 4` 已经超出掩码）。界面默认编码因此是
 `0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15`。
 
+### `CONF:TRIG` 是「通道数 × 极化」，不是状态数
+
+16 个编码送进固件时，**不能**写成 `CONF:TRIG 16,0,1,1`：`CONF:TRIG` 的四个参数是
+`chan_count,pol,freq_count,wave_count`，而 `chan_count` 被
+`TRIGGER_SEQUENCE_CHANNEL_MAX = 8` 限制（`trigger_sequence_config.c:parameter_count()`）。
+超限时固件走 `SCPI_RES_ERR`，**不回包**，客户端只看到超时 + 队列里的
+`-200,"Execution error"`。
+
+16 状态计划要写成 `CONF:TRIG 8,2,1,1`：`pol=2` 表示双极化，状态数 =
+8 通道 × 2 极化 = 16。实机读回可验证：
+
+```text
+CONF:TRIG 8,2,1,1   => 1
+READ:TRIG:PAR?      => "TRIGGER",<crc>,1,1,1,0,8,2,1,1,16,<mapcrc>
+                                                   ^chan ^pol   ^state_count
+```
+
+本实现在 `SequenceCommandBuilder.TriggerParameters()` 里按编码数量推导：
+`≤8` → `(n,0)`；`9..16` 且为偶数 → `(n/2,2)`；其余直接报错不发命令。
+
+> **Python 版已在同一轮同步**：`sequence_trigger_debug_ui.py` 现在按同一规则推导
+> `CONF:TRIG`（16 编码 → `8,2,1,1`），不再发送会被固件拒绝的 `CONF:TRIG 16,0,1,1`。
+
 ## 手动开关控制
 
 “手动开关控制”页同时提供两路：
@@ -120,10 +143,46 @@ cmake --preset pico2-usb-runtime-switch      # PROJECT_ENABLE_USB_RUNTIME_SWITCH
 烧录后二选一：
 
 - 界面：“设备维护” → “切到 USB TMC”（工具会自动查询、写入、校验、再 `SYST:USB:BOOT`）；
-- 手动：在“自定义 SCPI”里依次发 `SYST:USB:MODE USBTMC`、`SYST:USB:BOOT`。
+- 手动：在“自定义 SCPI”里依次发 `SYST:USB:MODE USBTMC`、`SYST:USB:BOOT`；
+- 命令行（推荐，便于脚本化）：
 
-设备会以 TMC 的 PID 重新枚举，然后用
-`--probe "USB TMC" "USB0::0x2E8A::…::INSTR"` 验证。
+```powershell
+# CDC -> TMC
+\.\DhrT100.SequenceDebug.exe --probe Serial COM3 "SYST:USB:MODE USBTMC" "SYST:USB:MODE?" "SYST:USB:BOOT"
+# 设备以 USB0::0xCAFE::0x4030::<SERIAL>::INSTR 重新枚举，用 TMC 访问：
+\.\DhrT100.SequenceDebug.exe --probe "USB TMC" "USB0::0xCAFE::0x4030::839E1AE79EA20F31::INSTR"
+# TMC -> CDC（同样三步，BOOT 之后 COM 口会回来）
+\.\DhrT100.SequenceDebug.exe --probe "USB TMC" "USB0::...::INSTR" "SYST:USB:MODE CDC" "SYST:USB:MODE?" "SYST:USB:BOOT"
+```
+
+`SYST:USB:BOOT` 的输出通常读不到（设备立刻重启 USB），工具把
+`IOException` / `OperationCanceledException` / `VI_ERROR_SYSTEM_ERROR` 都视为“已重启”，
+不会误判为切换失败。
+
+### TMC 的写入延迟（实测）
+
+同一台设备、同一固件（`20261110164245`）实测：
+
+| 命令 | CDC | USBTMC |
+|---|---|---|
+| `*CLS`（只写不读） | ~0 ms | ~0 ms |
+| `*IDN?` / `SYST:ERR?`（查询） | ~0 ms | ~0 ms |
+| `CONF:SEQ:REPEAT 1`（写 + 回包） | ~0 ms | **~1.9–2.0 s** |
+| `CONF:SWITCH1 2`（写 + 回包） | ~0 ms | **~1.9–2.0 s** |
+| `CAL:TOPOLOGY:PROBE 1,10`（写 + 回包） | ~0 ms | **~1.9–2.0 s** |
+| 16 编码完整配置 | ~2 s | **~127 s** |
+| 完整 bench（配置→启动→读回→停止） | ~10 s | **~226 s** |
+
+规律：**TMC 下“写命令且带回包”约 2 s，查询和只写命令不受影响**，与具体子系统
+（sequence / sync_io / calibration）无关，说明延迟在 USBTMC 回包投递路径而不是命令处理。
+`configuration_end()` 只清原子标志、`set_frozen()` 只赋值，序列服务本身是微秒级的。
+
+因此：
+
+- 工具在 TMC 下把单命令超时放宽到 5 s（CDC 仍 2 s），CLI 的 `--configure/--bench`
+  等待上限 180 s；界面里 TMC 配置会明显“转圈”，进度以命令日志为准。
+- 需要对时序敏感的操作（手动开关、预算、回环观察）优先走 CDC；TMC 适合
+  “仪器库统一访问”的场景。
 
 ## 结构
 
@@ -157,17 +216,22 @@ Core 层不依赖 UI 与设备，`dotnet test` 可在无板卡机器上全部跑
 ```powershell
 dotnet test tests\DhrT100.SequenceDebug.Tests\DhrT100.SequenceDebug.Tests.csproj
 dotnet run --project src\DhrT100.SequenceDebug.App -- --smoke
-dotnet run --project src\DhrT100.SequenceDebug.App -- --bench independent --resource COM4
+.\verify-bench.ps1 -Resource COM3            # 一键实机验收：probe/budget/三模式 configure+bench
 ```
 
-实机（DHRT100 `0.1.0` / build `20261110154633`，CDC，COM4）验证记录：
+`verify-bench.ps1` 的每一步都打印 PASS/FAIL，失败时贴出日志尾部；`-Build`/`-Test`
+会先编译/跑测试，`-Only independent` 可只跑单个模式。
+
+实机（DHRT100 `0.1.0` / build `20261110164245`，VID `0xCAFE`、CDC PID `0x402F`、TMC PID `0x4030`）验证记录：
 
 | 项目 | 结果 |
 |---|---|
-| 独立 SP8T 配置 | 通过（全部 `SYST:ERR? = 0`） |
-| 独立 SP8T 启动 | `TRIG:START → 1`，`TRIG:SEQ:NEXT? = "READY"`，IO `占用=0xF 已武装=1`，停止后归零 |
-| RJ45 物理回环配置 | 通过（`NODE:ACT = "ACTIVE"`，topology `QUEUED` → owner `result=2, pending=0`，档位表 9 档） |
-| RJ45 启动 | ring `up_running=1`、tx/rx 20/20，`LINK` phase=3 等待 READY（MANUAL），停止后 ring/输出释放 |
-| 转台计数配置 | 通过（三槽位 `NODE:ACT = "ACTIVE"`，`COUNTER` 阈值 1000/IN1） |
-| 转台启动 | `TRIG:START → 1`，`READY`，`COUNTER` phase=9 等待计数阈值 |
-| USBTMC | 原生 `visa32.dll` 调用与错误传递已验证（`viOpen → 0xBFFF0011`）；端到端需先烧 runtime-switch 构建 |
+| probe / budget（CDC） | 通过，无超时 |
+| 独立 SP8T 配置 + bench（16 编码，`CONF:TRIG 8,2,1,1`） | 通过 |
+| RJ45 物理回环 配置 + bench | 通过（ring `up_running=1`，`LINK` phase=3 等 READY） |
+| 转台计数 配置 + bench | 通过（三槽位 `ACTIVE`，`COUNTER` phase=9 等阈值） |
+| CDC → USBTMC → CDC 切换 | 双向成功，`SYST:USB:MODE?` 可读回 |
+| USBTMC probe | 通过（8 条查询全部有回包，含 40 字段 ring 行） |
+| USBTMC 配置独立 SP8T | 通过，127 s（每条写 ≈2 s） |
+| USBTMC bench 独立 SP8T | 通过，226 s，ERROR 0 条 |
+| 手动开关 SP8T/SP2T | `CONF:SWITCH1/2` + `READ:SWITCH1/2?` 读写一致 |

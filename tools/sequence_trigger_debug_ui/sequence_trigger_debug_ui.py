@@ -44,6 +44,8 @@ MAX_LOG_LINES = 3000
 # Snapshot of SYNC_IO_SEQUENCE_TICKS_PER_US for the 4 ns PIO sequence clock.
 TIME_MAX_US = 0xffffffff // 250
 COUNTER_THRESHOLD_MAX = 0xffffffde
+# CONF:TRIG caps chan_count at 8 and expands chan_count x pol into states.
+CODE_CHANNEL_MAX = 8
 ROLE_SEQUENCE = "编码"
 ROLE_STATUS = "状态"
 ROLE_GATEWAY = "触发"
@@ -640,6 +642,23 @@ def build_ota_command(image: Path, resource: str, out_dir: Path,
     ]
 
 
+def trigger_parameters(code_count: int) -> tuple[int, int]:
+    """Map the planned state count onto CONF:TRIG chan_count/pol.
+
+    The firmware expands chan_count x pol (x freq x wave) into states and caps
+    chan_count at 8, so 16 codes must be sent as 8 channels x 2 polarizations.
+    """
+    if code_count <= 0:
+        raise ValueError("至少需要一个输出编码")
+    if code_count <= CODE_CHANNEL_MAX:
+        return code_count, 0
+    if code_count % 2 == 0 and code_count // 2 <= CODE_CHANNEL_MAX:
+        return code_count // 2, 2
+    raise ValueError(
+        f"输出编码数量超出固件通道上限：{code_count} 个"
+        f"（单极化最多 {CODE_CHANNEL_MAX} 个，双极化最多 {CODE_CHANNEL_MAX * 2} 个）")
+
+
 def build_configuration_commands(plan: str, codes: list[int], source: str,
                                  edge: str, settle_us: int,
                                  pulse_us: int,
@@ -670,9 +689,10 @@ def build_configuration_commands(plan: str, codes: list[int], source: str,
         raise ValueError(
             f"输出编码只能使用序列编码 OUT（掩码 0x{sequence_output_mask:X}）")
     states = list(range(len(codes)))
+    channels, polarity = trigger_parameters(len(codes))
     commands = [
         "TRIG:STOP",
-        f"CONF:TRIG {len(states)},0,1,1",
+        f"CONF:TRIG {channels},{polarity},1,1",
         f"CONF:SEQ {plan}," + ",".join(map(str, states)),
         f"CONF:SEQ:ACT {plan}",
         f"CONF:SEQ:OUTPUT {sequence_output_mask},{status_output_mask},"

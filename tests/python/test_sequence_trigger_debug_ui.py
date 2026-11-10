@@ -190,6 +190,16 @@ def test_output_codes_encode_out0_and_sp8t_position():
     assert "CONF:SEQ:CODE 2,15" in commands
 
 
+def test_trigger_parameters_split_states_into_channels_and_polarity():
+    eight = build_configuration_commands("PLAN", list(range(8)), "MANUAL", "RIS", 10, 5)
+    assert "CONF:TRIG 8,0,1,1" in eight
+    sixteen = build_configuration_commands("PLAN", list(range(16)), "MANUAL", "RIS", 10, 5)
+    assert "CONF:TRIG 8,2,1,1" in sixteen
+    for count in (9, 11, 17):
+        with pytest.raises(ValueError):
+            build_configuration_commands("PLAN", list(range(count)), "MANUAL", "RIS", 10, 5)
+
+
 def test_output_roles_build_level_mode_and_validate_physical_exclusion():
     commands = build_configuration_commands(
         "PLAN", [0, 1, 2, 3], "MANUAL", "RIS", 10, 99,
