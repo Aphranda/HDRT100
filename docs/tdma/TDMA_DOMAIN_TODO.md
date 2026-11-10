@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-11-06
+Last updated: 2026-11-10
 
 ## 文档接口与状态规则
 
@@ -121,6 +121,24 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 **非目标。** 不改拓扑/节点数、不做 8 节点；不以放宽 `TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES` 的方式换「能过」；不把「拆 SM 处理字节边界」当第一步（无指令槽）。
 
 **批次与凭证。** SPEED-00 属台架（无代码）；SPEED-01(a)/02 属工具与 host（host 凭证）；SPEED-01(b) 视 A/B/C 而分属数据或固件；SPEED-03/04 属固件（需 P3）。每批单独提交，文档与代码分离。
+
+### 三节点环与 NO1 双角色（2026-11-10 用户裁定：维持四节点）
+
+**裁定。** 产品环维持四节点；不把「三节点环 + NO1 同时承担 COUNTER 与 GATEWAY」作为产品形态。理由不是「实现不了」，而是三层同时受阻，收益不足以覆盖成本与永久维护面。已完成的 P0T 2..4 板能力仅作缺板自检保留，不构成拓扑承诺。
+
+**分层依据（2026-11-10 只读普查，固件与宿主两轮独立复核）。**
+
+- 环运行时**已 N 参数化**：帧长/guard、邮箱布局、hop 计数、拓扑掩码、guide scan（有向对数 = `N*(N-1)`）、VDC 观测矩阵均由 `node_count` 派生（`tdma_operating_profile`、`tdma_pio_spi_phys_origin`、`tdma_ring_runtime`、`tdma_guide_scan`、`vdc_domain_evidence`）。单看这一层，改节点数只是低风险重编译。
+- **契约层禁止**：[TDMA 域架构](TDMA_DOMAIN_ARCHITECTURE.md) 的「四板分发」条款要求 `ring_node_count` 至少四板规模；三节点的命令分发证据天然违约，须先升版该条款并走 C11。`CALIBRATION-P0TSAMPLING-01` 的「真板 12 对」与 `CALIBRATION-P3HIL-01` 的「四 link P3 矩阵」属同一改动面。
+- **角色层需重设计**（[T2 架构](../trigger/t2/TRIGGER_T2_ARCHITECTURE.md)）：部署表定长四行且要求 `board_uid` 与 `tdma_slot` 双唯一，三节点只有三个 slot ⇒ 唯一性无解；`local_role` 是单值标量；`trigger_gateway_service` 明文禁止 GATEWAY 与 COUNTER 同时装载；`trigger_action_template_store` 按单角色装载；`trigger_t2_runtime` 的 origin 分支不进入 `drain_lane()`，参考板没有动作装载通路，且网关服务与 origin 求解同处一个 Core1 phase，须重标定 `PROJECT_CORE1_PHASE_SYNC_TRIGGER_WCET_CYCLES`。
+- **DPLL 证据侧**：采集执行体位于 `tools/archive/vdc/vdc_joint_capture/lineage_v1/`（归档，按 AGENTS §2.12 不得就地修改，只能走恢复提案 + C11 + 用户授权），四通道几何另写在 `p3_dpll_short`、`vdc_scope_evidence`、`DPLL60_workflow`。
+- **台架**：`config/**` 计入固件指纹，任何三节点台架配置都要先有一次四节点 P3 覆盖。
+
+**保留能力。** `hardware_acceptance_workflow.py --profile topology --ring-board-count 3` 可做缺板线序/标定自检；`require_product_ring()` 与 `credential_ineligibility()` 保证三节点不出硬件凭证。
+
+**复开条件与顺序。** 仅当三节点成为产品定义（而非台架缺板）时重启，顺序固定：① 契约（`ring_node_count` 条款升版、P0T/P3HIL 条款）→ ② T2 数据模型（角色位集、origin 动作装载通路、Core1 WCET 重标定）→ ③ 工具与凭证新 schema。粗估单人 5–7 周（快照，非承诺）+ 一次台架改线（NO1 需增 READY 与 TRIG 两线）+ DPLL 资格可能降级。
+
+**遗留安全项（与拓扑无关，待立项）。** 持久化 boot profile 优先于编译常量，且 SCPI 写入端不与之收敛：现场四板 profile 刷成三节点镜像后会静默组四板环，使 `app_ctrqs_ring_formed()` 永假、CTRQS 阶梯卡死，症状与「环坏」难以区分。建议在 boot 路径增加 node_count 一致性闸门（固件改动，需 P3）。
 
 ### 实时预算、飞行与异步准备
 
