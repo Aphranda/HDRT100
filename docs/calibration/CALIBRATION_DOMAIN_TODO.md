@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_SINGLE_PORT_GUIDE_PLAYBOOK.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-11-05
+Last updated: 2026-11-10
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -291,6 +291,21 @@ B6 `CAL-GUIDE-08/10` 与四板拔三口验收。B2/B3 文件域不相交可并�
 | P0T-06 | 固化重复 probe 和质量门禁 | `PENDING` | frame/word/edge、timeout、bad header、误触发、跨轮一致性和 profile identity 可判定 |
 | P0T-07 | 完成拓扑故障注入 | `PENDING` | 开链、分叉、多闭环、反向、重复/缺失 Node、串扰和中途掉线覆盖至 `TDMA_RING_NODE_MAX` |
 | P0T-08 | 将 topology/wiring/profile freshness 接入 staging 失效逻辑 | `PENDING` | 旧 active generation 仅按明确 holdover policy 使用，不静默继承 |
+
+### P0T 角色映射（2026-11-10 控制线改线后待办）
+
+**背景（快照）。** 台架控制线已按新映射改线完成：NO1 = COUNTER、NO2 = SWITCH_A、**NO3 = SWITCH_B、NO4 = GATEWAY**（原为 NO3 = GATEWAY、NO4 = SWITCH_B）。软件侧尚未跟随：`tools/sync_trigger/t2_workflow.py` 的 `ROWS` 与 `action_row()`、以及 `sequence_workflow.py` 的角色序仍按旧映射下发，部署表与实际接线相反 ⇒ 网关会驱旧线位、开关码无出口。**A 项完成前不得跑 T2 扫描**，否则 late/executed 读数无意义。
+
+**关键约束（先解耦再改）。** 业务角色枚举是固定的（`TRIGGER_DEPLOYMENT_SLOT_COUNTER` / `_SWITCH_A` / `_GATEWAY` / `_SWITCH_B`，见 `components/sync_trigger/inc/trigger_deployment.h`），与 `tdma_slot` 是两套编号：新映射下 NO3 是「role = SWITCH_B、slot = 2」，NO4 是「role = GATEWAY、slot = 3」。工具当前把两者当作同一个数字使用，直接把槽位字面量改掉会产出「role = SWITCH_B + kind = GATEWAY_PULSE」的组合，被 `trigger_action_table.h` 的角色/类型匹配拒绝——fail-closed，但表现为装表失败。
+
+| ID | 任务 | 状态 | 完成/退出门禁 |
+|---|---|---|---|
+| P0T-09 | **A：最小对齐（先能用）**——`t2_workflow.py` 的 `ROLES`/`ROLE_SLOT`、`action_row()` 的角色判定、`ROWS` 的 mask 与 feedback（NO3 → in `0x0`/out `0x1`/fb `0`；NO4 → in `0x1`/out `0x8`/fb `1`）、`T2_SEQ_MODE_GATEWAY` 的目标槽位；`sequence_workflow.py` 的 `ROLES` 与 `T2_SEQ_GROUPS` 拼序；`t2_position_status_probe.py` 的 `ROLES`；`TRIGGER_T2_ARCHITECTURE.md` 的台架映射行 | `PENDING` | 重下发部署后四板 `TRIGger:REServation:DEPloyment?` 的 (role, slot, masks, feedback) 与接线一致且 CRC 相同；装表成功（NO4 为 GATEWAY_PULSE、NO3 为 SWITCH_CODE）；短扫描 `late/expired/no_plan/conflict/backend` 全零、`decode_reject` 零；`T2_SEQ_MODE_GATEWAY` 只作用于 NO4。属 host 范围（`tools/` + 文档），不出 P3 凭证；改线与扫描为台架动作 |
+| P0T-10 | **B：解耦（A 之后）**——引入 `SLOT_ROLE` 显式映射，`action_row()`/序列/网关 mode 全部按角色名派生，`ROWS` 由映射生成，消除「角色枚举 = tdma slot」的隐含等价 | `PENDING` | 换位只改映射一处即生效；新增宿主用例覆盖 role 与 slot 不一致（slot ≠ role 时装表仍成功且 kind 匹配）；非对称 profile（如 `reservation_8`）的组序由角色名而非位置决定。属 host 范围 |
+
+**风险与量化（快照，非事实源）。** 网关挪到环上最后一跳：process-image 档一跳约一帧（10 MHz 下现帧约 139 µs），相对实测提前量 183–203 ms 约 0.07%；fine slice 为 500 µs（`group_period_slices` 取 20 ≈ 10 ms）下一跳约 0.28 slice，理论无感。判据以 `late` 零为准，必要时把 `group_offset_slices` 加一档，不需要改代码。席位按 `SYSTem:TDMA:SEAT:ROTation` 轮换，所以「网关位于最后一跳」不是长期降级位。后端负载总量不变：NO4 由 SWITCH_B（两组）改为 GATEWAY（两组），但网关是历史上最重的后端，需在该 build 上复核 `max_rt` 预算。
+
+**本轮不做。** 不改固件（角色是部署行数据，由 `board_uid`/`tdma_slot`/mask/feedback 绑定，见 `trigger_deployment.h` 与各服务解析路径）；不改 `config/trigger/t2_sequence_profile.json`（active profile 组数对称、`codes` 按角色名寻址），否则会变更固件指纹、需要 P3 凭证。
 
 ## 四、P0 基础件与跨域边界
 
