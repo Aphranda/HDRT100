@@ -4,7 +4,7 @@ Status: Active
 Domain: CONSOLE
 Canonical: `docs/console/CONSOLE_ARCHITECTURE.md`
 Related: `docs/README.md`, `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`, `docs/console/CONSOLE_TK_ARCHITECTURE.md`
-Last updated: 2026-11-04
+Last updated: 2026-11-09
 
 ## 1. 定位
 
@@ -63,6 +63,12 @@ CONSOLE 不能成为第二套 command slot、第二套 ACK 事实或第二套 ac
 - OTA（常规单板 BEGIN/PBEGIN/DATA/END/BOOT/COMMIT，自动签发凭证）
 - TCP 透传（本地 127.0.0.1 行协议，GUI/TCP 共用 Dispatcher）
 - 诊断与原始命令
+
+读面（2026-11-09 迁移）：有 `REFMEM-READ-01` key 的状态走 `SYSTem:REFMEM:OBS?`
+（key 表以 `config/refmem/read_catalog.yaml` 为准，经 `ControlPlane.read` 取逐槽行）；
+命令结果读 `SYSTem:CTRL:STATus?` / `SYSTem:COMMand:TARget?`。`GUIDE:PLAN?`、
+`BOOT:PLAN?`、`READ:*` 的富字段没有等价 OBS key，保留本地 SCPI 并在 UI 标注
+“诊断例外”（`CONSOLE-046`），不得作为跨板判据。
 
 尚未交付：REFMEM 装载/表/质量页、T2 表安装与启动向导、TDMA 启环、DPLL/VDC 启动、校准训练。这些属于 `docs/console/CONSOLE_DOMAIN_TODO.md` 的 P0/P1。
 

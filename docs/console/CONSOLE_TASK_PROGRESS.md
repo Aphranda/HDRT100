@@ -4,13 +4,206 @@ Status: Active
 Domain: CONSOLE
 Canonical: `docs/console/CONSOLE_TASK_PROGRESS.md`
 Related: `docs/console/CONSOLE_ARCHITECTURE.md`, `docs/console/CONSOLE_TK_ARCHITECTURE.md`, `docs/console/CONSOLE_DOMAIN_TODO.md`, `docs/README.md`
-Last updated: 2026-11-04
+Last updated: 2026-11-09
 
 ## 文档接口
 
 本文记录 CONSOLE 域的真实执行、证据和失败；稳定语义见 [Architecture](CONSOLE_ARCHITECTURE.md)，任务状态见 [TODO](CONSOLE_DOMAIN_TODO.md)。条目标签使用 `CONSOLE-PROGRESS-YYYYMMDD-NNN`，最新在最上面。
 
 ## 当前 checkpoint
+
+### CONSOLE-PROGRESS-20261109-022：demo 读面迁 OBS、开关旧写入口下架
+
+- **写面**：按固件行为（`CONFigure:SWITch#` → `-200,"USE_CTRL_EXECUTE"`）在
+  `catalog.Function.app_deprecated` 标记开关函数；界面不再提供“应用层 SCPI”单选，
+  `build_app()` 对废弃入口 fail-closed。其余无 REFMEM 类型的应用层写保留。
+- **读面**：`obs_read.py` 增加 key3/4/5/6/8 的结构化读取（`ControlPlane.read` 逐槽行），
+  导出 `read_ring_status/read_boot_plan/read_guide_plan/read_trigger_state/read_node_health`
+  与页面混入 `ObsReaderMixin.read_obs`；REFTMEM 读不再由页面直接拼 SCPI。
+- **校准 workflow**：`precheck` 与报告 `ring_after` 改读 OBS key6（本地行
+  `valid/enabled/up/down/adapter`），不再用 `RING:STATus?` 的 12 字段；
+  `GUIDE:PLAN?` 的 27 字段判据保留为诊断例外。
+- **校准页**：汇总的启环状态改 OBS key5（`action/fail_step/boot_done/half_ring/profile_source`），
+  保留“详细 BOOT:PLAN?（本地 SCPI 例外）”按钮；环状态按钮改 OBS key6。
+- **总览**：板卡在线改 OBS key8（worker + UiPump 异步刷新），卡片标注读源。
+- **模拟器**：按 REFMEM-READ-01 行格式（`slot,valid,epoch,seq,age_ms,stale,<schema>`）
+  应答 `OBS?`，`--demo` 全流程可演示。
+- **验证**：`test_trigger_debug_demo/ui/obs` 全绿（含新增 OBS 解析、模拟器 OBS、开关废弃断言）；
+  `py_compile` 全通过。证据路径 `out/refmem_read/` 的 HIL 报告仍属 REFMEM 域。
+- **边界**：未改固件；`READ:*`、`GUIDE:PLAN?`/`BOOT:PLAN?` 全字段没有 OBS key，
+  登记 `CONSOLE-046`，不作为跨板判据。
+
+### CONSOLE-PROGRESS-20261109-021：单口引导全阶梯按钮与 P2 复环失败
+
+- **页面**：汇总页新增 `运行全阶梯 P1→T3`；动作页统一 `action_inputs`，P2/P3 使用 level 7 + §4.6 规范载荷，T0–T3 按阶梯参数；运行前要求 `ladder_index=0`。
+- **参考脚本**：`guide_cmdplane_probe.py ladder 1 6020 6120` 四板 P1 PASS；`p2 6021 6121` 执行 1 个 trial 后 `status=2/reason=14`（STOPPED + NOT_ONLINE_SAFE），不是 restore 的 `status=3/abort_site=26|27`。
+- **修正**：P2 `status=2/reason=14` 的代码路径是 `APP_CTRQS_P2_CODED_STOP` 中 `calibration_manager_restore_training_stage()` 失败 → `hard_fail_reason=NOT_ONLINE_SAFE`，不是 Q/复环。已试 P1 level7（10k 环四板 GREEN）后接 P2，仍复现。
+- **页面**：动作页 level 已改为可编辑，P1 可填 7；全阶梯按钮仍需先复位 ladder。
+- **日志**：`logs/2026-11-08/10k-P1-235555.log` 示例；P2 参考脚本无归档日志。
+- **验证**：host 29 passed；页面按钮/阶梯参数 smoke。
+
+### CONSOLE-PROGRESS-20261108-020：校准运行日志按日期分目录
+
+- **格式**：`out/calibration/guide-10k/logs/YYYY-MM-DD/<label>-<HHMMSS>.log`；动作页 label 为 `10k-P1` 等。
+- **内容**：每步 CONFig/TRIGger、gen/epoch、Q 进度、报告/failure 路径；失败也落盘。
+- **报告**：PASS/FAIL JSON 增加 `log_path`。
+- **验证**：`2026-11-08/10k-235303.log` 已生成；P1 在该轮 `SUCCEEDED`。
+- **边界**：日志只记录主机流程，不含固件内部 trace。
+
+### CONSOLE-PROGRESS-20261108-019：P2/P3 独立页试跑，ladder 未推进
+
+- **P2**：独立页 gen 6006/epoch 6106，CONFig/TRIGger `OK`；Q `status=1/reconcile=1/trials_done=4/passed=0xF/failed=0`，但 `ladder_index=1/ladder_step=0`，demo strict 以 `trials=1` 判 FAIL。
+- **P3**：gen 6007/epoch 6107；Q `status=3/reason=13`、`trials_done=0`；未进入完成态。
+- **更正**：`app.c:1722` 是旧注释；P2–T3 trial body 已存在（P2 校验 2334-2354、P3 2355-2386、T0–T3 2387-2482）。之前 demo 的 P2/P3 失败是**载荷形状/阶梯顺序**问题，不是“未实现”；动作页已按 §4.6 规范载荷修正并恢复运行。
+- **证据**：`out/calibration/guide-10k/action-P2/.../20261108-234522-359551-failed.json`、`out/calibration/guide-10k/action-P3/.../20261108-234729-7b661c-failed.json`。
+- **台架**：ring 仍 up，build `20261108142853`。
+
+### CONSOLE-PROGRESS-20261108-018：校准页拆为汇总 + P0–T3 子 tab
+
+- **结构**：`CalibrationPage` 变为二级 Notebook：汇总 + 线序校准、时钟标定、编码标定、时延标定、TRN-00 marker、TRN-01 SCK、TRN-02 DATA、TRN-03 staging。
+- **独立页**：各页自带 action/generation/epoch/window/trials/candidates/thresholds、读 PLAN/BOOT；当前固件只接 P1，P1 运行可用；P2–T3 保留页面/参数/只读入口，运行按钮禁用（避免把 fail-closed 当可用）。
+- **实板验证**：P1 独立页在 build `20261108142853` 用 gen 6004/epoch 6104 运行，`SUCCEEDED`，`status=1/reconcile=1/trials=4/passed=0xF/failed=0`；报告 `out/calibration/guide-10k/action-P1/calibration/guide-10k/20261108-233903-14fb2d.json`。
+- **边界**：P2–T3 的 C 段默认值按 §4.6 规范；P2 实跑仍在 Q 段失败，见 021。
+- **验证**：host 29 passed；9 个子 tab 实板截图。
+
+### CONSOLE-PROGRESS-20261108-017：全页面实板 UI 验证
+
+- **台架**：COM5/NO.1，build `20261108142853`，10 kHz 环在线。
+- **范围**：14 个 tab 全部构建/切换/截图；安全读回：总览 refresh、状态回读查询、ACK 聚合、控制面 catalog、校准 `BOOT:PLAN?`、OTA progress、原始 `*IDN?`。
+- **结果**：无 Tk 异常、无页面崩溃；实板返回 `*IDN?=NO.1,DHRT100,0010071E65B5CB38`；校准页 `BOOT:PLAN?` 为 `action=1, steps=8, fail=0, done=1, source=2(默认档)`，显示 READY。
+- **修正**：校准页默认档改为 10 kHz；新增 BOOT 状态面板；验证脚本强制串口、按队列空闲逐页等待。
+- **未做**：OTA 升级、TCP 服务启动、控制面/功能页写命令；仅验证构建与只读入口。
+- **证据**：`out/calibration/guide-10k/ui-verify/`（14 张 PNG + report.json）。
+
+### CONSOLE-PROGRESS-20261108-016：校准页增加单口启环状态
+
+- **页面**：`CalibrationPage` 新增 `BOOT:PLAN?` 状态面板，显示 action/steps/fail_step/boot_done/next_step/half_ring/have_profile 与 `profile_source`（1=持久档、2=默认档、0=无档）。
+- **判定**：`boot_done=1 + fail_step=0 + half_ring=0 + action∈{1,2}` 显示 `READY`，否则 `NOT READY`。
+- **按钮**：`读 BOOT:PLAN?`、`读 RING:STATus?`；与现有单口 C/T 流程共用 COM5。
+- **边界**：仅读回/展示；不自动复位、不自动 provisioning、不启 10M 环。
+- **验证**：UI smoke 覆盖 20 字段 BOOT 解析与“默认档/READY”；host 29 passed。
+
+### CONSOLE-PROGRESS-20261108-015：10 kHz 双 PASS；10 MHz ARM 仍阻塞
+
+- **10 kHz PASS ×2**：gen 6001/epoch 6101、gen 6002/epoch 6102；均 `status=1/reconcile=1/trials=4/passed=0xF/failed=0/abort=0`。
+- **报告自包含**：`calibration_workflow.py` 的 PASS/FAIL 报告新增 `idn/build`；`20261108-164145-654461.json` 含 build `20261108055416`。
+- **10M**：`tdma_start_ring --level 7 --skip-train --full` 在 ARM 后 `adapter_started=0` 超时，未进入 C/T。
+- **当前台架**：10 kHz 环 up。
+- **判定**：10k 收束完成；M4/M5 未完成，目标 blocked 于 10M ARM。
+
+### CONSOLE-PROGRESS-20261108-014：新 build 10 kHz PASS，10M 仍失败
+
+- **新 build**：四板 `20261108055416`；10 kHz 零口自组环 `enabled/up/down/adapter=1`。
+- **10 kHz demo**：gen 6001 / epoch 6101；CONFig/TRIGger `OK`；Q `progress_status=1(COMPLETE)`、`reconcile=1`、`trials_done=4`、`passed_mask=0xF`、`failed_mask=0`、`abort_site=0`；Workflow `SUCCEEDED`。
+- **10M 尝试**：`tdma_start_ring --level 7 --skip-train --full`；STOP/STAGE/APPLY/TOPO/ARM/START 返回 OK，但 step8 ARM timeout，`adapter_started=0`；未进入 demo C/T。
+- **恢复**：四板 BOOT:RESet 回 10 kHz 自组环。
+- **证据**：`out/calibration/guide-10k/bench/calibration/guide-10k/20261108-163824-447c21.json`、`out/calibration/guide-10k/bench/10m-skiptrain-20261108/summary.json`。
+
+### CONSOLE-PROGRESS-20261108-013：目标转入外部阻塞
+
+- **已收口**：10 kHz 基线、demo C/T 单口链路、strict verdict、失败报告、四板只读基线。
+- **阻塞 1**：10 kHz Q 段 `status=3/reason=14`，`app.c` RESTORE_WAIT/REBUILD 路径需固件 owner 修复（`CONSOLE-042`）；主机侧不改固件。
+- **阻塞 2**：10 MHz 建环 TRAIN 前置 `-200`、`adapter_started=0` 不可复现；且校准基线缺失（`CONSOLE-043/044`），需 10M setup/校准/P3 owner。
+- **边界**：未改固件/接线；台架当前为 10 kHz 自组环。
+- **判定**：目标不标完成；等待外部 owner。证据见 005/009/010/012。
+- **后续**：014 在新 build `20261108055416` 上 10 kHz demo 已 PASS，Q 阻塞解除；10M ARM/TRAIN 仍 OPEN。
+
+### CONSOLE-PROGRESS-20261108-012：10M adapter 窗口不存在，停止盲试
+
+- **探针**：ARM 后 50 ms 间隔采样四板 `RING:STATus?` 5 s；四板始终 `adapter_started=0`、`cfgseq=6/applied=5`。
+- **结论**：没有可用的“ARM 后 adapter 窗口”让 TRAIN 插入；此前一次 `adapter=1` 观察不可复现，不能再作为 10M 建环依据。
+- **处置**：停止 10M 盲试；四板 BOOT:RESet 恢复 10 kHz 自组环（当前 `enabled/up/down/adapter=1`）。
+- **证据**：本次会话控制台输出；探针在失败分支提前退出，未生成 JSON，不能作为独立产物。可复跑的 10M 产物仍只有 010 的 `10m-order-trace-20261108.json`。
+
+### CONSOLE-PROGRESS-20261108-011：10M APPLY settle 反证；adapter 不稳定
+
+- **尝试**：STOP→STAGE/APPLY→TOPO 后等待 `cfgseq==applied`，再 ARM，等 `adapter_started=1` 后 TRAIN。
+- **结果**：COM5 的 `OPMode:APPLy` 返回 `-200,"TDMA_OPMODE_APPLY_STOP_REQUIRED"`（STOP 异步未完成）；ARM 后四板 10 s 内 `adapter_started=0`，无法进入 TRAIN。
+- **结论**：单纯等 `cfgseq==applied` 不足；本次观测到 ARM 后 `adapter_started` 不能稳定保持 1，TRAIN 的前置窗口尚未定清。`CONSOLE-043` 仍 IN PROGRESS。
+- **恢复**：四板 BOOT:RESet 回 10 kHz 自组环；当前 `enabled/up/down/adapter=1`。
+- **证据**：本次会话控制台输出；探针在失败分支提前退出，未生成 JSON，不能作为独立产物。
+
+### CONSOLE-PROGRESS-20261108-010：10M ARM/TRAIN 顺序 trace 反证裸 ARM
+
+- **trace**：`bench_10m_order_trace.py` 记录 `STOP → STAGE/APPLY → TOPO → ARM → TRAIN → START` 全时间戳。
+- **结果**：ARM 后四板 `enabled=1, adapter_started=0, cfgseq=6/applied=5`；随后 `TRAIN 4096` 与 `START` 全部 `-200`。
+- **结论**：**裸 ARM 后 TRAIN 不可行**；之前 step6 后短暂看到 `adapter=1` 的机制尚未由 trace 证明，不能作为“ARM→TRAIN”顺序证据。`CONSOLE-043` 保持 IN PROGRESS。
+- **恢复**：四板 BOOT:RESet 恢复 10 kHz 自组环（当前 `enabled/up/down/adapter=1`）。
+- **证据**：`out/calibration/guide-10k/bench/10m-order-trace-20261108.json`。
+
+### CONSOLE-PROGRESS-20261108-009：M4 10 MHz 建环成功，但 P1 C/T 失败
+
+- **建环**：10 MHz 曾按 `STOP/STAGE/APPLY/TOPOLOGY → ARM → TRAIN → START` 建起四板环（`10m-start` summary 证明 up/down=1、node_count=4、rx_bad=0）；但 010 的 trace 反证“裸 ARM 后 TRAIN 可行”，顺序证据不成立；`10m-start` 的 `sequence` 仍是静态 TRAIN→ARM 文案。
+- **demo 10 MHz C/T**：COM5 单口 `GUIDE:CONFig level 7` + `TRIGger` 均 `OK`；Q 回读 `status=3(FAILED), reason=14(NOT_ONLINE_SAFE), trials_done=4, passed_mask=0x0A, failed_mask=0x05, commit=2`；level 7 由该失败 JSON 的 config/plan 证明。
+- **失败归因边界**：本次只做了 `OPMode:STAGE/APPLY level 7`，未恢复校准 stage/基线；整片擦除后校准数据被清，10 MHz P1 的 4-cycle trial 失败与此一致。M4 不能用当前台架状态判定为 demo 回归失败，也不能宣称 10 MHz 通过。
+- **结论**：10 MHz demo 链路可执行，但本轮 P1 本身有失败 trial，且 Q 仍 `NOT_ONLINE_SAFE`；**不能宣称 10 MHz 回归通过**。
+- **恢复**：四板 `SYST:BOOT:RESet` 恢复 10 kHz 自组环；当前 `enabled/up/down/adapter=1`。
+- **证据**：`out/calibration/guide-10k/bench/10m-start-20261108/summary.json`、`out/calibration/guide-10k/bench/calibration/guide-10m/20261108-105627-461d6e-failed.json`。
+
+### CONSOLE-PROGRESS-20261108-008：M4 10 MHz 建环在 TRAIN 前置失败
+
+- **尝试**：`tdma_start_ring.py --level 7 --full`（四板 UID，build `20261107175157`，未用 `--bringup`）。
+- **成功**：discover、STOP all、STAGE/APPLY level 7、TOPOLOGY 均 OK。
+- **失败**：clock training `TRAIN 4096` 在 NO.2 返回 `-200,"TDMA_RING_TRAIN"`，0/4096 cycles；未进入 ARM/START。
+- **恢复**：四板 `SYST:BOOT:RESet` 后 boot profile 自组回 10 kHz；`enabled/up/down/adapter=1`，build 一致。
+- **证据**：`out/calibration/guide-10k/bench/10m-ring-20261108/summary.json`。
+- **边界**：未改固件/接线；10 MHz TRAIN 前置未解决，M4 不能宣称完成。
+- **后续**：009/010 已反证“ARM→TRAIN 实际可行”；`10m-start` summary 的静态 sequence 仍是 TRAIN→ARM，043 不能标 DONE；010 的 trace 也只证明裸 ARM 后 TRAIN 失败。
+
+### CONSOLE-PROGRESS-20261108-007：M3 四板只读基线（registered tool）
+
+- **恢复**：四板 `SYST:BOOT:RESet` 后 boot profile 自组 10 kHz；`tools/calibration/guide_cmdplane_probe.py status` 只读确认 NO.1–4 全部 `enabled=1/up=1/down=1/adapter=1`，build 一致 `20261107175157`，PLAN 全零。
+- **证据**：`out/calibration/guide-10k/bench/m3-four-board-status-20261108.txt`。
+- **结论**：四板只读基线已可复跑；demo 默认仍只读协调板，M3 的“demo 内聚合”未做。
+- **交叉复核（只读子代理）**：4 项 PASS；附注：状态文件为 UTF-16、无工具命令 provenance，NO.1 `trip_ns=400` 而其余为 0，语义未确认，不影响四板 ring 就绪判定。
+- **验证**：host 29 passed；未发 GUIDE 命令。
+
+### CONSOLE-PROGRESS-20261108-006：M3 主机 strict verdict 收口
+
+- **判定对齐**：`calibration_workflow.py` 的 `PLAN_FIELDS` 增加 `abort_site`；`_report` 现在要求 `valid=1/progress_valid=1/progress_status=1/reconcile=1/trials_done=trials/passed_mask=(1<<trials)-1/failed_mask=0/abort_site=0`，不再只凭 status 判定。
+- **失败分类**：新增 `failure_class`：`Q_RING_RESTORE`（status=3/reason=14）、`Q_FAILED`、`Q_NOT_REACHED`、`Q_NOT_RECONCILED`、`TRIAL_FAILED`、`ABORT_SITE`；失败报告带 `ring_after`。
+- **页面**：`calibration_page` 的 PLAN 字段增加 `abort_site` 显示。
+- **交叉复核（只读子代理，二次）**：M1 PASS（弱：m1 JSON 是摘要，非逐口原始响应）；M2 若把 gen 962 demo 与 gen 963 四板时序合并叙述则 **FAIL**，两者已拆开；M2 gen/final/ring 在各自 run 内成立，trigger 先后为运行日志推断；app.c 根因 **PASS（机制措辞已修正）**；strict gate PASS；`abort_site` 为固件第 25 字段（`scpi_tdma_snapshot_commands.c:845`），缺字段 fail-closed。新 `ring_after/failure_class` 尚未由 out/ 旧报告演示，等下一次台架 run 取证。
+- **验证**：host 29 passed；无台架新命令。
+- **边界**：四板一致性仍由外部只读工具/维护口确认；demo 默认仍只读协调板。
+
+### CONSOLE-PROGRESS-20261108-005：M1 环恢复 + M2 四板时序取证，Q 段根因归固件
+
+- **M1**：对四板执行 `SYSTem:BOOT:RESet`（build `20261107175157`，COM5/4/3/6），boot profile 自组 10 kHz 环；基线 `enabled/up/down/adapter=1`，`level=23`、`baud=10000`、`GUIDE:PLAN?` 清零。证据 `out/calibration/guide-10k/bench/m1-baseline-20261108-103157.json`。
+- **M2 复跑（demo，独立一次）**：`GuideWorkflow(level=23)` 用 gen 962/epoch 1002，C/T 均 `OK`；Q 为 `status=3(FAILED), reason=14(NOT_ONLINE_SAFE), trials_done=4, passed_mask=15, failed_mask=0`，ring 落 0。证据 `out/calibration/guide-10k/bench/calibration/guide-10k/20261108-103210-7fe281-failed.json`。
+- **四板时序（另一次 gen 963，不与上面混为同一 run）**：NO.2–4 到 gen 50.765/50.797/50.844 s，NO.1 60.0 s；trigger 在四板 gen 全到后发出；epoch 四板 0.079–0.219 s；四板最终 PLAN 均 status=3/reason=14。该证据支持“不是主机提前 trigger”，但 trigger 时刻未写入 JSON，属运行日志推断。
+- **证据质量**：`m2-timing-20261108-103502.json` 是本次仪器化运行的手写摘要，producer 在 `out/` 未入库；四板最终 PLAN 原始值来自本次会话输出，不能仅凭该 JSON 独立复跑。
+- **根因（修正）**：`app_guide_window_close()` 会重置 boot 标志并重新开窗；`app_diag_service()` 每 tick 调 `app_guide_boot_service()`，replay 会被重试。`APP_CTRQS_RESTORE_WAIT` 的 guard `s_boot_guide_done && s_boot_fail_step==0` 表示“replay 已成功”，不是“等待 replay”。真正缺陷是：boot plan 存在时 `!app_ctrqs_boot_plan_present()` 不成立，REBUILD 分支不可达；replay 失败或恢复后的 ring 身份/up/down 不匹配时，只能盲等 45 s 后置 `NOT_ONLINE_SAFE`。建议修复：处理 `s_boot_fail_step != 0`、boot-plan 不匹配时回退 REBUILD、发布可区分的 abort_site/reason。
+- **边界**：未改固件；Q 段修复需固件 owner 授权。
+
+### CONSOLE-PROGRESS-20261108-004：台架验证 demo 10 kHz 单口 C/T，Q 段失败
+
+- **台架**：COM5 = NO.1，build `20261107175157`；起始 10 kHz ring `enabled/up/down/adapter=1`，`PLAN?` level 23、gen 960。
+- **demo 执行**：`SYST:TDMA:GUIDE:CONFig 1,305398721,961,23,4000,4,3,0,4,16,1,64` → `OK`；59 s 后 gen=961；`GUIDE:TRIGger 1,1001` → `OK`；epoch=1001。
+- **结果**：`PLAN?` = `valid=1, progress_valid=1, progress_status=3(FAILED), trials_done=4, deepest=3, reason=14(NOT_ONLINE_SAFE), reconcile=3, passed_mask=15, failed_mask=0`；随后 `RING:STATus?` 为 `enabled=0/up=0/down=0/adapter=0`。
+- **证据**：`out/calibration/guide-10k/bench/calibration/guide-10k/20261108-094828-3fd2cd-failed.json`。
+- **判定**：demo 的单口命令/等待/报告链正确；Q 段 ring restore 失败，属固件/环恢复问题，不是主机假失败。未继续发命令，未尝试自行恢复台架。
+
+### CONSOLE-PROGRESS-20261107-003：10 kHz 启环确认后，单口流程进入可用态
+
+- **输入**：用户确认 10 kHz 启环已可用（`RING:BRINGUP 1` 路径）；本会话未动台架、未复验。
+- **影响**：`GuideWorkflow(level=23,label="10k")` 的 precheck 不再被 ring 缺失阻塞；10 kHz C/T/PLAN 单口流程可按页面直接运行。
+- **边界**：流程仍只读协调板 `PLAN?`；四板 gen/epoch/progress 一致性与参考板 P1 TIMEOUT 不在主机侧解决，转为 `CONSOLE-041`。
+- **证据**：主机流程测试 28 passed；无台架读数/凭证。
+
+### CONSOLE-PROGRESS-20261107-002：10 kHz 单口流程复用 10 MHz 步骤
+
+- **结果**：`GuideWorkflow` 参数化 level；10 MHz=7、10 kHz=23；步骤仍为 precheck→CONFig→等 gen→TRIGger→等 epoch→等 COMPLETE→报告；10 kHz 默认 gen 120 s、epoch 180 s、watch 360 s；CONFig 对 `-200/NOT_ONLINE` 做 6 次有界重试（2 s 间隔）；页面默认 `CRC=0x12340000+generation`，多轮 gen 不再复用固定 CRC。
+- **单口边界**：precheck 等待协调板 RING 30 s；10 kHz 的 `RING:BRINGUP 1`/四板 gen/epoch 一致性仍不在本流程内（`CONSOLE-040`）；不打开第二端口。
+- **验证**：`GuideWorkflow(level=23)` 假页面用例生成 `...,1,23,...` 并产出 `out/calibration/guide-10k/<run>.json`；UI smoke 校验 gen=1/2 的 CRC 自动派生；demo+UI 28 passed。
+- **未做**：台架 HIL；10 kHz 参考板 TIMEOUT 的固件根因不在主机侧修复。
+
+### CONSOLE-PROGRESS-20261107-001：单口校准引导增加 10 kHz 档位
+
+- **结果**：新增 `calibration_page.py` 与“校准引导”tab；同一 C/T/PLAN 流程提供 10 MHz（level 7）和 10 kHz（level 23）预设；下发 `SYST:TDMA:GUIDE:CONFig` / `TRIGger`，读回 `PLAN?`、`SCAN?`、`PAIR?`、`RING:STATus?`。
+- **边界**：只做主机侧命令构造/读回，不访问台架；10 kHz 的 `RING:BRINGUP 1`/四板 gen/epoch 一致性仍需外部启环与读回，页面明确提示。
+- **验证**：UI smoke 断言 10 kHz 命令为 `...,23,...`、10 MHz 为 `...,7,...`；demo+UI 27 passed；tab 数更新为 14。
+- **文档**：demo README、tool registry 已加 `calibration_page.py`。
 
 ### CONSOLE-PROGRESS-20261104-029：HIL 物理链路最终判定（六对板零连通 + 单板回环无 RX）
 

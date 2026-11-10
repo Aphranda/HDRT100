@@ -4,13 +4,16 @@ Status: Active
 Domain: CONSOLE
 Canonical: `docs/console/CONSOLE_DOMAIN_TODO.md`
 Related: `docs/console/CONSOLE_ARCHITECTURE.md`, `docs/console/CONSOLE_TK_ARCHITECTURE.md`, `docs/console/CONSOLE_TASK_PROGRESS.md`, `docs/README.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
-Last updated: 2026-11-04
+Last updated: 2026-11-09
 
 ## 当前 checkpoint
 
 - 本域以**调试 Demo**为首个交付物；当前代码位于 `tools/domains/trigger/trigger_debug_demo/`。
 - C0 立项已完成：三件套、域索引、`CONSOLE` 命名白名单。
 - 下一 gate：C1 底座——CONSOLE-002/003/004 契约登记、CONSOLE-005 REFMEM 页、CONSOLE-006/019 WorkflowRunner、CONSOLE-028..030 Tk Shell/Store/UiPump、CONSOLE-007 安全门。
+- **2026-11-09 读面迁移**：demo 中有 OBS key 的状态已改走 `SYSTem:REFMEM:OBS?`
+  （key3/4/5/6/8，经 `ControlPlane.read`）；`GUIDE:PLAN?`/`BOOT:PLAN?`/`READ:*` 富字段仍是
+  本地 SCPI，登记 `CONSOLE-046`。
 - **2026-11-04 当前焦点**：`CONSOLE-035` 准入/路由接口已落；`CONSOLE-017` 已完成 adapter 所有权、半双工 relay、HELLO/responder、core0 hook 与只读状态页，**carrier 仍未注册**（等命令 ACK 跟踪）。剩余：PIO 回收与两板 HIL；`CONSOLE-018` 交接未开始。设计边界与先例见架构 §6.1/§6.3。
 
 ## 任务表
@@ -43,6 +46,14 @@ Last updated: 2026-11-04
 | CONSOLE-034 | Tk 可访问性/i18n：键盘焦点、字符串表、错误文案分离、高对比度预留 | P2 | PENDING | 不阻塞首版；控件命名预留 label/description |
 | CONSOLE-035 | 单端口远程 REFMEM 的 control-transport 准入：ring ready 或 bootstrap carrier（已注册且握手 ready），其余 fail-closed；路由 ring 优先 | P0 | IN PROGRESS | 接口已落：`refmem_control_transport_route/submit` + 组合 readiness + host 用例；carrier 本体未注册，默认行为仍为 ring-only。产品线序是否覆盖见架构 §6.1 |
 | CONSOLE-036 | docs_check 裸文件名死链检查：对同目录 *_ARCHITECTURE.md / *_TODO.md / *_TASK_PROGRESS.md 解析存在性 | P2 | PENDING | 工具/门禁变更需 host 验收；先修已知死链 |
+| CONSOLE-039 | 单口校准引导 10 MHz/10 kHz：GUIDE C/T/PLAN/SCAN/PAIR/RING + Workflow | P1 | DONE | `calibration_page.py` + `calibration_workflow.py`；10k level 23/长预算 |
+| CONSOLE-040 | 10 kHz 启环前置：`RING:BRINGUP 1`/ARM/START 路径 | P1 | DONE | 用户确认启环可用；主机侧未复验，不声称自动启环 |
+| CONSOLE-041 | 10 kHz 四板一致性：`PLAN?` gen/epoch/progress 聚合读回 + 参考板 P1 TIMEOUT 跟踪 | P1 | IN PROGRESS | 四板只读基线已用 registered tool 取证；demo 内聚合仍待做 |
+| CONSOLE-042 | 10 kHz Q 段 ring restore：P1 已 COMPLETE；P2 的 status=2/reason=14 属窗口内 abort，不是 restore | P1 | DONE | restore 修复有效；P2 需先 stage7 + P1 level7 |
+| CONSOLE-043 | 10 MHz 建环 ARM/TRAIN：新 build `--skip-train` 也在 ARM 后 `adapter_started=0` 超时 | P1 | IN PROGRESS | 10M setup owner；见 progress 20261108-014 |
+| CONSOLE-045 | P2 CODED_STOP 的 `calibration_manager_restore_training_stage()` 失败，置 NOT_ONLINE_SAFE | P1 | PENDING | P1 level7 后仍复现；不是 Q/复环；见 progress 021 |
+| CONSOLE-046 | 读面 OBS 覆盖缺口：`GUIDE:PLAN?`/`BOOT:PLAN?`/`READ:*`/`RING:STATus?` 的富字段没有 OBS key，页面保留本地 SCPI 并标注“诊断例外” | P1 | PENDING | demo 已完成可迁部分（OBS key3/4/5/6/8）；扩 key/schema 需修订 `REFMEM-READ-01` 并过 P3 |
+| CONSOLE-044 | 10 MHz P1 C/T：旧 build passed=0x0A/failed=0x05；新 build 未进入 C/T | P1 | PENDING | 先解 043；见 progress 20261108-014 |
 | CONSOLE-007 | 安全门：维护模式、RUN 态写拒绝、`STOP/BOOT/COMMIT/CLEAR` 二次确认、owner/lease | P0 | PENDING | 需要负向 host 用例 |
 | CONSOLE-008 | T2 停止态 workflow：清表、GRID、DEPloyment、TEMPlate/ACTion、COUNter、T2:CONFigure/MOUNT | P1 | PENDING | 参考 `tools/sync_trigger/t2_workflow.py` 1–13 |
 | CONSOLE-009 | T2 运行 workflow：VDC session、优先级、RING、PWM、采样、teardown | P1 | PENDING | 参考 t2_workflow 16–21 |
