@@ -115,6 +115,8 @@ static struct {
 } s_sync_io;
 static unsigned core = 1u, hardware_writes, restores, aborts;
 static bool enabled, claimed = true, dma_busy;
+static unsigned sp2t_reasserts;
+static void sync_io_core_sp2t_reassert(void) { ++sp2t_reasserts; }
 #define BOARD_SYNC_PIO_FAST 0u
 #define BOARD_SYNC_CAPTURE_SM 0u
 #define BOARD_SYNC_INPUT_BASE_PIN 12u
@@ -197,6 +199,8 @@ int main(void) {
     assert(sync_io_core_capture_sm_lease(&turntable));
     sync_io_core_capture_sm_restore(&turntable);
     assert(restores == 2u && !enabled);
+    /* Every pad claim that could drop the fly-wired SP2T line re-asserts it. */
+    assert(sp2t_reasserts == restores);
     return 0;
 }
 '''

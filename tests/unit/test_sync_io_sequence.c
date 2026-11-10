@@ -34,9 +34,10 @@ static void compact_plan(void)
             for (uint32_t i = 0u; i < count; ++i) {
                 const uint32_t logical = (i + 1u) % count;
                 const uint32_t packed = s_plan[i * SYNC_IO_SEQUENCE_PLAN_WORDS];
-                assert((packed & 15u) == compact[logical]);
+                const uint32_t value = compact[logical] >> 1u;
+                assert((packed & 15u) == value);
                 assert(((packed >> 4u) & 255u) == logical);
-                assert(((packed >> 12u) & 15u) == (compact[logical] | config.status_output_mask));
+                assert(((packed >> 12u) & 15u) == (value | config.status_output_mask));
             }
         }
     }

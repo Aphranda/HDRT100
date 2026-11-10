@@ -31,8 +31,15 @@ void sync_trigger_get_vector(trigger_vector_t *vector)
 { memset(vector, 0, sizeof(*vector)); vector->state = TRIG_STATE_IDLE; }
 void scpi_port_set_trigger_debug_mode(uint32_t mode) { (void)mode; }
 
+sync_io_sequence_reserve_result_t sync_io_sequence_reserve_checked(void)
+{
+    assert(!locked);
+    if (reserved) return SYNC_IO_SEQUENCE_RESERVE_ALREADY_RESERVED;
+    reserved = true;
+    return SYNC_IO_SEQUENCE_RESERVE_OK;
+}
 bool sync_io_sequence_reserve(void)
-{ assert(!locked); if (reserved) return false; reserved = true; return true; }
+{ return sync_io_sequence_reserve_checked() == SYNC_IO_SEQUENCE_RESERVE_OK; }
 void sync_io_sequence_release(void) { assert(!locked); reserved = false; }
 bool sync_io_sequence_arm_plan_bytes(const sync_io_sequence_config_t *config,
                                     const uint8_t *values, uint32_t count)

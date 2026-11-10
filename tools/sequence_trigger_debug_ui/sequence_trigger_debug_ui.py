@@ -665,7 +665,8 @@ def build_configuration_commands(plan: str, codes: list[int], source: str,
     configured_pulse = pulse_us if mode == "PULSE" else 0
     if not codes:
         raise ValueError("至少需要一个输出编码")
-    if any(code < 0 or code & ~sequence_output_mask for code in codes):
+    if any(code < 0 or code > 15 or
+           ((code >> 1) & ~sequence_output_mask) for code in codes):
         raise ValueError(
             f"输出编码只能使用序列编码 OUT（掩码 0x{sequence_output_mask:X}）")
     states = list(range(len(codes)))
@@ -752,9 +753,9 @@ class SequenceUi(tk.Tk):
         self.out_roles = [tk.StringVar(value=ROLE_SEQUENCE) for _ in range(3)] + [
             tk.StringVar(value=ROLE_STATUS)]
         self.plan = tk.StringVar(value="SP8T")
-        self.codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
+        self.codes = tk.StringVar(value="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")
         self.gateway_plan = tk.StringVar(value="SP8T")
-        self.gateway_codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
+        self.gateway_codes = tk.StringVar(value="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")
         self.gateway_settle = tk.StringVar(value="10")
         self.gateway_repeat_count = tk.StringVar(value="1")
         self.gateway_edge = tk.StringVar(value="RIS")
@@ -775,7 +776,7 @@ class SequenceUi(tk.Tk):
         self._budget_editor = None
         self._budget_generation = 0
         self.turntable_plan = tk.StringVar(value="SP8T")
-        self.turntable_codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
+        self.turntable_codes = tk.StringVar(value="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")
         self.turntable_settle = tk.StringVar(value="10")
         self.turntable_repeat_count = tk.StringVar(value="1")
         self.turntable_edge = tk.StringVar(value="RIS")
@@ -817,7 +818,9 @@ class SequenceUi(tk.Tk):
         self.io_state = tk.StringVar(value="IO状态：—")
         self.switch_position = tk.StringVar(value="当前开关：未运行")
         self.independent_switch = tk.StringVar(value="1")
-        self.independent_switch_status = tk.StringVar(value="独立 SP8T：未读取")
+        self.independent_switch_status = tk.StringVar(value="SP8T：未读取")
+        self.manual_sp2t = tk.StringVar(value="0")
+        self.manual_sp2t_status = tk.StringVar(value="OUT0（SP2T）：未读取")
         self.ota_file = tk.StringVar()
         self.ota_status = tk.StringVar(value="未选择固件")
         self.manual_command = tk.StringVar()
@@ -1041,7 +1044,7 @@ class SequenceUi(tk.Tk):
         for page, title in ((self.independent_page, "独立 SP8T 序列"),
                             (self.loopback_page, "RJ45 物理回环"),
                             (self.turntable_page, "转台脉冲计数"),
-                            (self.manual_switch_page, "手动 SP8T"),
+                            (self.manual_switch_page, "手动开关控制"),
                             (self.maintenance_page, "设备维护")):
             self.mode_notebook.add(page, text=title)
         self._build_sequence_page(self.independent_page, MODE_INDEPENDENT)
@@ -1157,7 +1160,7 @@ class SequenceUi(tk.Tk):
         plan_group = ttk.LabelFrame(page, text="序列配置", padding=10)
         plan_group.pack(fill="x", pady=(0, 8))
         self._field(plan_group, 0, "计划", plan, width=10)
-        self._field(plan_group, 1, "编码（首项为启动状态）", codes, width=22)
+        self._field(plan_group, 1, "编码 0-15（bit0=OUT0）", codes, width=22)
         self._field(plan_group, 2, "响应延时 µs", settle, width=10)
         self._field(plan_group, 3, "循环次数（0=持续）", repeat, width=10)
 
@@ -1228,7 +1231,7 @@ class SequenceUi(tk.Tk):
         plan = ttk.LabelFrame(page, text="DUT 序列 · 每个计数位置执行整轮", padding=6)
         plan.pack(fill="x", pady=(0, 6))
         for column, (label, variable) in enumerate([
-                ("计划", self.turntable_plan), ("编码", self.turntable_codes),
+                ("计划", self.turntable_plan), ("编码 0-15", self.turntable_codes),
                 ("响应延时 µs", self.turntable_settle),
                 ("位置数（0=持续）", self.turntable_repeat_count),
                 ("每位置脉冲数", self.turntable_threshold)]):
@@ -1516,16 +1519,26 @@ class SequenceUi(tk.Tk):
     def _build_manual_switch(self, page):
         group = ttk.LabelFrame(page, text="独立开关控制", padding=16)
         group.pack(fill="x")
-        ttk.Label(group, text="直接控制 OUT1–OUT3 的 SP8T 位置。请先停止序列并释放输出。").pack(anchor="w", pady=(0, 12))
-        row = ttk.Frame(group)
-        row.pack(fill="x")
-        ttk.Label(row, text="位置").pack(side="left")
-        self.manual_position_box = ttk.Combobox(row, textvariable=self.independent_switch,
+        ttk.Label(group, text="直接控制 SP8T（OUT1–OUT3）与 SP2T（OUT0）。"
+                              "请先停止序列并释放输出。").pack(anchor="w", pady=(0, 12))
+        sp8t = ttk.Frame(group)
+        sp8t.pack(fill="x")
+        ttk.Label(sp8t, text="SP8T 位置").pack(side="left")
+        self.manual_position_box = ttk.Combobox(sp8t, textvariable=self.independent_switch,
             values=[str(i) for i in range(1, 9)], state="readonly", width=7)
         self.manual_position_box.pack(side="left", padx=8)
-        ttk.Button(row, text="切换", command=self.set_independent_switch).pack(side="left", padx=(0, 6))
-        ttk.Button(row, text="读取", command=self.read_independent_switch).pack(side="left")
+        ttk.Button(sp8t, text="切换", command=self.set_independent_switch).pack(side="left", padx=(0, 6))
+        ttk.Button(sp8t, text="读取", command=self.read_independent_switch).pack(side="left")
         ttk.Label(group, textvariable=self.independent_switch_status).pack(anchor="w", pady=(12, 0))
+        sp2t = ttk.Frame(group)
+        sp2t.pack(fill="x", pady=(12, 0))
+        ttk.Label(sp2t, text="IN3 / OUT0（SP2T）").pack(side="left")
+        self.manual_sp2t_box = ttk.Combobox(sp2t, textvariable=self.manual_sp2t,
+            values=["0", "1"], state="readonly", width=7)
+        self.manual_sp2t_box.pack(side="left", padx=8)
+        ttk.Button(sp2t, text="切换", command=self.set_manual_sp2t).pack(side="left", padx=(0, 6))
+        ttk.Button(sp2t, text="读取", command=self.read_manual_sp2t).pack(side="left")
+        ttk.Label(group, textvariable=self.manual_sp2t_status).pack(anchor="w", pady=(12, 0))
 
     def _on_mode_tab_changed(self, _event=None):
         selected = self.mode_notebook.select()
@@ -1608,7 +1621,8 @@ class SequenceUi(tk.Tk):
     def _clear_device_readback(self):
         self.sequence_state.set("UNKNOWN")
         self.switch_position.set("当前开关：未读取")
-        self.independent_switch_status.set("独立 SP8T：未读取")
+        self.independent_switch_status.set("SP8T：未读取")
+        self.manual_sp2t_status.set("OUT0（SP2T）：未读取")
         self.io_inputs.set("输入：未读取")
         self.io_outputs.set("输出：未读取")
         self.io_owned.set("占用：未读取")
@@ -1704,13 +1718,23 @@ class SequenceUi(tk.Tk):
 
     def set_independent_switch(self) -> None:
         if self.sequence_state.get() not in {"UNKNOWN", "IDLE"}:
-            self.log(f"独立 SP8T 只能在序列未运行且资源空闲时切换（当前状态：{self.sequence_state.get()}）。", "WARN")
+            self.log(f"手动开关只能在序列未运行且资源空闲时切换（当前状态：{self.sequence_state.get()}）。", "WARN")
             return
         value = self.independent_switch.get()
         self.enqueue_commands([f"CONF:SWITCH1 {value}", "READ:SWITCH1?", "READ:IO:STAT?"])
 
     def read_independent_switch(self) -> None:
         self.enqueue_commands(["READ:SWITCH1?", "READ:IO:STAT?"])
+
+    def set_manual_sp2t(self) -> None:
+        if self.sequence_state.get() not in {"UNKNOWN", "IDLE"}:
+            self.log(f"手动开关只能在序列未运行且资源空闲时切换（当前状态：{self.sequence_state.get()}）。", "WARN")
+            return
+        value = self.manual_sp2t.get()
+        self.enqueue_commands([f"CONF:SWITCH2 {value}", "READ:SWITCH2?", "READ:IO:STAT?"])
+
+    def read_manual_sp2t(self) -> None:
+        self.enqueue_commands(["READ:SWITCH2?", "READ:IO:STAT?"])
 
     def refresh_ports(self, log_result: bool = True) -> None:
         backend = self.backend.get()
@@ -2303,9 +2327,20 @@ class SequenceUi(tk.Tk):
             try:
                 fields = [int(value) for value in response.split(",")]
                 self.independent_switch.set(str(fields[1]))
-                self.independent_switch_status.set(f"独立 SP8T：第 {fields[1]} 位")
+                self.independent_switch_status.set(f"SP8T：第 {fields[1]} 位")
             except (ValueError, IndexError):
-                self.independent_switch_status.set("独立 SP8T：读回失败")
+                self.independent_switch_status.set("SP8T：读回失败")
+            return
+        if command.upper().startswith("READ:SWITCH2?"):
+            try:
+                fields = [int(value) for value in response.split(",")]
+                level = fields[1]
+                busy = fields[2] if len(fields) > 2 else 0
+                self.manual_sp2t.set(str(level))
+                self.manual_sp2t_status.set(
+                    f"OUT0（SP2T）：{level}" + (" · 忙" if busy else ""))
+            except (ValueError, IndexError):
+                self.manual_sp2t_status.set("OUT0（SP2T）：读回失败")
             return
         if command.upper().startswith("TRIG:SEQ:NEXT?"):
             try:

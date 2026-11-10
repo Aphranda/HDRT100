@@ -25,8 +25,16 @@ static int locked;
 void osal_critical_enter(void) { assert(!locked); locked = 1; }
 void osal_critical_exit(void) { assert(locked); locked = 0; }
 bool sync_trigger_sequence_can_start(void) { assert(!locked); return legacy_idle; }
+sync_io_sequence_reserve_result_t sync_io_sequence_reserve_checked(void)
+{
+    assert(!locked);
+    if (!available) return SYNC_IO_SEQUENCE_RESERVE_OWNER_BUSY;
+    if (reserved) return SYNC_IO_SEQUENCE_RESERVE_ALREADY_RESERVED;
+    reserved = true;
+    return SYNC_IO_SEQUENCE_RESERVE_OK;
+}
 bool sync_io_sequence_reserve(void)
-{ assert(!locked); if (!available) return false; reserved = true; return true; }
+{ return sync_io_sequence_reserve_checked() == SYNC_IO_SEQUENCE_RESERVE_OK; }
 void sync_io_sequence_release(void) { assert(!locked); reserved = false; }
 
 static void probe_immutable_snapshot(void)
@@ -322,7 +330,8 @@ static void test_configuration_faults_stop_priority(void)
     const uint32_t ids[] = {0};
     assert(trigger_sequence_write_plan(store, "B", ids, 1) == TRIGGER_SEQUENCE_OK);
     available = false;
-    assert(trigger_sequence_service_start("B") == TRIGGER_SEQUENCE_SERVICE_RESOURCE);
+    assert(trigger_sequence_service_start("B") ==
+           TRIGGER_SEQUENCE_SERVICE_SMA_OWNER_BUSY);
     assert(strcmp(trigger_sequence_get_plan(store, NULL)->id, "A") == 0 && !store->frozen);
     available = true;
     arm_success = false;

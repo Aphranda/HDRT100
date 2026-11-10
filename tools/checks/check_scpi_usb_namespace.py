@@ -18,6 +18,9 @@ ALLOWED_FILES = {
     pathlib.Path("middleware/scpi_port/inc/scpi_usb_control.h"),
     pathlib.Path("middleware/scpi_port/src/scpi_usb_control.c"),
     pathlib.Path("tools/build_flash/OTA_BUILD_FLASH_PLAYBOOK.md"),
+    # Operator-facing guide for the same switch flow; it only documents the
+    # commands and cannot implement a second SYST:USB owner.
+    pathlib.Path("tools/sequence_trigger_debug_wpf/README.md"),
 }
 SCAN_SUFFIXES = {
     ".c",

@@ -19,5 +19,14 @@ static struct {
     bool paused;
 } s_sequence;
 static uint32_t s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * SYNC_IO_SEQUENCE_PLAN_WORDS];
+/* Step code bit0 (OUT0/SP2T) is applied outside the extracted PIO plan. */
+static uint8_t s_step_sp2t[SYNC_IO_SEQUENCE_PLAN_MAX];
+static bool s_sp2t_level_valid;
+static bool s_sp2t_level;
+static void apply_step_sp2t(uint32_t logical_index) {
+    if (logical_index >= s_sequence.status.plan_count) return;
+    s_sp2t_level = s_step_sp2t[logical_index] != 0u;
+    s_sp2t_level_valid = true;
+}
 static void fail(uint32_t reason) { s_sequence.status.fault = reason; }
 #endif

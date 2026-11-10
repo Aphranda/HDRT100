@@ -233,7 +233,7 @@ def test_busy_pause_stop_and_restart(parser):
     "CONF:SEQ:OUTPUT 3,3,PULSE,10,5", "CONF:SEQ:OUTPUT 3,16,PULSE,10,5",
     "CONF:SEQ:OUTPUT 3,12,READY,10,5", "READ:SEQ:OUTPUT? 1",
     "CONF:SEQ:CODE 0", "CONF:SEQ:CODE 0,3,", "CONF:SEQ:CODE 0,3,1",
-    "CONF:SEQ:CODE 0,8", "CONF:SEQ:CODE 3,1", "CONF:SEQ:CODE -4294967296,1",
+    "CONF:SEQ:CODE 0,16", "CONF:SEQ:CODE 3,1", "CONF:SEQ:CODE -4294967296,1",
     "CONF:SEQ:CODE 0,4294967297", "CONF:SEQ:CODE 0,1.0", "CONF:SEQ:CODE 0,#H1",
     "TRIG:START A,", "TRIG:START A,1", "TRIG:START ,", "TRIG:START UNKNOWN",
     "TRIG:SEQ:NEXT 1", "TRIG:SEQ:INJECT", "TRIG:SEQ:INJECT IN1",
@@ -348,7 +348,7 @@ def test_failed_start_and_generation_require_reconfiguration(parser):
                         "@legacy 0", "CONF:TRIG 3,0,1,1", "READ:SEQ:IO?", "READ:SEQ:CODE? 0",
                         "TRIG:START", "CONF:SEQ A,2,0,1", "CONF:SEQ:ACT A", "TRIG:START",
                         "CONF:SEQ:IO 7,OUT4,10,5", "TRIG:START"])
-    assert rows[1]["reason"] == "RESOURCE_BUSY" and rows[2]["fields"][0] == "A"
+    assert rows[1]["reason"] == "TRIGGER_BUSY" and rows[2]["fields"][0] == "A"
     assert rows[4]["fields"][-2:] == ["2", "0"]
     assert rows[5]["reason"] == "CODE_MISSING" and rows[6]["reason"] == "CONFIG_INVALID"
     assert rows[9]["reason"] == "IO_CONFIG_INVALID" and rows[11]["reason"] == "CODE_MISSING"

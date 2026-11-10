@@ -177,10 +177,17 @@ def test_output_codes_are_mapped_to_positional_state_ids():
     assert "CONF:SEQ PLAN,1,2,4" not in commands
 
 
-@pytest.mark.parametrize("codes", [[], [-1], [8]])
+@pytest.mark.parametrize("codes", [[], [-1], [16]])
 def test_output_codes_reject_empty_or_unrepresentable_values(codes):
     with pytest.raises(ValueError):
         build_configuration_commands("PLAN", codes, "MANUAL", "RIS", 10, 5)
+
+
+def test_output_codes_encode_out0_and_sp8t_position():
+    commands = build_configuration_commands("PLAN", [0, 9, 15], "MANUAL", "RIS", 10, 5)
+    assert "CONF:SEQ:CODE 0,0" in commands
+    assert "CONF:SEQ:CODE 1,9" in commands
+    assert "CONF:SEQ:CODE 2,15" in commands
 
 
 def test_output_roles_build_level_mode_and_validate_physical_exclusion():
@@ -197,7 +204,7 @@ def test_output_roles_build_level_mode_and_validate_physical_exclusion():
 
     with pytest.raises(ValueError, match="掩码"):
         build_configuration_commands(
-            "PLAN", [4], "MANUAL", "RIS", 10, 5,
+            "PLAN", [8], "MANUAL", "RIS", 10, 5,
             sequence_output_mask=3, status_output_mask=12)
 
 
@@ -426,7 +433,7 @@ def test_combined_rejects_invalid_or_overlapping_out_attributes(changes):
 
 def test_combined_uses_explicit_out_attributes_for_encoding_and_vna_trigger():
     commands = build_mode_configuration(
-        MODE_RJ45, "SP8T", [0, 1, 2, 3, 8, 9, 10, 11], "MANUAL", "RIS",
+        MODE_RJ45, "SP8T", [0, 1, 2, 3, 4, 5, 6, 7], "MANUAL", "RIS",
         25, 30, 11, 0, "NONE", "MANUAL", 5000, 1, "OUT3")
 
     assert "CONF:SEQ:OUTPUT 11,0,NONE,25,0" in commands

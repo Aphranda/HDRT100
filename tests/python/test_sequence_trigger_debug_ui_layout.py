@@ -146,7 +146,8 @@ def test_settings_invalid_types_enums_and_unallowlisted_runtime_are_ignored(ui_f
         _configured_mode=MODE_TURNTABLE, sequence_state="RUNNING", manual_command="TRIG:START"))
     window = ui_factory(path)
     assert window.backend.get() == "Serial" and window.port.get() == ""
-    assert window.plan.get() == "RESTORED" and window.codes.get() == "0,1,2,3,4,5,6,7"
+    assert window.plan.get() == "RESTORED" and window.codes.get() == (
+        "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")
     assert not window.turntable_angle_enabled.get() and window.auto_scroll.get()
     assert window.edge.get() == "RIS" and window.run_mode.get() == MODE_INDEPENDENT
     assert window.loopback_durations[MODE_TURNTABLE].get() == "60"
@@ -218,7 +219,7 @@ def complete_configuration(ui, mode):
 
 def test_tabs_separate_mode_controls_and_keep_common_io(ui):
     assert [ui.mode_notebook.tab(tab, "text") for tab in ui.mode_notebook.tabs()] == [
-        "独立 SP8T 序列", "RJ45 物理回环", "转台脉冲计数", "手动 SP8T", "设备维护"]
+        "独立 SP8T 序列", "RJ45 物理回环", "转台脉冲计数", "手动开关控制", "设备维护"]
     select(ui, ui.loopback_page)
     texts = [widget.cget("text") for widget in descendants(ui.loopback_page)
              if isinstance(widget, ttk.Button)]
@@ -265,6 +266,31 @@ def test_independent_layout_matches_loopback_groups(ui, size):
         min(widget.winfo_rooty() for widget in parameter_widgets) <= 5
 
 
+def test_manual_switch_page_controls_sp8t_and_out0(ui):
+    select(ui, ui.manual_switch_page)
+    assert ui.manual_position_box.winfo_ismapped()
+    assert ui.manual_sp2t_box.winfo_ismapped()
+    assert ui.manual_sp2t_status.get().startswith("OUT0")
+
+    ui.manual_sp2t.set("1")
+    ui.set_manual_sp2t()
+    kind, payload = ui._operations.get_nowait()
+    assert kind == "commands"
+    _, _, commands = payload
+    assert commands[0] == "CONF:SWITCH2 1"
+    assert "READ:SWITCH2?" in commands
+
+    # The readback is the new five-field switch block; field 1 is the level.
+    ui.update_io("READ:SWITCH2?", "2,1,0,0,0")
+    assert ui.manual_sp2t.get() == "1"
+    assert ui.manual_sp2t_status.get() == "OUT0（SP2T）：1"
+
+    # Sequence ownership reports busy without changing the displayed level.
+    ui.update_io("READ:SWITCH2?", "2,0,1,0,0")
+    assert ui.manual_sp2t.get() == "0"
+    assert "忙" in ui.manual_sp2t_status.get()
+
+
 def test_switching_tabs_preserves_independent_drafts_and_never_sends_commands(ui):
     pairs = [(ui.plan, ui.gateway_plan), (ui.codes, ui.gateway_codes),
              (ui.settle, ui.gateway_settle), (ui.pulse, ui.gateway_pulse),
@@ -303,7 +329,7 @@ def test_configuration_does_not_validate_hidden_mode_draft(ui, mode):
 
 def test_loopback_out_attributes_drive_both_sequence_mask_and_gateway_output(ui):
     select(ui, ui.loopback_page)
-    ui.gateway_codes.set("0,1,2,3,8,9,10,11")
+    ui.gateway_codes.set("0,1,2,3,4,5,6,7")
     ui.gateway_out_roles[2].set(ROLE_GATEWAY)
     ui.gateway_out_roles[3].set(ROLE_SEQUENCE)
 

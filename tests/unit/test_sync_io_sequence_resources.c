@@ -23,6 +23,7 @@ static const struct pio_program sequence_counter_program = {5u};
 #define BOARD_SYNC_PIO_FAST (&fake_pio)
 #define BOARD_SYNC_OUTPUT_BASE_PIN 16u
 #define BOARD_SYNC_OUTPUT_PIN_COUNT 4u
+#define SYNC_IO_HW_SP2T_OUT_PIN 21u
 #define SMA_MASK 15u
 #define NUM_DMA_CHANNELS 16u
 #define INGRESS_SM 1u
@@ -45,6 +46,7 @@ static const struct pio_program sequence_counter_program = {5u};
 #define DMA_CH0_CTRL_TRIG_AHB_ERROR_BITS (1u << 31u)
 #define GPIO_FUNC_SIO 5u
 #define GPIO_OUT true
+#define GPIO_IN false
 #define DMA_CH0_CTRL_TRIG_EN_BITS 1u
 #define RECEIPT_BITS 10u
 #define RECEIPT_WORDS 256u
@@ -78,6 +80,8 @@ static struct {
     uint32_t counter_baseline, gateway_edge_consumed;
     gpio_function_t saved_function[4];
     bool saved_direction[4], pins_saved, rx_stopped, paused;
+    gpio_function_t saved_sp2t_function;
+    bool saved_sp2t_direction;
     bool priming, manager_claimed;
     bool capture_leased, gateway_running;
 } s_sequence;
@@ -86,6 +90,13 @@ static sync_io_persona_manager_handle_t s_handle;
 static uint32_t s_armed;
 static uint32_t s_receipts[RECEIPT_WORDS];
 static uint32_t s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * SYNC_IO_SEQUENCE_PLAN_WORDS];
+static uint8_t s_step_sp2t[SYNC_IO_SEQUENCE_PLAN_MAX];
+static bool s_sp2t_level_valid;
+static void apply_sp2t_level(bool level) { (void)level; s_sp2t_level_valid = true; }
+static void apply_step_sp2t(uint32_t logical_index) {
+    if (logical_index < s_sequence.status.plan_count)
+        apply_sp2t_level(s_step_sp2t[logical_index] != 0u);
+}
 static uint32_t abort_tail, receipt_aborts, all_aborts, sm_restarts, fifo_clears, edge_abort_tail;
 static void fail(uint32_t reason) { s_sequence.status.fault = reason; }
 static uint get_core_num(void) { return 1u; }
