@@ -192,9 +192,14 @@ def test_output_codes_encode_out0_and_sp8t_position():
 
 def test_trigger_parameters_split_states_into_channels_and_polarity():
     eight = build_configuration_commands("PLAN", list(range(8)), "MANUAL", "RIS", 10, 5)
-    assert "CONF:TRIG 8,0,1,1" in eight
+    # 0..7 pairs H/V for four SP8T positions, so it is 4 channels x 2 pol.
+    assert "CONF:TRIG 4,2,1,1" in eight
     sixteen = build_configuration_commands("PLAN", list(range(16)), "MANUAL", "RIS", 10, 5)
     assert "CONF:TRIG 8,2,1,1" in sixteen
+    h_only = build_configuration_commands("PLAN", list(range(0, 16, 2)), "MANUAL", "RIS", 10, 5)
+    assert "CONF:TRIG 8,0,1,1" in h_only
+    v_only = build_configuration_commands("PLAN", list(range(1, 16, 2)), "MANUAL", "RIS", 10, 5)
+    assert "CONF:TRIG 8,1,1,1" in v_only
     for count in (9, 11, 17):
         with pytest.raises(ValueError):
             build_configuration_commands("PLAN", list(range(count)), "MANUAL", "RIS", 10, 5)

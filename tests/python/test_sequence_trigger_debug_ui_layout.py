@@ -7,7 +7,8 @@ import pytest
 
 from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
     MODE_INDEPENDENT, MODE_RJ45, MODE_TURNTABLE, OPERATING_CATALOG_QUERY,
-    OPERATING_PROFILE_QUERY, ROLE_GATEWAY, ROLE_SEQUENCE, SequenceUi,
+    OPERATING_PROFILE_QUERY, POLARIZATION_DUAL, POLARIZATION_H, POLARIZATION_V,
+    ROLE_GATEWAY, ROLE_SEQUENCE, SequenceUi,
 )
 
 
@@ -79,6 +80,8 @@ def test_settings_restore_drafts_across_windows_without_restoring_device_state(u
     first.port.set("USB0::TEST::INSTR")
     first.plan.set("INDEPENDENT")
     first.gateway_codes.set("7,3,1")
+    first.polarization.set(POLARIZATION_H)
+    first.apply_polarization()
     first.turntable_angle_enabled.set(True)
     first.turntable_angle_start.set("2")
     first.turntable_angle_stop.set("4")
@@ -108,6 +111,8 @@ def test_settings_restore_drafts_across_windows_without_restoring_device_state(u
     second = ui_factory(path)
     assert second._resource_key() == ("USB TMC", "USB0::TEST::INSTR")
     assert second.plan.get() == "INDEPENDENT" and second.gateway_codes.get() == "7,3,1"
+    assert second.polarization.get() == POLARIZATION_H
+    assert second.codes.get() == "0,2,4,6,8,10,12,14"
     assert second.run_mode.get() == MODE_TURNTABLE
     assert second.turntable_angle_enabled.get()
     assert second.turntable_angle_count.get() == "5"
@@ -125,6 +130,21 @@ def test_settings_restore_drafts_across_windows_without_restoring_device_state(u
     assert second._operations.empty()
     second.command("TRIG:START")
     assert second._operations.empty()
+
+
+def test_legacy_eight_code_draft_upgrades_to_the_dual_polarization_default(
+        ui_factory, tmp_path):
+    path = tmp_path / "legacy.json"
+    settings.save(path, {"plan": "SP8T", "codes": "0,1,2,3,4,5,6,7",
+                         "gateway_codes": "0,1,2,3,4,5,6,7",
+                         "turntable_codes": "0,1,2,3,4,5,6,7"})
+    window = ui_factory(path)
+    full = ",".join(str(code) for code in range(16))
+    assert window.codes.get() == full
+    assert window.gateway_codes.get() == full
+    assert window.turntable_codes.get() == full
+    assert window.polarization.get() == POLARIZATION_DUAL
+    assert "升级为双极化" in window.output.get("1.0", "end")
 
 
 @pytest.mark.parametrize("content", ["{not-json", '{"version":999,"values":{}}'])
@@ -219,7 +239,7 @@ def complete_configuration(ui, mode):
 
 def test_tabs_separate_mode_controls_and_keep_common_io(ui):
     assert [ui.mode_notebook.tab(tab, "text") for tab in ui.mode_notebook.tabs()] == [
-        "独立 SP8T 序列", "RJ45 物理回环", "转台脉冲计数", "手动开关控制", "设备维护"]
+        "序列控制", "RJ45 物理回环", "转台脉冲计数", "手动开关控制", "设备维护"]
     select(ui, ui.loopback_page)
     texts = [widget.cget("text") for widget in descendants(ui.loopback_page)
              if isinstance(widget, ttk.Button)]
@@ -289,6 +309,40 @@ def test_manual_switch_page_controls_sp8t_and_out0(ui):
     ui.update_io("READ:SWITCH2?", "2,0,1,0,0")
     assert ui.manual_sp2t.get() == "0"
     assert "忙" in ui.manual_sp2t_status.get()
+
+
+def test_configuration_warns_when_no_code_drives_an_enabled_output(ui):
+    select(ui, ui.independent_page)
+    # Legacy 3-bit drafts drive OUT1/OUT2 only: OUT3 stays low for the whole run.
+    ui.codes.set("0,1,2,3,4,5,6,7")
+    ui.configure_mode(MODE_INDEPENDENT)
+    log = ui.output.get("1.0", "end")
+    assert "OUT3" in log and "保持低电平" in log
+    assert ui._operations.get_nowait()[0] == "configuration"
+
+    ui.clear_log()
+    ui.codes.set("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")
+    ui.configure_mode(MODE_INDEPENDENT)
+    assert "保持低电平" not in ui.output.get("1.0", "end")
+    assert "CONF:TRIG 8,2" in ui.output.get("1.0", "end")
+
+
+@pytest.mark.parametrize("polarization,expected_trig,expected_codes", [
+    (POLARIZATION_H, "CONF:TRIG 8,0,1,1", "0,2,4,6,8,10,12,14"),
+    (POLARIZATION_V, "CONF:TRIG 8,1,1,1", "1,3,5,7,9,11,13,15"),
+    (POLARIZATION_DUAL, "CONF:TRIG 8,2,1,1",
+     "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"),
+])
+def test_polarization_control_fills_codes_and_trigger_parameters(
+        ui, polarization, expected_trig, expected_codes):
+    select(ui, ui.independent_page)
+    ui.polarization.set(polarization)
+    ui.apply_polarization()
+    assert ui.codes.get() == expected_codes
+    commands = complete_configuration(ui, MODE_INDEPENDENT)
+    assert expected_trig in commands
+    # Single-polarity plans still visit all eight SP8T positions, so OUT3 toggles.
+    assert "OUT3" not in ui.output.get("1.0", "end")
 
 
 def test_switching_tabs_preserves_independent_drafts_and_never_sends_commands(ui):
@@ -453,7 +507,10 @@ def test_loopback_tools_presets_and_start_gate(ui, mode, page):
     assert ui.turntable_ready_input.get() == "IN2"
     ui.start_loopback(mode)
     assert ui._operations.empty()
-    complete_configuration(ui, mode)
+    commands = complete_configuration(ui, mode)
+    # The preset is the full 0..15 plan: 8 SP8T positions x H/V, so the trigger
+    # parameters must ask for dual polarization instead of a flat 8 channels.
+    assert "CONF:TRIG 8,2,1,1" in commands
     ui.start_loopback(mode)
     resource = ui._resource_key()
     assert ui._operations.get_nowait() == ("loopback", (*resource, mode, 60 if mode == MODE_TURNTABLE else 10))

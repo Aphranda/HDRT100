@@ -804,7 +804,9 @@ public sealed partial class MainViewModel
         }
 
         Fields[keys.Plan] = "SP8T";
-        Fields[keys.Codes] = "0,1,2,3,4,5,6,7";
+        // Full 0..15 plan: bit0 is the SP2T polarization, bits1..3 the SP8T
+        // position, so SP8T is the outer loop and H/V the inner one.
+        Fields[keys.Codes] = "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15";
         Fields[keys.Settle] = "10000";
         Fields[keys.Pulse] = "100";
         Fields[keys.Repeat] = "10";

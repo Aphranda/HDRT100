@@ -49,7 +49,11 @@ CODE_CHANNEL_MAX = 8
 ROLE_SEQUENCE = "编码"
 ROLE_STATUS = "状态"
 ROLE_GATEWAY = "触发"
-MODE_INDEPENDENT = "独立 SP8T 序列"
+POLARIZATION_H = "单极化 H"
+POLARIZATION_V = "单极化 V"
+POLARIZATION_DUAL = "双极化 H/V"
+POLARIZATION_CHOICES = (POLARIZATION_H, POLARIZATION_V, POLARIZATION_DUAL)
+MODE_INDEPENDENT = "序列控制"
 MODE_RJ45 = "RJ45 物理回环 · SP8T + VNA 网关"
 MODE_TURNTABLE = "转台计数 · RJ45 · SP8T + VNA 网关"
 RING_STATUS_QUERY = "SYST:TDMA:RING:STAT?"
@@ -68,7 +72,8 @@ LINK_PHASES = {0: "未启用", 1: "等待启动", 2: "等待链路通知回环",
                9: "等待计数阈值", 10: "等待计数通知回环", 11: "等待下一位置重新武装"}
 _DEFAULT_SETTINGS = object()
 SETTINGS_TEXT_FIELDS = (
-    "backend", "port", "plan", "codes", "settle", "repeat_count", "source", "edge", "pulse", "status_mode",
+    "backend", "port", "plan", "codes", "polarization", "settle", "repeat_count", "source", "edge",
+    "pulse", "status_mode",
     "gateway_plan", "gateway_codes", "gateway_settle", "gateway_repeat_count", "gateway_ready_input",
     "gateway_edge", "gateway_pulse", "gateway_timeout", "turntable_plan", "turntable_codes",
     "turntable_settle", "turntable_repeat_count", "turntable_edge", "turntable_pulse",
@@ -86,6 +91,7 @@ SETTINGS_ENUMS = {
     "turntable_input": {"IN1", "IN2", "IN3", "IN4"}, "edge": {"RIS", "FALL"},
     "gateway_edge": {"RIS", "FALL"}, "turntable_edge": {"RIS", "FALL"},
     "status_mode": {"无", "电平", "脉冲"}, "turntable_rate_kind": {"频率 Hz", "周期 ms"},
+    "polarization": set(POLARIZATION_CHOICES),
     "independent_switch": {str(index) for index in range(1, 9)},
 }
 SETTINGS_TABS = ("independent_page", "loopback_page", "turntable_page", "manual_switch_page", "maintenance_page")
@@ -642,21 +648,70 @@ def build_ota_command(image: Path, resource: str, out_dir: Path,
     ]
 
 
-def trigger_parameters(code_count: int) -> tuple[int, int]:
-    """Map the planned state count onto CONF:TRIG chan_count/pol.
+def polarization_codes(polarization: str,
+                       positions: int = CODE_CHANNEL_MAX) -> list[int]:
+    """Build the 4-bit codes for one polarization setting.
+
+    A code is bit0 = SP2T polarization, bits1..3 = SP8T position, so the three
+    settings are the same eight positions with a different polarization plan:
+    H-only keeps bit0 low, V-only keeps it high, and dual pairs H/V per position
+    (SP8T outer loop, polarization inner loop).
+    """
+    if not 1 <= positions <= CODE_CHANNEL_MAX:
+        raise ValueError(f"SP8T 档位数量须在 1–{CODE_CHANNEL_MAX} 内")
+    if polarization == POLARIZATION_H:
+        return [position << 1 for position in range(positions)]
+    if polarization == POLARIZATION_V:
+        return [(position << 1) | 1 for position in range(positions)]
+    if polarization == POLARIZATION_DUAL:
+        return [code for position in range(positions)
+                for code in (position << 1, (position << 1) | 1)]
+    raise ValueError("极化设置无效")
+
+
+def detect_polarization(codes: list[int]) -> str | None:
+    """Name the polarization plan a complete code list represents, if any."""
+    for polarization in POLARIZATION_CHOICES:
+        if codes == polarization_codes(polarization):
+            return polarization
+    return None
+
+
+def codes_text(codes: list[int]) -> str:
+    return ",".join(str(code) for code in codes)
+
+
+# Dual polarization over the eight SP8T positions is the default plan; the
+# 4-position variant is only the pre-polarization default kept for migration.
+DUAL_CODES_TEXT = codes_text(polarization_codes(POLARIZATION_DUAL))
+LEGACY_CODES_TEXT = codes_text(polarization_codes(POLARIZATION_DUAL, 4))
+
+
+def trigger_parameters(codes: list[int]) -> tuple[int, int]:
+    """Map the planned codes onto CONF:TRIG chan_count/pol.
 
     The firmware expands chan_count x pol (x freq x wave) into states and caps
-    chan_count at 8, so 16 codes must be sent as 8 channels x 2 polarizations.
+    chan_count at 8.  Because bit0 of a code is the SP2T polarization, a plan
+    that pairs H and V for the same SP8T position expands as chan_count x 2
+    polarizations; an all-even plan is H-only and an all-odd plan V-only.
     """
-    if code_count <= 0:
+    if not codes:
         raise ValueError("至少需要一个输出编码")
-    if code_count <= CODE_CHANNEL_MAX:
-        return code_count, 0
-    if code_count % 2 == 0 and code_count // 2 <= CODE_CHANNEL_MAX:
-        return code_count // 2, 2
-    raise ValueError(
-        f"输出编码数量超出固件通道上限：{code_count} 个"
-        f"（单极化最多 {CODE_CHANNEL_MAX} 个，双极化最多 {CODE_CHANNEL_MAX * 2} 个）")
+    paired = len(codes) % 2 == 0 and all(
+        codes[index] >> 1 == codes[index + 1] >> 1
+        for index in range(0, len(codes), 2))
+    polarities = {code & 1 for code in codes}
+    if paired:
+        channels, polarity = len(codes) // 2, 2
+    elif polarities == {1}:
+        channels, polarity = len(codes), 1
+    else:
+        channels, polarity = len(codes), 0
+    if channels > CODE_CHANNEL_MAX:
+        raise ValueError(
+            f"输出编码数量超出固件通道上限：{len(codes)} 个"
+            f"（单极化最多 {CODE_CHANNEL_MAX} 个，双极化最多 {CODE_CHANNEL_MAX * 2} 个）")
+    return channels, polarity
 
 
 def build_configuration_commands(plan: str, codes: list[int], source: str,
@@ -689,7 +744,7 @@ def build_configuration_commands(plan: str, codes: list[int], source: str,
         raise ValueError(
             f"输出编码只能使用序列编码 OUT（掩码 0x{sequence_output_mask:X}）")
     states = list(range(len(codes)))
-    channels, polarity = trigger_parameters(len(codes))
+    channels, polarity = trigger_parameters(codes)
     commands = [
         "TRIG:STOP",
         f"CONF:TRIG {channels},{polarity},1,1",
@@ -773,9 +828,10 @@ class SequenceUi(tk.Tk):
         self.out_roles = [tk.StringVar(value=ROLE_SEQUENCE) for _ in range(3)] + [
             tk.StringVar(value=ROLE_STATUS)]
         self.plan = tk.StringVar(value="SP8T")
-        self.codes = tk.StringVar(value="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")
+        self.codes = tk.StringVar(value=DUAL_CODES_TEXT)
+        self.polarization = tk.StringVar(value=POLARIZATION_DUAL)
         self.gateway_plan = tk.StringVar(value="SP8T")
-        self.gateway_codes = tk.StringVar(value="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")
+        self.gateway_codes = tk.StringVar(value=DUAL_CODES_TEXT)
         self.gateway_settle = tk.StringVar(value="10")
         self.gateway_repeat_count = tk.StringVar(value="1")
         self.gateway_edge = tk.StringVar(value="RIS")
@@ -796,7 +852,7 @@ class SequenceUi(tk.Tk):
         self._budget_editor = None
         self._budget_generation = 0
         self.turntable_plan = tk.StringVar(value="SP8T")
-        self.turntable_codes = tk.StringVar(value="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")
+        self.turntable_codes = tk.StringVar(value=DUAL_CODES_TEXT)
         self.turntable_settle = tk.StringVar(value="10")
         self.turntable_repeat_count = tk.StringVar(value="1")
         self.turntable_edge = tk.StringVar(value="RIS")
@@ -901,6 +957,18 @@ class SequenceUi(tk.Tk):
                 invalid.append(name)
                 continue
             getattr(self, name).set(value)
+        # Drafts written before the polarization field kept the old 8-code
+        # default (four SP8T positions); the default plan is now dual
+        # polarization over all eight positions. Only the exact legacy value is
+        # upgraded, so a hand-written plan is left alone.
+        if "polarization" not in values:
+            upgraded = [name for name in ("codes", "gateway_codes", "turntable_codes")
+                        if getattr(self, name).get().strip() == LEGACY_CODES_TEXT]
+            for name in upgraded:
+                getattr(self, name).set(DUAL_CODES_TEXT)
+            if upgraded:
+                self.log("旧版 8 项编码默认值已升级为双极化 0–15（SP8T 8 档 × H/V）；"
+                         "需要 4 档计划时请手动改回编码。")
         for name in SETTINGS_BOOL_FIELDS:
             if name in values:
                 if type(values[name]) is bool:
@@ -953,6 +1021,16 @@ class SequenceUi(tk.Tk):
                 self._on_mode_tab_changed()
             else:
                 invalid.append("selected_tab")
+        # The code list is the physical truth, so a saved plan keeps naming its
+        # own polarization even when the stored label is missing or stale.
+        try:
+            loaded_codes = [int(value) for value in self.codes.get().split(",")
+                            if value.strip()]
+        except ValueError:
+            loaded_codes = []
+        detected = detect_polarization(loaded_codes)
+        if detected is not None:
+            self.polarization.set(detected)
         self._update_status_mode()
         self.update_mode_hint()
         self.preview_turntable_angle()
@@ -1061,7 +1139,7 @@ class SequenceUi(tk.Tk):
         self.turntable_page = ttk.Frame(self.mode_notebook, style="Panel.TFrame", padding=10)
         self.manual_switch_page = ttk.Frame(self.mode_notebook, style="Panel.TFrame", padding=12)
         self.maintenance_page = ttk.Frame(self.mode_notebook, style="App.TFrame", padding=8)
-        for page, title in ((self.independent_page, "独立 SP8T 序列"),
+        for page, title in ((self.independent_page, MODE_INDEPENDENT),
                             (self.loopback_page, "RJ45 物理回环"),
                             (self.turntable_page, "转台脉冲计数"),
                             (self.manual_switch_page, "手动开关控制"),
@@ -1180,7 +1258,7 @@ class SequenceUi(tk.Tk):
         plan_group = ttk.LabelFrame(page, text="序列配置", padding=10)
         plan_group.pack(fill="x", pady=(0, 8))
         self._field(plan_group, 0, "计划", plan, width=10)
-        self._field(plan_group, 1, "编码 0-15（bit0=OUT0）", codes, width=22)
+        self._field(plan_group, 1, "编码 0-15（bit0=极化）", codes, width=22)
         self._field(plan_group, 2, "响应延时 µs", settle, width=10)
         self._field(plan_group, 3, "循环次数（0=持续）", repeat, width=10)
 
@@ -1205,6 +1283,11 @@ class SequenceUi(tk.Tk):
             self._add_operating_field(self.gateway_group, 4)
             ttk.Label(page, text="流程：首编码 → RJ45 TDMA → VNA 触发 → READY → RJ45 TDMA → 下一编码。").pack(anchor="w", pady=(0, 5))
         else:
+            self.polarization_box = self._field(
+                plan_group, 4, "极化（SP2T）", self.polarization,
+                values=list(POLARIZATION_CHOICES), width=14)
+            self.polarization_box.bind(
+                "<<ComboboxSelected>>", lambda _event: self.apply_polarization())
             self.independent_output_group = ttk.LabelFrame(page, text="OUT 属性", padding=8)
             self.independent_output_group.pack(fill="x", pady=(0, 8))
             self._build_output_assignment(
@@ -1458,6 +1541,7 @@ class SequenceUi(tk.Tk):
             variables = (self.plan, self.codes, self.settle, self.pulse, self.repeat_count, self.edge)
             self.source.set("IN1")
             self.status_mode.set("脉冲")
+            self.polarization.set(POLARIZATION_DUAL)
             enabled, roles, secondary = self.out_enabled, self.out_roles, ROLE_STATUS
         elif mode == MODE_RJ45:
             variables = (self.gateway_plan, self.gateway_codes, self.gateway_settle,
@@ -1472,7 +1556,10 @@ class SequenceUi(tk.Tk):
             self.turntable_input.set("IN1")
             self.turntable_timeout.set("5000")
             enabled, roles, secondary = self.turntable_out_enabled, self.turntable_out_roles, ROLE_GATEWAY
-        for variable, value in zip(variables, ("SP8T", "0,1,2,3,4,5,6,7", "10000", "100", "10", "RIS")):
+        # Full 0..15 plan: bit0 is the SP2T polarization, bits1..3 the SP8T
+        # position, so SP8T is the outer loop and H/V the inner one.
+        codes = DUAL_CODES_TEXT
+        for variable, value in zip(variables, ("SP8T", codes, "10000", "100", "10", "RIS")):
             variable.set(value)
         for index in range(4):
             enabled[index].set(True)
@@ -1998,6 +2085,22 @@ class SequenceUi(tk.Tk):
             "脉冲": "启动及切步：编码稳定后等待响应时间，再输出状态脉冲。",
         }[mode])
 
+    def apply_polarization(self) -> None:
+        """Fill the code plan for the selected polarization.
+
+        SP8T stays the outer loop: H-only and V-only visit the eight positions
+        with bit0 pinned, while dual pairs H and V for each position (bit0 is
+        the SP2T polarization). The plan count then drives CONF:TRIG pol.
+        """
+        try:
+            codes = polarization_codes(self.polarization.get())
+        except ValueError as exc:
+            self.log(str(exc), "WARN")
+            return
+        self.codes.set(",".join(str(code) for code in codes))
+        self.log(f"极化 {self.polarization.get()}：已按 8 个 SP8T 档位生成 "
+                 f"{len(codes)} 项编码；重新配置此模式后生效。")
+
     @staticmethod
     def _role_masks(enabled_vars, role_vars, secondary_role: str) -> tuple[int, int]:
         sequence_mask = 0
@@ -2493,6 +2596,13 @@ class SequenceUi(tk.Tk):
         except ValueError as exc:
             self.log(f"配置错误: {exc}")
             return
+        undriven = [f"OUT{bit + 1}" for bit in range(4)
+                    if sequence_mask & (1 << bit) and
+                    not any((code >> 1) & (1 << bit) for code in codes)]
+        if undriven:
+            self.log("编码未覆盖已启用的序列输出：" + "、".join(undriven) +
+                     "；这些 OUT 在整轮计划中保持低电平。序列编码 bit1–bit3 对应 OUT1–OUT3，"
+                     "OUT3 需要编码 8–15。", "WARN")
         if mode == MODE_TURNTABLE:
             self.log(f"转台模式：每 {counter_options['counter_threshold']} 个 {counter_options['counter_input']} 脉冲"
                 f"执行 {len(codes)} 项序列，共 {repeat} 个位置（0=持续）；启动等待首个位置，响应延时 {settle} µs。")
@@ -2501,8 +2611,10 @@ class SequenceUi(tk.Tk):
                     f"速度 {angle_scan.speed}°/s；输入频率应为 {angle_scan.frequency} Hz，"
                     f"位置周期 {angle_scan.period:.8g} s。实际转台/信号源需另行设置；即将下发并读回 ANGLE 配置。")
         else:
+            channels, polarity = trigger_parameters(codes)
             self.log(
-                f"{mode}：配置 {len(codes)} 个位置；循环次数 {repeat}（0=持续）；启动直接输出首项编码 "
+                f"{mode}：配置 {len(codes)} 个位置（CONF:TRIG {channels},{polarity}，"
+                f"{'双极化' if polarity else '单极化'}）；循环次数 {repeat}（0=持续）；启动直接输出首项编码 "
                 f"{codes[0]}，编码稳定后等待响应时间 {settle} µs 再输出状态/通知网关；序列掩码 0x{sequence_mask:X}，"
                 f"状态掩码 0x{status_mask:X}（{status_mode}）。")
         if combined:
